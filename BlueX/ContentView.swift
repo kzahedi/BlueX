@@ -27,13 +27,14 @@ struct ContentView: View {
             List {
                 ForEach(accounts) { account in
                     NavigationLink {
-//                        Text("Item at \(account.id!, formatter: itemFormatter)")
-                        if account.id == nil {
-                            Text("New account")
-                        }
+                        AccountSettings(viewModel: AccountViewModel(account: account))
                     } label: {
 //                        Text(item.timestamp!, formatter: itemFormatter)
-                        Text("Create new account")
+                        if account.displayName == nil {
+                            Text("New Account")
+                        } else {
+                            Text("\(account.displayName!)")
+                        }
                     }
                 }
                 .onDelete(perform: deleteItems)
