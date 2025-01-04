@@ -22,7 +22,9 @@ class AccountViewModel: ObservableObject {
     @Published var timestampReplyTrees: String
     @Published var timestampSentiment: String
     @Published var timestampStatistics: String
-    
+    @Published var followersCount : Int
+    @Published var followsCount : Int
+
     private let account: Account
     private let context: NSManagedObjectContext
     let outputFormatter = DateFormatter()
@@ -46,6 +48,8 @@ class AccountViewModel: ObservableObject {
         self.timestampReplyTrees = ""
         self.timestampSentiment = ""
         self.timestampStatistics = ""
+        self.followsCount = Int(account.followsCount)
+        self.followersCount = Int(account.followersCount)
  
         self.timestampFeed = self.getDate(from:account.timestampFeed)
         self.timestampReplyTrees = self.getDate(from:account.timestampReplyTrees)
@@ -53,16 +57,37 @@ class AccountViewModel: ObservableObject {
         self.timestampStatistics = self.getDate(from:account.timestampStatistics)
     }
     
-    // Save changes to CoreData
+    func updateAccount() {
+        print("hier 0")
+        let r = resolveDID(handle: handle)
+        if r != nil {
+            print("hier 1")
+            did = r!
+            print("Received DID: \(did)")
+            let profile = resolveProfile(did: did)
+            if profile != nil {
+                print("hier 2")
+                handle = profile!.handle
+                displayName = profile!.displayName
+                print(displayName)
+                followsCount = profile!.followsCount
+                followersCount = profile!.followersCount
+            }
+        }
+        save()
+    }
+    
     func save() {
-        account.displayName = displayName
         account.handle = handle
+        account.displayName = displayName
         account.did = did
         account.forceFeedUpdate = forceFeedUpdate
         account.forceReplyTreeUpdate = forceReplyUpdate
         account.forceSentimentUpdate = forceSentimentUpdate
         account.forceStatistics = forceStatistics
         account.startAt = startDate
+        account.followsCount = Int64(followsCount)
+        account.followersCount = Int64(followersCount)
         
         do {
             try context.save()
@@ -96,17 +121,33 @@ struct AccountSettings: View {
                     // BlueSky Account Information Section
                     SectionCard(title: "BlueSky Account Information") {
                         VStack(spacing: 15) {
-                            TextField("Handle", text: $viewModel.handle)
-                                .textFieldStyle(.roundedBorder)
-                                .padding(.horizontal)
-                            TextField("Display Name", text: $viewModel.displayName)
-                                .textFieldStyle(.roundedBorder)
-                                .padding(.horizontal)
-                                .disabled(true)
-                            TextField("DID", text: $viewModel.did)
-                                .textFieldStyle(.roundedBorder)
-                                .padding(.horizontal)
-                                .disabled(true)
+                            HStack{
+                                TextField("Handle", text: $viewModel.handle)
+                                    .textFieldStyle(.roundedBorder)
+                                    .padding(.horizontal)
+                                    .frame(width:330)
+                                Button(action: viewModel.updateAccount) {
+                                    Image(systemName: "eye.slash")
+                                        .foregroundColor(.gray)
+                                }
+                                Spacer()
+                            }
+                            HStack{
+                                TextField("Display Name", text: $viewModel.displayName)
+                                    .textFieldStyle(.roundedBorder)
+                                    .padding(.horizontal)
+                                    .disabled(true)
+                                    .foregroundColor(.white)
+                                Spacer()
+                            }
+                            HStack{
+                                TextField("DID", text: $viewModel.did)
+                                    .textFieldStyle(.roundedBorder)
+                                    .padding(.horizontal)
+                                    .disabled(true)
+                                    .foregroundColor(.white)
+                                Spacer()
+                            }
                         }
                         .frame(width: 400)
                     }
@@ -120,26 +161,31 @@ struct AccountSettings: View {
                                            selection: $viewModel.startDate,
                                            displayedComponents: [.date])
                                 .datePickerStyle(.field)
+                                .onChange(of:viewModel.startDate){ viewModel.save()}
                             }
                             HStack {
                                 Text("Force update of already processed feeds")
                                 Spacer()
                                 Toggle("", isOn: $viewModel.forceFeedUpdate)
+                                    .onChange(of:viewModel.forceFeedUpdate){ viewModel.save()}
                             }
                             HStack {
                                 Text("Rescrape all reply trees")
                                 Spacer()
                                 Toggle("", isOn: $viewModel.forceReplyUpdate)
+                                    .onChange(of:viewModel.forceReplyUpdate){ viewModel.save()}
                             }
                             HStack {
                                 Text("Force sentiment updates")
                                 Spacer()
                                 Toggle("", isOn: $viewModel.forceSentimentUpdate)
+                                    .onChange(of:viewModel.forceSentimentUpdate){ viewModel.save()}
                             }
                             HStack {
                                 Text("Force statistics updates")
                                 Spacer()
                                 Toggle("", isOn: $viewModel.forceStatistics)
+                                    .onChange(of:viewModel.forceStatistics){ viewModel.save()}
                             }
                         }
                         .padding(.horizontal)
@@ -183,18 +229,6 @@ struct AccountSettings: View {
                         .padding(.horizontal)
                         .frame(width: 400)
                     }                    
-                    // Action Buttons
-                    Divider()
-                    HStack {
-                        Spacer()
-                        Button(action: viewModel.save) {
-                            Text("Update")
-                                .frame(maxWidth: 100)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        Spacer()
-                    }
                 }
                 .padding()
             }

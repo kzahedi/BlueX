@@ -30,10 +30,12 @@ struct ContentView: View {
                         AccountSettings(viewModel: AccountViewModel(account: account))
                     } label: {
 //                        Text(item.timestamp!, formatter: itemFormatter)
-                        if account.displayName == nil {
+                        if account.displayName == nil && account.handle == nil {
                             Text("New Account")
-                        } else {
+                        } else if account.displayName != nil {
                             Text("\(account.displayName!)")
+                        } else {
+                            Text("\(account.handle!)")
                         }
                     }
                 }
@@ -53,7 +55,8 @@ struct ContentView: View {
     private func addItem() {
         withAnimation {
             let newAccount = Account(context: viewContext)
-            newAccount.startAt = Date()
+            newAccount.handle = "New Account"
+            newAccount.id = UUID()
 
             do {
                 try viewContext.save()

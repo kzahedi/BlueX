@@ -3,6 +3,8 @@
     <entity name="Account" representedClassName="Account" syncable="YES" codeGenerationType="class">
         <attribute name="did" optional="YES" attributeType="String"/>
         <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="followersCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="followsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="forceFeedUpdate" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="forceReplyTreeUpdate" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="forceSentimentUpdate" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>

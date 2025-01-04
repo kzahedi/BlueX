@@ -16,5 +16,8 @@ struct BlueXApp: App {
             ContentView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
+        Settings {
+            SettingsView()
+        }
     }
 }
