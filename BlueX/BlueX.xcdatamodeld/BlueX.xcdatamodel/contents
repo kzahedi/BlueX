@@ -11,13 +11,41 @@
         <attribute name="forceStatistics" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="handle" optional="YES" attributeType="String"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="postsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="startAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampFeed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampReplyTrees" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampSentiment" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampStatistics" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
-    <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
+    <entity name="AccountHistory" representedClassName="AccountHistory" syncable="YES" codeGenerationType="class">
+        <attribute name="accountID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="followersCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="followsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="postsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="Post" representedClassName="Post" syncable="YES" codeGenerationType="class">
+        <attribute name="accountID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="countAllReplies" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="fetchedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="likeCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="parentID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="quoteCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="replyCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="replyTreeDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="repostCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="rootID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="text" optional="YES" attributeType="String"/>
+        <attribute name="threadDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">
+        <attribute name="entityID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="score" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="tool" optional="YES" attributeType="String"/>
     </entity>
 </model>

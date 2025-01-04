@@ -24,6 +24,7 @@ class AccountViewModel: ObservableObject {
     @Published var timestampStatistics: String
     @Published var followersCount : String
     @Published var followsCount : String
+    @Published var postsCount : String
 
     private let account: Account
     private let context: NSManagedObjectContext
@@ -33,8 +34,8 @@ class AccountViewModel: ObservableObject {
         self.account = account
         self.context = context ?? PersistenceController.shared.container.viewContext
         self.outputFormatter.dateFormat = "dd.mm.YYYY"
-
         
+       
         // Initialize ViewModel properties from CoreData model
         self.displayName = account.displayName ?? ""
         self.handle = account.handle ?? ""
@@ -48,30 +49,37 @@ class AccountViewModel: ObservableObject {
         self.timestampReplyTrees = ""
         self.timestampSentiment = ""
         self.timestampStatistics = ""
-        self.followsCount = String(account.followsCount)
-        self.followersCount = String(account.followersCount)
- 
+        
+        self.followersCount = "0"
+        self.followsCount = "0"
+        self.postsCount = "0"
+        
         self.timestampFeed = self.getDate(from:account.timestampFeed)
         self.timestampReplyTrees = self.getDate(from:account.timestampReplyTrees)
         self.timestampSentiment = self.getDate(from:account.timestampSentiment)
         self.timestampStatistics = self.getDate(from:account.timestampStatistics)
+        
+        updateCountsFromHistory()
     }
     
     func updateAccount() {
-        print("hier 0")
         let r = resolveDID(handle: handle)
         if r != nil {
-            print("hier 1")
             did = r!
-            print("Received DID: \(did)")
             let profile = resolveProfile(did: did)
             if profile != nil {
-                print("hier 2")
                 handle = profile!.handle
                 displayName = profile!.displayName
-                print(displayName)
                 followsCount = String(profile!.followsCount)
                 followersCount = String(profile!.followersCount)
+                postsCount = String(profile!.postsCount)
+                
+                let newAccountHistory = AccountHistory(context: self.context)
+                newAccountHistory.accountID = account.id
+                newAccountHistory.followersCount = Int64(profile!.followersCount)
+                newAccountHistory.followsCount = Int64(profile!.followsCount)
+                newAccountHistory.timestamp = Date()
+                newAccountHistory.postsCount = Int64(profile!.postsCount)
             }
         }
         save()
@@ -102,6 +110,31 @@ class AccountViewModel: ObservableObject {
             return "Not yet processed"
         }
         return self.outputFormatter.string(from:timestamp!)
+    }
+    
+    private func updateCountsFromHistory() {
+        let fetchRequest: NSFetchRequest<AccountHistory> = AccountHistory.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "accountID == %@", account.id! as CVarArg)
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+        fetchRequest.fetchLimit = 1
+        
+        var followersCount: Int64 = 0
+        var followsCount: Int64 = 0
+        var postsCount: Int64 = 0
+        
+        do {
+            let results = try context.fetch(fetchRequest)
+            if results.first != nil {
+                followsCount = results.first!.followsCount
+                followersCount = results.first!.followersCount
+                postsCount = results.first!.postsCount
+            }
+        } catch {
+            print("Failed to fetch AccountHistory: \(error)")
+        }
+        self.followersCount = String(followersCount)
+        self.followsCount = String(followsCount)
+        self.postsCount = String(postsCount)
     }
 }
 
@@ -144,6 +177,10 @@ struct AccountSettings: View {
                                     .disabled(true)
                                     .foregroundColor(.white)
                                 TextField("Number of follows", text: $viewModel.followsCount)
+                                    .textFieldStyle(.roundedBorder)
+                                    .disabled(true)
+                                    .foregroundColor(.white)
+                                TextField("Number of posts", text: $viewModel.postsCount)
                                     .textFieldStyle(.roundedBorder)
                                     .disabled(true)
                                     .foregroundColor(.white)
@@ -233,7 +270,7 @@ struct AccountSettings: View {
                 .padding()
             }
         }
-        .frame(width: 600, height: .infinity)
+        .frame(width: 600)
         .padding()
         .background(
             VisualEffectBlur(material: .sidebar, blendingMode: .withinWindow)
@@ -243,7 +280,6 @@ struct AccountSettings: View {
     }
 }
 
-// MARK: - Preview
 #Preview {
     let previewContext = createPreviewContext()
     let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()

@@ -49,6 +49,7 @@ struct ProfileResponse: Codable {
     let displayName: String
     let followersCount:Int
     let followsCount:Int
+    let postsCount:Int
 }
 
 struct TokenResponse: Codable {

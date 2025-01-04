@@ -11,15 +11,10 @@ import CoreData
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
 
-//    @FetchRequest(
-//        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-//        animation: .default)
-    
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Account.id, ascending: true)],
         animation: .default)
 
-//    private var items: FetchedResults<Item>
     private var accounts: FetchedResults<Account>
 
     var body: some View {
@@ -27,9 +22,8 @@ struct ContentView: View {
             List {
                 ForEach(accounts) { account in
                     NavigationLink {
-                        AccountSettings(viewModel: AccountViewModel(account: account))
+                        AccountSettings(viewModel: AccountViewModel(account: account, context: viewContext))
                     } label: {
-//                        Text(item.timestamp!, formatter: itemFormatter)
                         if account.displayName == nil && account.handle == nil {
                             Text("New Account")
                         } else if account.displayName != nil {
@@ -84,13 +78,6 @@ struct ContentView: View {
         }
     }
 }
-
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
 
 #Preview {
     ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreData
 
 func prettyPrintJSON(data: Data) {
     if let jsonObject = try? JSONSerialization.jsonObject(with: data),

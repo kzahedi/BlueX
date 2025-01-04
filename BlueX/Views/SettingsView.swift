@@ -16,6 +16,10 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Profile", systemImage: "person.crop.circle")
                 }
+//            CoreDataSelectionView()
+//                .tabItem {
+//                    Label("Data Inspector", systemImage: "tray.fill")
+//                }
         }
         .frame(minWidth:400, minHeight: 400)
     }
