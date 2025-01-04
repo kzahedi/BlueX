@@ -22,8 +22,8 @@ class AccountViewModel: ObservableObject {
     @Published var timestampReplyTrees: String
     @Published var timestampSentiment: String
     @Published var timestampStatistics: String
-    @Published var followersCount : Int
-    @Published var followsCount : Int
+    @Published var followersCount : String
+    @Published var followsCount : String
 
     private let account: Account
     private let context: NSManagedObjectContext
@@ -48,8 +48,8 @@ class AccountViewModel: ObservableObject {
         self.timestampReplyTrees = ""
         self.timestampSentiment = ""
         self.timestampStatistics = ""
-        self.followsCount = Int(account.followsCount)
-        self.followersCount = Int(account.followersCount)
+        self.followsCount = String(account.followsCount)
+        self.followersCount = String(account.followersCount)
  
         self.timestampFeed = self.getDate(from:account.timestampFeed)
         self.timestampReplyTrees = self.getDate(from:account.timestampReplyTrees)
@@ -70,8 +70,8 @@ class AccountViewModel: ObservableObject {
                 handle = profile!.handle
                 displayName = profile!.displayName
                 print(displayName)
-                followsCount = profile!.followsCount
-                followersCount = profile!.followersCount
+                followsCount = String(profile!.followsCount)
+                followersCount = String(profile!.followersCount)
             }
         }
         save()
@@ -86,8 +86,8 @@ class AccountViewModel: ObservableObject {
         account.forceSentimentUpdate = forceSentimentUpdate
         account.forceStatistics = forceStatistics
         account.startAt = startDate
-        account.followsCount = Int64(followsCount)
-        account.followersCount = Int64(followersCount)
+        account.followsCount = Int64(followsCount) ?? 0
+        account.followersCount = Int64(followersCount) ?? 0
         
         do {
             try context.save()
@@ -120,33 +120,33 @@ struct AccountSettings: View {
                 VStack(spacing: 20) {
                     // BlueSky Account Information Section
                     SectionCard(title: "BlueSky Account Information") {
-                        VStack(spacing: 15) {
-                            HStack{
-                                TextField("Handle", text: $viewModel.handle)
-                                    .textFieldStyle(.roundedBorder)
-                                    .padding(.horizontal)
-                                    .frame(width:330)
-                                Button(action: viewModel.updateAccount) {
-                                    Image(systemName: "eye.slash")
-                                        .foregroundColor(.gray)
+                        VStack {
+                            Form{
+                                HStack{
+                                    TextField("Handle", text: $viewModel.handle)
+                                        .textFieldStyle(.roundedBorder)
+                                    Button(action: viewModel.updateAccount) {
+                                        Image(systemName: "circle.fill")
+                                            .foregroundColor(.gray)
+                                    }
+                                    
                                 }
-                                Spacer()
-                            }
-                            HStack{
                                 TextField("Display Name", text: $viewModel.displayName)
                                     .textFieldStyle(.roundedBorder)
-                                    .padding(.horizontal)
                                     .disabled(true)
                                     .foregroundColor(.white)
-                                Spacer()
-                            }
-                            HStack{
                                 TextField("DID", text: $viewModel.did)
                                     .textFieldStyle(.roundedBorder)
-                                    .padding(.horizontal)
                                     .disabled(true)
                                     .foregroundColor(.white)
-                                Spacer()
+                                TextField("Number of followers", text: $viewModel.followersCount)
+                                    .textFieldStyle(.roundedBorder)
+                                    .disabled(true)
+                                    .foregroundColor(.white)
+                                TextField("Number of follows", text: $viewModel.followsCount)
+                                    .textFieldStyle(.roundedBorder)
+                                    .disabled(true)
+                                    .foregroundColor(.white)
                             }
                         }
                         .frame(width: 400)
