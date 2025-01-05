@@ -16,9 +16,9 @@ struct PersistenceController {
         let viewContext = result.container.viewContext
         for _ in 0..<10 {
             let newAccount = Account(context: viewContext)
-            let accountHistory = AccountHistory(context: viewContext)
+//            let accountHistory = AccountHistory(context: viewContext)
             newAccount.id = UUID()
-            accountHistory.accountID = newAccount.id
+//            accountHistory.accountID = newAccount.id
         }
         do {
             try viewContext.save()
@@ -57,7 +57,6 @@ struct PersistenceController {
         }
         
         container.viewContext.automaticallyMergesChangesFromParent = true
-        print(container.managedObjectModel.entities) // Check the loaded entities
     }
     
 }

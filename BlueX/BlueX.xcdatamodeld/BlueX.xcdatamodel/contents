@@ -41,6 +41,7 @@
         <attribute name="text" optional="YES" attributeType="String"/>
         <attribute name="threadDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="uri" optional="YES" attributeType="String"/>
     </entity>
     <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">
         <attribute name="entityID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>

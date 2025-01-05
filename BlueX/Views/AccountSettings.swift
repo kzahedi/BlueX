@@ -26,8 +26,8 @@ class AccountViewModel: ObservableObject {
     @Published var followsCount : String
     @Published var postsCount : String
 
-    private let account: Account
-    private let context: NSManagedObjectContext
+    let account: Account
+    let context: NSManagedObjectContext
     let outputFormatter = DateFormatter()
 
     init(account: Account, context: NSManagedObjectContext? = nil) {
@@ -140,15 +140,10 @@ class AccountViewModel: ObservableObject {
 
 struct AccountSettings: View {
     @ObservedObject var viewModel: AccountViewModel
-    
+    @EnvironmentObject var taskManager: TaskManager
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Account Settings")
-                .font(.title2)
-                .bold()
-                .padding(.bottom, 10)
-            
             ScrollView {
                 VStack(spacing: 20) {
                     // BlueSky Account Information Section
@@ -266,6 +261,21 @@ struct AccountSettings: View {
                         .padding(.horizontal)
                         .frame(width: 400)
                     }                    
+                    SectionCard(title: "Trigger Actions") {
+                        VStack(spacing: 15) {
+                            HStack {
+                                Text("Scrape account feed")
+                                Spacer()
+                                Button("Run") {
+                                    runFeedScraping()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(taskManager.isFeedScraperRunning)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .frame(width: 400)
+                    }
                 }
                 .padding()
             }
@@ -278,7 +288,15 @@ struct AccountSettings: View {
         )
         .navigationTitle("Account Settings")
     }
+    
+    private func runFeedScraping() {
+        taskManager.runFeedScraper(did:viewModel.account.did!,
+                                   earliestDate: viewModel.account.startAt!,
+                                   force: viewModel.account.forceFeedUpdate)
+    }
 }
+
+
 
 #Preview {
     let previewContext = createPreviewContext()
@@ -288,6 +306,7 @@ struct AccountSettings: View {
     let account: Account
     do {
         account = try previewContext.fetch(fetchRequest).first ?? Account(context: previewContext)
+        account.id = UUID()
     } catch {
         fatalError("Failed to fetch preview account: \(error)")
     }
