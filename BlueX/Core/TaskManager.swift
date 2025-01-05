@@ -13,10 +13,16 @@ import CoreData
 class TaskManager: ObservableObject {
     @Published var isFeedScraperRunning = false
     @Published var isReplyScraperRunning = false
-
+    
+    @Published var isCalculatingStatistics = false
+    @Published var calcualteStatistics: Double = 0.0 // 0.0 to 1.0
+    
     private var feedHandler = BlueskyFeedHandler()
     private var replyHandler = BlueskyRepliesHandler()
+    private var countReplies = CountReplies()
+    
     private var context : NSManagedObjectContext? = nil
+    
     
     init() {
         self.context = PersistenceController.shared.container.viewContext
@@ -27,6 +33,7 @@ class TaskManager: ObservableObject {
         }()
         self.feedHandler.context = backgroundContext
         self.replyHandler.context = backgroundContext
+        self.countReplies.context = backgroundContext
     }
     
     func runReplyScraper(did:String, earliestDate:Date, force:Bool) {
@@ -72,6 +79,35 @@ class TaskManager: ObservableObject {
             }
         }, completion: {
             self.isFeedScraperRunning = false
+            print("Task completed.")
+        })
+        // Update task completion state on the main thread
+    }
+    
+    func calculateStatistics(did:String) {
+        // Prevent starting the task again if it's already running
+        guard !isCalculatingStatistics else {
+            print("Task is already running.")
+            return
+        }
+        
+        // Start background task
+        isCalculatingStatistics = true
+        print("Calculating statistics for \(did) ...")
+        
+        DispatchQueue.background(delay:0.0, background: {
+            do {
+                try self.countReplies.runFor(did:did) {progress in
+                    DispatchQueue.main.async {
+                        self.calcualteStatistics = progress
+                    }
+                }
+                
+            } catch {
+                print("Error scraping \(did): \(error)")
+            }
+        }, completion: {
+            self.isCalculatingStatistics = false
             print("Task completed.")
         })
         // Update task completion state on the main thread

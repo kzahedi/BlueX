@@ -61,7 +61,7 @@ struct BlueskyFeedHandler {
                 
                 var feedResponse = try JSONDecoder().decode(FeedResponse.self, from: data!)
                 
-                var filteredPosts = feedResponse.feed
+                let filteredPosts = feedResponse.feed
                     .filter { postWrapper in
                         postWrapper.post.author!.did! == did  // Keep only posts from the target DID
                     }
@@ -119,7 +119,7 @@ struct BlueskyFeedHandler {
                     
                 let post = getPost(uri: feedItem.post.uri!, context: self.context!)
                 let account = try getAccount(did:did, context: self.context!)!
-                print("Adding \(feedItem.post.uri!) from \(feedItem.post.record!.createdAt!)")
+//                print("Adding \(feedItem.post.uri!) from \(feedItem.post.record!.createdAt!)")
                 
                 post.accountID = account.id
                 post.createdAt = date!
@@ -149,6 +149,9 @@ struct BlueskyFeedHandler {
             }
             cursor = feed!.cursor!
         }
+        let account = try getAccount(did:did, context: self.context!)!
+        account.timestampFeed = Date()
+        try self.context!.save()
     }
 }
 

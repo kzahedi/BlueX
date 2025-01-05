@@ -21,7 +21,7 @@ struct BlueskyRepliesHandler {
         
         feedRequest.httpMethod = "GET"
         feedRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
+        
         group.enter()
         let feedTask = URLSession.shared.dataTask(with: feedRequest) { data, response, error in
             if error != nil {
@@ -29,23 +29,23 @@ struct BlueskyRepliesHandler {
                 group.leave()
                 
             }
-
+            
             let httpResponse = response as? HTTPURLResponse
             if httpResponse == nil {
                 print("Invalid response type")
                 group.leave()
             }
-
+            
             if data == nil {
                 print("No data received")
                 group.leave()
             }
-
+            
             do {
                 if httpResponse!.statusCode == 401 {
                     throw BlueskyError.unauthorized("Invalid or expired token")
                 }
-
+                
                 if !(200...299).contains(httpResponse!.statusCode) {
                     throw BlueskyError.feedFetchFailed(
                         reason: "Server returned error response",
@@ -53,7 +53,7 @@ struct BlueskyRepliesHandler {
                     )
                 }
                 
-
+                
                 let threadResponse = try decodeThread(from: data!)
                 let (u, p) = recursiveParseThread(thread: threadResponse.thread)
                 uris = u
@@ -105,7 +105,7 @@ struct BlueskyRepliesHandler {
         
     }
     
-
+    
     
     private func createRequestURL(uri:String) -> URL {
         let url = "https://api.bsky.social/xrpc/app.bsky.feed.getPostThread?parentHeight=0&depth=1000&uri=\(uri)"
@@ -133,7 +133,7 @@ struct BlueskyRepliesHandler {
     
     
     public mutating func runFor(did:String,
-                       earliestDate:Date? = nil,
+                                earliestDate:Date? = nil,
                                 forceUpdate:Bool = false) throws {
         if self.context == nil {
             print("No context set")
@@ -173,10 +173,10 @@ struct BlueskyRepliesHandler {
         
         for uri in uris {
             currentUri = uri
-            print("Running for \(uri)")
+            //            print("Running for \(uri)")
             let r = recursiveGetThread(uri: uri)
             for p in r {
-                print("Creating \(p.uri!)")
+                //                print("Creating \(p.uri!)")
                 let post = getPost(uri: p.uri!, context: self.context!)
                 let date = convertToDate(from:p.record!.createdAt!) ?? nil
                 post.accountID = accountID
@@ -194,5 +194,7 @@ struct BlueskyRepliesHandler {
             }
             try self.context!.save()
         }
+        account!.timestampReplyTrees = Date()
+        try self.context!.save()
     }
 }

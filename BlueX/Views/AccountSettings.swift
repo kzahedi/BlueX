@@ -281,6 +281,22 @@ struct AccountSettings: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(taskManager.isReplyScraperRunning)
                             }
+                            HStack {
+                                Text("Calculate statistics")
+                                Spacer()
+                                Button("Run") {
+                                    calculateStatistics()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(taskManager.isCalculatingStatistics)
+                            }
+                            if taskManager.isCalculatingStatistics {
+                                HStack {
+                                    ProgressView("Statistics Progress",
+                                                 value: taskManager.calcualteStatistics)
+                                }
+                            }
+
                         }
                         .padding(.horizontal)
                         .frame(width: 400)
@@ -308,6 +324,10 @@ struct AccountSettings: View {
         taskManager.runReplyScraper(did:viewModel.account.did!,
                                    earliestDate: viewModel.account.startAt!,
                                    force: viewModel.account.forceFeedUpdate)
+    }
+    
+    private func calculateStatistics() {
+        taskManager.calculateStatistics(did:viewModel.account.did!)
     }
 
 }
