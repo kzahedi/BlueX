@@ -93,7 +93,7 @@ class AccountViewModel: ObservableObject {
         account.forceReplyTreeUpdate = forceReplyUpdate
         account.forceSentimentUpdate = forceSentimentUpdate
         account.forceStatistics = forceStatistics
-        account.startAt = startDate
+        account.startAt = startDate.toStartOfDay()
         account.followsCount = Int64(followsCount) ?? 0
         account.followersCount = Int64(followersCount) ?? 0
         

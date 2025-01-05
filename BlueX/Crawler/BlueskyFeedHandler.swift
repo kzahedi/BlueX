@@ -109,27 +109,28 @@ struct BlueskyFeedHandler {
                 break
             }
             
-            for FeedItem in feed!.feed {
+            for feedItem in feed!.feed {
                 
-                let date = convertToDate(from:FeedItem.post.record!.createdAt!) ?? nil
+                let date = convertToDate(from:feedItem.post.record!.createdAt!) ?? nil
                 
                 if date == nil || date! < earliestDate! {
                     continue
                 }
                     
-                let post = getPost(uri: FeedItem.post.uri!, context: self.context!)
+                let post = getPost(uri: feedItem.post.uri!, context: self.context!)
                 let account = try getAccount(did:did, context: self.context!)!
+                print("Adding \(feedItem.post.uri!) from \(feedItem.post.record!.createdAt!)")
                 
                 post.accountID = account.id
                 post.createdAt = date!
                 post.fetchedAt = Date()
-                post.uri = FeedItem.post.uri
-                post.likeCount = Int64(FeedItem.post.likeCount!)
-                post.replyCount = Int64(FeedItem.post.replyCount!)
-                post.quoteCount = Int64(FeedItem.post.quoteCount!)
-                post.repostCount = Int64(FeedItem.post.repostCount!)
-                post.text = FeedItem.post.record!.text!
-                post.title = FeedItem.post.record!.embed?.external?.title!
+                post.uri = feedItem.post.uri
+                post.likeCount = Int64(feedItem.post.likeCount!)
+                post.replyCount = Int64(feedItem.post.replyCount!)
+                post.quoteCount = Int64(feedItem.post.quoteCount!)
+                post.repostCount = Int64(feedItem.post.repostCount!)
+                post.text = feedItem.post.record!.text!
+                post.title = feedItem.post.record!.embed?.external?.title!
                 
                 try self.context!.save()
  

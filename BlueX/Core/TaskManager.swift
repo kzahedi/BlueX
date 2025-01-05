@@ -20,8 +20,13 @@ class TaskManager: ObservableObject {
     
     init() {
         self.context = PersistenceController.shared.container.viewContext
-        self.feedHandler.context = context
-        self.replyHandler.context = context
+        let backgroundContext: NSManagedObjectContext = {
+            let context = PersistenceController.shared.container.newBackgroundContext()
+            context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+            return context
+        }()
+        self.feedHandler.context = backgroundContext
+        self.replyHandler.context = backgroundContext
     }
     
     func runReplyScraper(did:String, earliestDate:Date, force:Bool) {
@@ -35,20 +40,17 @@ class TaskManager: ObservableObject {
         isReplyScraperRunning = true
         print("Starting scraping reply trees task for \(did) ...")
         
-        // Use Task to handle async code
-        Task {
-            // Simulate long-running task
-            
+        DispatchQueue.background(delay:0.0, background: {
             do {
-                try replyHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
+                try self.replyHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
             } catch {
                 print("Error scraping reply trees \(did): \(error)")
             }
-            
+        }, completion: {
             // Update task completion state on the main thread
             self.isReplyScraperRunning = false
             print("Task completed.")
-        }
+        })
     }
     
     func runFeedScraper(did:String, earliestDate:Date, force:Bool) {
@@ -62,19 +64,16 @@ class TaskManager: ObservableObject {
         isFeedScraperRunning = true
         print("Starting scraping task for \(did) ...")
         
-        // Use Task to handle async code
-        Task {
-            // Simulate long-running task
-            
+        DispatchQueue.background(delay:0.0, background: {
             do {
-                try feedHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
+                try self.feedHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
             } catch {
                 print("Error scraping \(did): \(error)")
             }
-            
-            // Update task completion state on the main thread
+        }, completion: {
             self.isFeedScraperRunning = false
             print("Task completed.")
-        }
+        })
+        // Update task completion state on the main thread
     }
 }
