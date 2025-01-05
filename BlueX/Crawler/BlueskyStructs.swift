@@ -88,11 +88,33 @@ struct Record: Codable {
     let text: String?
     let createdAt: String?
     let embed: Embed?
+    let reply: Reply?
     
     enum CodingKeys: String, CodingKey {
         case text = "text"
         case createdAt = "createdAt"
         case embed = "embed"
+        case reply = "reply"
+    }
+}
+
+struct Reply: Codable {
+    let parent: CidUri?
+    let root: CidUri?
+    
+    enum CodingKeys: String, CodingKey {
+        case parent = "parent"
+        case root = "root"
+    }
+}
+
+struct CidUri : Codable {
+    let uri: String?
+    let cid: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case uri = "uri"
+        case cid = "cid"
     }
 }
 

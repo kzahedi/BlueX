@@ -272,6 +272,15 @@ struct AccountSettings: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(taskManager.isFeedScraperRunning)
                             }
+                            HStack {
+                                Text("Scrape reply trees")
+                                Spacer()
+                                Button("Run") {
+                                    runReplyScraping()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(taskManager.isReplyScraperRunning)
+                            }
                         }
                         .padding(.horizontal)
                         .frame(width: 400)
@@ -294,6 +303,13 @@ struct AccountSettings: View {
                                    earliestDate: viewModel.account.startAt!,
                                    force: viewModel.account.forceFeedUpdate)
     }
+    
+    private func runReplyScraping() {
+        taskManager.runReplyScraper(did:viewModel.account.did!,
+                                   earliestDate: viewModel.account.startAt!,
+                                   force: viewModel.account.forceFeedUpdate)
+    }
+
 }
 
 

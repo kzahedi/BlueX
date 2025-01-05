@@ -117,12 +117,8 @@ struct BlueskyFeedHandler {
                     continue
                 }
                     
-                let post = getPost(uri: FeedItem.post.uri!)
-                if post.id == nil {
-                    post.id = UUID()
-                }
-
-                var account = try getAccount(did:did)!
+                let post = getPost(uri: FeedItem.post.uri!, context: self.context!)
+                let account = try getAccount(did:did, context: self.context!)!
                 
                 post.accountID = account.id
                 post.createdAt = date!
@@ -152,38 +148,6 @@ struct BlueskyFeedHandler {
             }
             cursor = feed!.cursor!
         }
-    }
-    
-    private func getPost(uri:String) -> Post {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "uri == %@", uri as CVarArg)
-        fetchRequest.fetchLimit = 1
-        
-        do {
-            let results = try self.context!.fetch(fetchRequest)
-            if results.first != nil {
-                return results.first!
-            }
-        } catch {
-            print("Failed to fetch AccountHistory: \(error)")
-        }
-        
-        var post = Post(context: self.context!)
-        post.id = UUID()
-        post.uri = uri
-        return post
-    }
-    
-    private func getAccount(did:String) throws -> Account? {
-        let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "did == %@", did as CVarArg)
-        fetchRequest.fetchLimit = 1
-        
-        let results = try self.context!.fetch(fetchRequest)
-        if results.first != nil {
-            return results.first!
-        }
-        return nil
     }
 }
 

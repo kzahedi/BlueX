@@ -32,6 +32,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2779298B2D286CB00007C602 /* BlueX */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+				BlueX.xcdatamodeld/BlueX.xcdatamodel = wrapper.xcdatamodel;
+			};
 			path = BlueX;
 			sourceTree = "<group>";
 		};
