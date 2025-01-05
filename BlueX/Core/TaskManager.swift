@@ -12,8 +12,11 @@ import CoreData
 @MainActor  // Ensures updates are made on the main thread
 class TaskManager: ObservableObject {
     @Published var isFeedScraperRunning = false
+    @Published var feedProgress: Double = 0.0 // 0.0 to 1.0
+
     @Published var isReplyScraperRunning = false
-    
+    @Published var replyTreeProgress: Double = 0.0 // 0.0 to 1.0
+
     @Published var isCalculatingStatistics = false
     @Published var calcualteStatistics: Double = 0.0 // 0.0 to 1.0
     
@@ -22,7 +25,6 @@ class TaskManager: ObservableObject {
     private var countReplies = CountReplies()
     
     private var context : NSManagedObjectContext? = nil
-    
     
     init() {
         self.context = PersistenceController.shared.container.viewContext
@@ -36,7 +38,7 @@ class TaskManager: ObservableObject {
         self.countReplies.context = backgroundContext
     }
     
-    func runReplyScraper(did:String, earliestDate:Date, force:Bool) {
+    func runReplyScraper(did:String, name:String, earliestDate:Date, force:Bool) {
         // Prevent starting the task again if it's already running
         guard !isReplyScraperRunning else {
             print("Task is already running.")
@@ -49,18 +51,25 @@ class TaskManager: ObservableObject {
         
         DispatchQueue.background(delay:0.0, background: {
             do {
-                try self.replyHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
+                try self.replyHandler.runFor(did:did,
+                                             earliestDate: earliestDate,
+                                             forceUpdate: force) {progress in
+                    DispatchQueue.main.async {
+                        self.calcualteStatistics = progress
+                    }
+                }
+
             } catch {
                 print("Error scraping reply trees \(did): \(error)")
             }
         }, completion: {
             // Update task completion state on the main thread
             self.isReplyScraperRunning = false
-            print("Task completed.")
+            self.notifyTaskCompletion(taskName: "Reply tree scraping", accountName:name)
         })
     }
     
-    func runFeedScraper(did:String, earliestDate:Date, force:Bool) {
+    func runFeedScraper(did:String, name:String, earliestDate:Date, force:Bool) {
         // Prevent starting the task again if it's already running
         guard !isFeedScraperRunning else {
             print("Task is already running.")
@@ -74,17 +83,18 @@ class TaskManager: ObservableObject {
         DispatchQueue.background(delay:0.0, background: {
             do {
                 try self.feedHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
+                
             } catch {
                 print("Error scraping \(did): \(error)")
             }
         }, completion: {
             self.isFeedScraperRunning = false
-            print("Task completed.")
+            self.notifyTaskCompletion(taskName: "Feed scraping", accountName: name)
         })
         // Update task completion state on the main thread
     }
     
-    func calculateStatistics(did:String) {
+    func calculateStatistics(did:String, name:String) {
         // Prevent starting the task again if it's already running
         guard !isCalculatingStatistics else {
             print("Task is already running.")
@@ -108,8 +118,16 @@ class TaskManager: ObservableObject {
             }
         }, completion: {
             self.isCalculatingStatistics = false
-            print("Task completed.")
+            self.notifyTaskCompletion(taskName: "Statistics calculation", accountName: name)
         })
         // Update task completion state on the main thread
+    }
+    
+    func notifyTaskCompletion(taskName: String, accountName: String) {
+        sendNotification(
+            title: "BlueX",
+            subtitle: accountName,
+            body: "\(taskName) has successfully finished."
+        )
     }
 }

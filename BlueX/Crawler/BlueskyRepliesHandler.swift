@@ -85,7 +85,9 @@ struct BlueskyRepliesHandler {
         if let replies = thread.replies {
             for reply in replies {
                 if reply.replies == nil || reply.replies!.isEmpty {
-                    uris.append(reply.post!.uri!)
+                    if reply.post != nil && reply.post!.uri != nil {
+                        uris.append(reply.post!.uri!)
+                    }
                 }
             }
             
@@ -134,7 +136,8 @@ struct BlueskyRepliesHandler {
     
     public mutating func runFor(did:String,
                                 earliestDate:Date? = nil,
-                                forceUpdate:Bool = false) throws {
+                                forceUpdate:Bool = false,
+                                progress: @escaping (Double) -> Void) throws {
         if self.context == nil {
             print("No context set")
             return
@@ -171,7 +174,12 @@ struct BlueskyRepliesHandler {
         
         let uris = filteredResults.map{$0.uri!}
         
+        var n : Double = 0.0
+        let count : Double = Double(uris.count)
+        
         for uri in uris {
+            n = n + 1
+            progress(n/count)
             currentUri = uri
             //            print("Running for \(uri)")
             let r = recursiveGetThread(uri: uri)
