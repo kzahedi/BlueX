@@ -55,7 +55,7 @@ class TaskManager: ObservableObject {
                                              earliestDate: earliestDate,
                                              forceUpdate: force) {progress in
                     DispatchQueue.main.async {
-                        self.calcualteStatistics = progress
+                        self.replyTreeProgress = progress
                     }
                 }
 

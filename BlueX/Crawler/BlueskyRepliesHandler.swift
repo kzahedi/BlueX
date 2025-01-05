@@ -11,7 +11,6 @@ struct BlueskyRepliesHandler {
     var context : NSManagedObjectContext? = nil
     var token : String = ""
     var accountID : UUID = UUID()
-    var currentUri : String = ""
     
     private func getThread(url:URL) throws -> ([String], [ApiPost]) {
         var feedRequest = URLRequest(url: url)
@@ -180,8 +179,6 @@ struct BlueskyRepliesHandler {
         for uri in uris {
             n = n + 1
             progress(n/count)
-            currentUri = uri
-            //            print("Running for \(uri)")
             let r = recursiveGetThread(uri: uri)
             for p in r {
                 //                print("Creating \(p.uri!)")
