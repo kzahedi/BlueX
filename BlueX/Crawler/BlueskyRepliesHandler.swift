@@ -13,44 +13,38 @@ struct BlueskyRepliesHandler {
     var accountID : UUID = UUID()
     var currentUri : String = ""
     
-    private func getThread(url:URL) throws -> [ApiPost] {
+    private func getThread(url:URL) throws -> ([String], [ApiPost]) {
         var feedRequest = URLRequest(url: url)
         let group = DispatchGroup()
-        var returnValue : [ApiPost] = []
+        var uris : [String] = []
+        var posts : [ApiPost] = []
         
-        print("hier 0")
         feedRequest.httpMethod = "GET"
         feedRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        print("hier 1")
 
         group.enter()
         let feedTask = URLSession.shared.dataTask(with: feedRequest) { data, response, error in
-            print("hier 2")
             if error != nil {
                 print("Error fetching feed: \(error!.localizedDescription)")
                 group.leave()
                 
             }
-            print("hier 3")
 
             let httpResponse = response as? HTTPURLResponse
             if httpResponse == nil {
                 print("Invalid response type")
                 group.leave()
             }
-            print("hier 4")
 
             if data == nil {
                 print("No data received")
                 group.leave()
             }
-            print("hier 5")
 
             do {
                 if httpResponse!.statusCode == 401 {
                     throw BlueskyError.unauthorized("Invalid or expired token")
                 }
-                print("hier 6")
 
                 if !(200...299).contains(httpResponse!.statusCode) {
                     throw BlueskyError.feedFetchFailed(
@@ -59,13 +53,12 @@ struct BlueskyRepliesHandler {
                     )
                 }
                 
-                print("hier 7")
 
                 let threadResponse = try decodeThread(from: data!)
-                print("hier 8")
-
-//                returnValue = try writeNode(thread:reply)
-                returnValue = threadResponse.thread.replies!.map{$0.post!}
+                let (u, p) = recursiveParseThread(thread: threadResponse.thread)
+                uris = u
+                posts = p
+                
                 group.leave()
             } catch let decodingError as DecodingError {
                 prettyPrintJSON(data: data!)
@@ -81,52 +74,38 @@ struct BlueskyRepliesHandler {
         }
         feedTask.resume()
         group.wait()
-        return returnValue
+        return (uris, posts)
     }
     
-    private func writeNode(thread:Thread) throws -> [String] {
-        let r : [String] = []
+    func recursiveParseThread(thread:Thread) -> ([String], [ApiPost]) {
+        var uris : [String] = []
+        var posts : [ApiPost] = []
         
-        print("1001")
-        let p = thread.post!
-        if p.uri == currentUri {
-            return []
+        // check all leafs again
+        if let replies = thread.replies {
+            for reply in replies {
+                if reply.replies == nil || reply.replies!.isEmpty {
+                    uris.append(reply.post!.uri!)
+                }
+            }
+            
+            posts += thread.replies!.map{$0.post!}
+            for repply in thread.replies! {
+                if let replies = repply.replies {
+                    for reply in replies {
+                        let (u, p) = recursiveParseThread(thread:reply)
+                        uris = uris + u
+                        posts = posts + p
+                    }
+                }
+            }
         }
-        print("1002")
-        let replies = thread.replies
-        print("1003")
-
-        let post = getPost(uri: p.uri!, context: self.context!)
-        print("1004")
-        print(post)
-        let date = convertToDate(from:p.record!.createdAt!) ?? nil
-        print("1005")
-
-        post.accountID = accountID
-        post.createdAt = date
-        post.fetchedAt = Date()
-        post.uri = p.uri
-        post.likeCount = Int64(p.likeCount!)
-        post.replyCount = Int64(p.replyCount!)
-        post.quoteCount = Int64(p.quoteCount!)
-        post.repostCount = Int64(p.repostCount!)
-        post.parentURI = p.record!.reply!.parent!.uri!
-        post.rootURI = p.record!.reply!.root!.uri!
-        post.text = p.record!.text!
-        post.title = p.record!.embed?.external?.title!
-        print("1006")
-        do {
-            try post.validateForInsert()
-        } catch {
-            print("Validation failed: \(error)")
-            throw error
-        }
-        print("hier 1007")
         
-//        try self.context!.save()
-        print("1008")
-        return r
+        return (uris, posts)
+        
     }
+    
+
     
     private func createRequestURL(uri:String) -> URL {
         let url = "https://api.bsky.social/xrpc/app.bsky.feed.getPostThread?parentHeight=0&depth=1000&uri=\(uri)"
@@ -135,19 +114,20 @@ struct BlueskyRepliesHandler {
     
     public func recursiveGetThread(uri:String) -> [ApiPost] {
         
-//        var uris : [String] = []
+        var uris : [String] = []
+        var posts : [ApiPost] = []
         let url = createRequestURL(uri:uri)
         do {
-            return try getThread(url:url)
-
-            // save elements
+            (uris, posts) = try getThread(url:url)
         } catch {
             print(error)
         }
-//        for uri in uris {
-//            recursiveGetThread(uri: uri, token: token, accountID: accountID)
-//        }
-        return []
+        for uri in uris {
+            let p = recursiveGetThread(uri: uri)
+            posts = posts + p
+        }
+        
+        return posts
     }
     
     
@@ -189,7 +169,7 @@ struct BlueskyRepliesHandler {
             filteredResults = filteredResults.filter { !parentURIs.contains($0.uri!) }
         }
         
-        var uris = filteredResults.map{$0.uri!}
+        let uris = filteredResults.map{$0.uri!}
         
         for uri in uris {
             currentUri = uri

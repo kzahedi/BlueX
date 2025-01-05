@@ -24,6 +24,7 @@ func getPost(uri:String, context:NSManagedObjectContext) -> Post {
     
     let post = Post(context: context)
     post.uri = uri
+    post.id = UUID()
     return post
 }
 
@@ -37,4 +38,4 @@ func getAccount(did:String, context:NSManagedObjectContext) throws -> Account? {
         return results.first!
     }
     return nil
-    }
+}
