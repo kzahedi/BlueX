@@ -152,13 +152,18 @@ struct BlueskyRepliesHandler {
         self.accountID = account!.id!
         
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@",
-                                             account!.id! as CVarArg, earliestDate! as NSDate)
+        if earliestDate != nil && forceUpdate == false {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)",
+                                                 account!.id! as CVarArg, earliestDate! as NSDate)
+        } else {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil",
+                                                 account!.id! as CVarArg, earliestDate! as NSDate)
+        }
         
         let results = try self.context!.fetch(fetchRequest)
-        self.token = getToken()!
-        
         print("Found \(results.count) posts")
+        
+        self.token = getToken()!
         
         var filteredResults = results.filter{$0.createdAt! >= earliestDate! || forceUpdate}
         
@@ -182,7 +187,12 @@ struct BlueskyRepliesHandler {
             let r = recursiveGetThread(uri: uri)
             for p in r {
                 //                print("Creating \(p.uri!)")
+                var root : Post? = nil
                 let post = getPost(uri: p.uri!, context: self.context!)
+                
+                if let uri = p.record!.reply!.parent!.uri {
+                    root = getPost(uri: uri, context: self.context!)
+                }
                 let date = convertToDate(from:p.record!.createdAt!) ?? nil
                 post.accountID = accountID
                 post.createdAt = date
@@ -196,6 +206,12 @@ struct BlueskyRepliesHandler {
                 post.rootURI = p.record!.reply!.root!.uri!
                 post.text = p.record!.text!
                 post.title = p.record!.embed?.external?.title!
+                post.replyTreeChecked = true
+                
+                if root != nil {
+                    post.parent = root!
+                    root!.addToReplies(post)
+                }
             }
             try self.context!.save()
         }

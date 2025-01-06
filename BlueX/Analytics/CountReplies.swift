@@ -22,26 +22,29 @@ struct CountReplies {
         if account == nil {
             return
         }
-        let rootNodes = try getRootNodes(accountID:account!.id!)
-        let count = Double(rootNodes.count)
+        let allNodes = try getAllNodes(accountID:account!.id!)
+        let count = Double(allNodes.count)
         
-        print("Found \(rootNodes.count) root nodes")
+        print("Found \(allNodes.count) root nodes")
         
         
-        for post in rootNodes {
+        for post in allNodes {
             n = n + 1
             progress(n/count)
             
-            post.countAllReplies = try countAllReplies(rootID:post.id!)
-            post.replyTreeDepth = try countReplyTreeDepth(uri:post.uri!)
+            if post.rootID == nil {
+                post.countAllReplies = try countAllReplies(rootID:post.id!)
+            }
+            post.replyTreeDepth = try countReplyTreeDepth(post:post)
             
             try self.context!.save()
         }
+        
         print("Done with counting replies")
     }
     
     
-    func getRootNodes(accountID:UUID) throws -> [Post] {
+    func getAllNodes(accountID:UUID) throws -> [Post] {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "accountID == %@", accountID as CVarArg)
         let results = try self.context!.fetch(fetchRequest)
@@ -55,24 +58,30 @@ struct CountReplies {
         return Int64(results.count)
     }
     
-    func countReplyTreeDepth(uri:String) throws -> Int64 {
+    func countRepliesForNode(uri:String) throws -> Int64 {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "parentURI == %@", uri as CVarArg)
         let posts = try self.context!.fetch(fetchRequest)
+        return Int64(posts.count)
+    }
+    
+    func countReplyTreeDepth(post:Post) throws -> Int64 {
+        let replies = post.replies
         
-        guard posts.count > 0 else {
+        guard replies != nil, replies!.count > 0 else {
             return 0
         }
         
-        for post in posts {
-            let childUri = post.uri!
-            let depth = try countReplyTreeDepth(uri:childUri)
-            post.replyTreeDepth = depth
+        for reply in replies! {
+            let p = reply as! Post
+            let depth = try countReplyTreeDepth(post:p)
+            p.replyTreeDepth = depth
         }
         
-        let maxDepth = posts.max { $0.replyTreeDepth < $1.replyTreeDepth }!.replyTreeDepth
+        let maxDepth = (replies!.max{ ($0 as! Post).replyTreeDepth < ($1 as! Post).replyTreeDepth }! as! Post).replyTreeDepth
         return maxDepth + 1
     }
+
     
 }
 

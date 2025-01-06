@@ -272,6 +272,12 @@ struct AccountSettings: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(taskManager.isFeedScraperRunning)
                             }
+                            if taskManager.isFeedScraperRunning {
+                                HStack {
+                                    ProgressView("Feed Scraping Progress",
+                                                 value: taskManager.feedProgress)
+                                }
+                            }
                             HStack {
                                 Text("Scrape reply trees")
                                 Spacer()
@@ -302,7 +308,21 @@ struct AccountSettings: View {
                                                  value: taskManager.calcualteStatistics)
                                 }
                             }
-
+                            HStack {
+                                Text("Calculate sentiments")
+                                Spacer()
+                                Button("Run") {
+                                    calculateSentiments()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(taskManager.isCalculatingSentiments)
+                            }
+                            if taskManager.isCalculatingSentiments {
+                                HStack {
+                                    ProgressView("Sentiments Progress",
+                                                 value: taskManager.calcualtedSentiments)
+                                }
+                            }
                         }
                         .padding(.horizontal)
                         .frame(width: 400)
@@ -336,6 +356,11 @@ struct AccountSettings: View {
     
     private func calculateStatistics() {
         taskManager.calculateStatistics(did:viewModel.account.did!,
+                                        name:viewModel.account.displayName!)
+    }
+    
+    private func calculateSentiments() {
+        taskManager.calculateSentiments(did:viewModel.account.did!,
                                         name:viewModel.account.displayName!)
     }
 

@@ -150,8 +150,6 @@ func resolveProfile(did: String) -> ProfileResponse? {
                 group.leave()
             }
             
-            prettyPrintJSON(data: data!)
-            
             let handleResponse = try JSONDecoder().decode(ProfileResponse.self, from: data!)
             returnValue = handleResponse
             group.leave()

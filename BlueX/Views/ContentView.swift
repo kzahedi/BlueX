@@ -10,7 +10,7 @@ import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
-    
+
     @EnvironmentObject private var taskManager: TaskManager
 
     @FetchRequest(

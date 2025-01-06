@@ -90,7 +90,8 @@ struct BlueskyFeedHandler {
     
     public func runFor(did:String,
                        earliestDate:Date? = nil,
-                       forceUpdate:Bool = false) throws {
+                       forceUpdate:Bool = false,
+                       progress: @escaping (Double) -> Void) throws {
         
         if self.context == nil {
             print("No context set")
@@ -100,6 +101,9 @@ struct BlueskyFeedHandler {
         let limit = 100
         let token = getToken()
         
+        let today = Date()
+        let nrOfDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: today)))
+
         var cursor = Date().toCursor()
         
         while true {
@@ -116,10 +120,13 @@ struct BlueskyFeedHandler {
                 if date == nil || date! < earliestDate! {
                     continue
                 }
+                
+                let remainingDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: date!)))
+                let v = min(1.0, max(0.0, remainingDays / nrOfDays))
+                progress(1.0 - v)
                     
                 let post = getPost(uri: feedItem.post.uri!, context: self.context!)
                 let account = try getAccount(did:did, context: self.context!)!
-//                print("Adding \(feedItem.post.uri!) from \(feedItem.post.record!.createdAt!)")
                 
                 post.accountID = account.id
                 post.createdAt = date!
@@ -153,5 +160,6 @@ struct BlueskyFeedHandler {
         account.timestampFeed = Date()
         try self.context!.save()
     }
+    
 }
 
