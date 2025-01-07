@@ -63,6 +63,9 @@ struct SentimentAnalysis {
     
     private func calculateSentimentNLTagger(post: inout Post) -> Void {
         let tagger = NLTagger(tagSchemes: [.sentimentScore])
+        if post.text == nil {
+            return
+        }
         var text = post.text!
         text = text.replacingOccurrences(of: "\\r?\\n", with: "", options: .regularExpression)
         tagger.string = text

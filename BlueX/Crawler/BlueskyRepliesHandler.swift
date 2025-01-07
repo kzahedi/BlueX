@@ -17,7 +17,7 @@ struct BlueskyRepliesHandler {
         let group = DispatchGroup()
         var uris : [String] = []
         var posts : [ApiPost] = []
-        
+       
         feedRequest.httpMethod = "GET"
         feedRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
@@ -54,9 +54,7 @@ struct BlueskyRepliesHandler {
                 
                 
                 let threadResponse = try decodeThread(from: data!)
-                let (u, p) = recursiveParseThread(thread: threadResponse.thread)
-                uris = u
-                posts = p
+                (uris, posts) = recursiveParseThread(thread: threadResponse.thread)
                 
                 group.leave()
             } catch let decodingError as DecodingError {
@@ -82,24 +80,22 @@ struct BlueskyRepliesHandler {
         
         // check all leafs again
         if let replies = thread.replies {
+            if replies.count > 0 {
+                posts.append(thread.post!)
+            }
             for reply in replies {
                 if reply.replies == nil || reply.replies!.isEmpty {
                     if reply.post != nil && reply.post!.uri != nil {
                         uris.append(reply.post!.uri!)
                     }
                 }
-            }
-            
-            posts += thread.replies!.map{$0.post!}
-            for repply in thread.replies! {
-                if let replies = repply.replies {
-                    for reply in replies {
-                        let (u, p) = recursiveParseThread(thread:reply)
-                        uris = uris + u
-                        posts = posts + p
-                    }
+                if reply.replies != nil && reply.replies!.count > 0 {
+                    let (u, p) = recursiveParseThread(thread:reply)
+                    uris = uris + u
+                    posts += p
                 }
             }
+            
         }
         
         return (uris, posts)
@@ -114,7 +110,6 @@ struct BlueskyRepliesHandler {
     }
     
     public func recursiveGetThread(uri:String) -> [ApiPost] {
-        
         var uris : [String] = []
         var posts : [ApiPost] = []
         let url = createRequestURL(uri:uri)
@@ -184,14 +179,21 @@ struct BlueskyRepliesHandler {
         for uri in uris {
             n = n + 1
             progress(n/count)
+//            print(uri)
             let r = recursiveGetThread(uri: uri)
             for p in r {
                 //                print("Creating \(p.uri!)")
                 var root : Post? = nil
                 let post = getPost(uri: p.uri!, context: self.context!)
                 
-                if let uri = p.record!.reply!.parent!.uri {
-                    root = getPost(uri: uri, context: self.context!)
+                if p.record != nil {
+                    if p.record!.reply != nil {
+                        if p.record!.reply!.parent != nil {
+                            let rootUri = p.record!.reply!.parent!.uri!
+                            root = getPost(uri: rootUri, context: self.context!)
+                        }
+                    }
+                    
                 }
                 let date = convertToDate(from:p.record!.createdAt!) ?? nil
                 post.accountID = accountID
@@ -202,8 +204,15 @@ struct BlueskyRepliesHandler {
                 post.replyCount = Int64(p.replyCount!)
                 post.quoteCount = Int64(p.quoteCount!)
                 post.repostCount = Int64(p.repostCount!)
-                post.parentURI = p.record!.reply!.parent!.uri!
-                post.rootURI = p.record!.reply!.root!.uri!
+                if let rootUri = p.record?.reply?.root?.uri {
+                    post.rootURI = rootUri
+                }
+                if let parentUri = p.record?.reply?.parent?.uri {
+                    post.parentURI = parentUri
+                }
+                if root != nil {
+                    post.rootID = root!.id!
+                }
                 post.text = p.record!.text!
                 post.title = p.record!.embed?.external?.title!
                 post.replyTreeChecked = true
@@ -212,8 +221,8 @@ struct BlueskyRepliesHandler {
                     post.parent = root!
                     root!.addToReplies(post)
                 }
+                try self.context!.save()
             }
-            try self.context!.save()
         }
         account!.timestampReplyTrees = Date()
         try self.context!.save()

@@ -1,0 +1,45 @@
+{
+  "configurations" : [
+    {
+      "id" : "2FB3C2D3-0EB2-47DD-AE2C-2DACB2C9C207",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:BlueX.xcodeproj",
+      "identifier" : "277929882D286CB00007C602",
+      "name" : "BlueX"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "skippedTests" : {
+        "suites" : [
+          {
+            "name" : "BlueXTests"
+          }
+        ]
+      },
+      "target" : {
+        "containerPath" : "container:BlueX.xcodeproj",
+        "identifier" : "2779299E2D286CB10007C602",
+        "name" : "BlueXTests"
+      }
+    },
+    {
+      "enabled" : false,
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:BlueX.xcodeproj",
+        "identifier" : "277929A82D286CB10007C602",
+        "name" : "BlueXUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
