@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
 
     @EnvironmentObject private var taskManager: TaskManager
+    @State private var selectedView: ContentViewType = .configuration
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Account.id, ascending: true)],
@@ -24,7 +25,11 @@ struct ContentView: View {
             List {
                 ForEach(accounts) { account in
                     NavigationLink {
-                        AccountSettings(viewModel: AccountViewModel(account: account, context: viewContext))
+                        if selectedView == .configuration {
+                            AccountSettings(viewModel: AccountViewModel(account: account, context: viewContext))
+                        } else {
+                            AccountPlotView(viewModel: AccountViewModel(account: account, context: viewContext))
+                        }
                     } label: {
                         if account.displayName == nil && account.handle == nil {
                             Text("New Account")
@@ -37,6 +42,7 @@ struct ContentView: View {
                 }
                 .onDelete(perform: deleteItems)
             }
+            .navigationTitle("Configuration")
             .toolbar {
                 ToolbarItem {
                     Button(action: addItem) {
@@ -46,8 +52,26 @@ struct ContentView: View {
             }
             Text("Select an item")
         }
+        .background(
+            KeyEventHandlingView { keyEvent in
+                if keyEvent.keyCode == 49 { // Spacebar key code is 49
+                    switchView()
+                }
+            }
+        )
     }
 
+    private func switchView() {
+        if isTextFieldFocused() == false {
+            selectedView = (selectedView == .configuration) ? .plots : .configuration
+        }
+    }
+    
+    private func isTextFieldFocused() -> Bool {
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+        return firstResponder is NSTextView
+    }
+    
     private func addItem() {
         withAnimation {
             let newAccount = Account(context: viewContext)
@@ -79,6 +103,40 @@ struct ContentView: View {
             }
         }
     }
+    
+    struct KeyEventHandlingView: NSViewRepresentable {
+        var onKeyPress: (NSEvent) -> Void
+        
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            let keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                onKeyPress(event)
+                return event
+            }
+            context.coordinator.keyDownMonitor = keyDownMonitor
+            return view
+        }
+        
+        func updateNSView(_ nsView: NSView, context: Context) {}
+        
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+        
+        class Coordinator {
+            var keyDownMonitor: Any?
+            deinit {
+                if let monitor = keyDownMonitor {
+                    NSEvent.removeMonitor(monitor)
+                }
+            }
+        }
+    }
+}
+
+enum ContentViewType {
+    case configuration
+    case plots
 }
 
 #Preview {

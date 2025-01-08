@@ -37,6 +37,7 @@ struct BlueXApp: App {
             ContentView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(taskManager)  // Provide TaskManager to all views
+            
         }
         .commands {
             ProcessesMenu()
