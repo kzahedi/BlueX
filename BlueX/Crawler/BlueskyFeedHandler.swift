@@ -139,10 +139,9 @@ struct BlueskyFeedHandler {
                 post.text = feedItem.post.record!.text!
                 post.title = feedItem.post.record!.embed?.external?.title!
                 
-                try self.context!.save()
  
             }
-            
+
             let cursorDate = convertToDate(from: feed!.cursor!)
             if cursorDate == nil {
                 print("Problem with \(feed!.cursor!)")

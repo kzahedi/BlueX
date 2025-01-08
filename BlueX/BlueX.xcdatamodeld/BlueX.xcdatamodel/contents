@@ -46,13 +46,13 @@
         <attribute name="uri" optional="YES" attributeType="String"/>
         <relationship name="parent" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="replies" inverseEntity="Post"/>
         <relationship name="replies" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Post" inverseName="parent" inverseEntity="Post"/>
-        <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Sentiment"/>
+        <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Sentiment" inverseName="post" inverseEntity="Sentiment"/>
     </entity>
     <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="postID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="score" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="tool" optional="YES" attributeType="String"/>
-        <relationship name="post" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post"/>
+        <relationship name="post" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="sentiments" inverseEntity="Post"/>
     </entity>
 </model>

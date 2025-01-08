@@ -150,6 +150,9 @@ struct BlueskyRepliesHandler {
         if earliestDate != nil && forceUpdate == false {
             fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)",
                                                  account!.id! as CVarArg, earliestDate! as NSDate)
+        } else if forceUpdate == false {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)",
+                                                 account!.id! as CVarArg, earliestDate! as NSDate)
         } else {
             fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil",
                                                  account!.id! as CVarArg, earliestDate! as NSDate)

@@ -70,8 +70,6 @@ func resolveDID(handle: String) -> String? {
         return nil
     }
     
-    print("Requesting \(didURL)?handle=\(handle)")
-    
     var request = URLRequest(url: url!)
     request.httpMethod = "GET"
     
@@ -168,7 +166,6 @@ func resolveProfile(did: String) -> ProfileResponse? {
 public func getToken() -> String? {
     
     let sa = Credentials.shared.getUsername()
-    print(sa!)
     let sourceDID : String? = resolveDID(handle: sa!)
 
     let apiKeyURL = "https://bsky.social/xrpc/com.atproto.server.createSession"

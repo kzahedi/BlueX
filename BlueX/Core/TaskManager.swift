@@ -18,10 +18,10 @@ class TaskManager: ObservableObject {
     @Published var replyTreeProgress: Double = 0.0 // 0.0 to 1.0
     
     @Published var isCalculatingStatistics = false
-    @Published var calcualteStatistics: Double = 0.0 // 0.0 to 1.0
+    @Published var calcualteStatisticsProgress: Double = 0.0 // 0.0 to 1.0
     
     @Published var isCalculatingSentiments = false
-    @Published var calcualtedSentiments: Double = 0.0 // 0.0 to 1.0
+    @Published var calcualtedSentimentsProgress: Double = 0.0 // 0.0 to 1.0
     
     private var feedHandler = BlueskyFeedHandler()
     private var replyHandler = BlueskyRepliesHandler()
@@ -118,7 +118,7 @@ class TaskManager: ObservableObject {
             do {
                 try self.countReplies.runFor(did:did) {progress in
                     DispatchQueue.main.async {
-                        self.calcualteStatistics = progress
+                        self.calcualteStatisticsProgress = progress
                     }
                 }
                 
@@ -145,7 +145,10 @@ class TaskManager: ObservableObject {
         for tool in SentimentAnalysisTool.allCases {
             DispatchQueue.background(delay:0.0, background: {
                 self.sentimentAnalysis.runFor(did:did, tool: tool) {progress in
-                    self.calcualtedSentiments = progress}
+                    DispatchQueue.main.async {
+                        self.calcualtedSentimentsProgress = progress
+                    }
+                }
             }, completion: {
                 self.isCalculatingSentiments = false
                 self.notifyTaskCompletion(taskName: "Sentiment analsysis \(tool.stringValue)", accountName: name)

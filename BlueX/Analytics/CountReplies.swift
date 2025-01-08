@@ -37,9 +37,11 @@ struct CountReplies {
             }
             post.replyTreeDepth = try countReplyTreeDepth(uri:post.uri!, depth:0)
             
-            try self.context!.save()
         }
+        account!.timestampStatistics = Date()
         
+        try self.context!.save()
+
         print("Done with counting replies")
     }
     

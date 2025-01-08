@@ -33,35 +33,33 @@ struct SentimentAnalysis {
         
         print("Running sentiment analysis")
         do {
-            
-            
-            let posts = try fetchPostsWithoutMatchingSentiments(context:context!, toolValue: tool.stringValue)
+            let posts = try fetchPostsWithoutMatchingSentiments(toolValue: tool.stringValue)
             let count = Double(posts.count)
             
-            var taggerFunction : ((inout Post) -> Void)? = nil
+            var taggerFunction : ((Post) -> Void)? = nil
             
             switch tool {
                 case .NLTagger: taggerFunction = calculateSentimentNLTagger
             }
             
             var index : Double = 0.0
-            for var post in posts {
-                DispatchQueue.background(delay: 0.0,
-                                         background: {taggerFunction!(&post)},
-                                         completion: {
-                    index = index + 1
-                    progress(index/count)
-                })
+            for post in posts {
+                taggerFunction!(post)
+                index = index + 1
+                progress(index/count)
             }
-            try context!.save()
+            let account = try getAccount(did:did, context:context!)
+            if account != nil {
+                account!.timestampSentiment = Date()
+            }
         } catch {
             print(error)
         }
-        
+        try? context!.save()
         print("Done with sentiment analysis")
     }
     
-    private func calculateSentimentNLTagger(post: inout Post) -> Void {
+    private func calculateSentimentNLTagger(post: Post) -> Void {
         let tagger = NLTagger(tagSchemes: [.sentimentScore])
         if post.text == nil {
             return
@@ -74,17 +72,17 @@ struct SentimentAnalysis {
             let score = Double(sentimentScore.0!.rawValue)
             if score != nil {
                 let sentiment = Sentiment(context: self.context!)
-                sentiment.post = post
                 sentiment.postID = post.id!
                 sentiment.id = UUID()
                 sentiment.score = score!
                 sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
-                post.addToSentiments(sentiment)
+                sentiment.post = post
+                try? self.context!.save()
             }
         }
     }
     
-    func fetchPostsWithoutMatchingSentiments(context: NSManagedObjectContext, toolValue: String) throws -> [Post] {
+    func fetchPostsWithoutMatchingSentiments(toolValue: String) throws -> [Post] {
         // Create a fetch request for the Post entity
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         
@@ -92,7 +90,22 @@ struct SentimentAnalysis {
         fetchRequest.predicate = NSPredicate(format: "NOT (SUBQUERY(sentiments, $s, $s.postID == id AND $s.tool == %@).@count > 0)", toolValue)
         
         // Execute the fetch request
-        return try context.fetch(fetchRequest)
+        return try self.context!.fetch(fetchRequest)
     }
+    
+    func fetchPost(by uuid: UUID, context: NSManagedObjectContext) throws -> Post? {
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+        fetchRequest.fetchLimit = 1
+        return try context.fetch(fetchRequest).first
+    }
+    
+    func fetchSentiment(by uuid: UUID, context: NSManagedObjectContext) throws -> Sentiment? {
+        let fetchRequest: NSFetchRequest<Sentiment> = Sentiment.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+        fetchRequest.fetchLimit = 1
+        return try context.fetch(fetchRequest).first
+    }
+
 }
 
