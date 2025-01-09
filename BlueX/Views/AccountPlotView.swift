@@ -11,11 +11,22 @@ import CoreData
 import Charts
 
 struct AccountPlotView: View {
-    @ObservedObject var viewModel: AccountViewModel
+    @ObservedObject var viewModel: PlotPerDayModel
     
     var body: some View {
-        Text("Plot View for \(viewModel.account.displayName ?? "unknown account")")
-            .font(.title)
-            .padding()
+        PlotsPerDay(viewModel: viewModel)
+    }
+}
+
+struct PlotsPerDay: View {
+    @ObservedObject var viewModel: PlotPerDayModel
+
+    var body: some View {
+        Chart {
+            ForEach(viewModel.dataPoints) { dataPoint in
+                BarMark(x: .value("Month", dataPoint.day, unit:.day),
+                        y: .value("Count", dataPoint.count))
+            }
+        }
     }
 }

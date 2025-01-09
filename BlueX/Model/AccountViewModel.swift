@@ -33,7 +33,7 @@ class AccountViewModel: ObservableObject {
     init(account: Account, context: NSManagedObjectContext? = nil) {
         self.account = account
         self.context = context ?? PersistenceController.shared.container.viewContext
-        self.outputFormatter.dateFormat = "dd.mm.YYYY"
+        self.outputFormatter.dateFormat = "dd.MM.YYYY"
         
        
         // Initialize ViewModel properties from CoreData model
@@ -65,6 +65,7 @@ class AccountViewModel: ObservableObject {
     func updateAccount() {
         if account.did == nil {
             account.did = resolveDID(handle: handle)
+            print(account.did ?? "DID not found")
         }
         if let profile = resolveProfile(did: account.did!) {
             
@@ -73,6 +74,7 @@ class AccountViewModel: ObservableObject {
             followsCount = String(profile.followsCount)
             followersCount = String(profile.followersCount)
             postsCount = String(profile.postsCount)
+            did = account.did!
             
             let cutoffDate = Calendar.current.date(byAdding: .hour, value: -12, to: Date())!
             

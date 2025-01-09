@@ -142,18 +142,21 @@ struct BlueskyFeedHandler {
  
             }
 
-            let cursorDate = convertToDate(from: feed!.cursor!)
-            if cursorDate == nil {
-                print("Problem with \(feed!.cursor!)")
-                break
-                
-            }
-            if earliestDate != nil {
-                if cursorDate! < earliestDate! {
+            if feed!.cursor != nil {
+                let cursorDate = convertToDate(from: feed!.cursor!)
+                if cursorDate == nil {
+                    print("Problem with \(feed!.cursor!)")
                     break
                 }
+                if earliestDate != nil {
+                    if cursorDate! < earliestDate! {
+                        break
+                    }
+                }
+                cursor = feed!.cursor!
+            } else {
+                break
             }
-            cursor = feed!.cursor!
         }
         let account = try getAccount(did:did, context: self.context!)!
         account.timestampFeed = Date()

@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-struct AccountSettings: View {
+struct AccountSettingsView: View {
     @ObservedObject var viewModel: AccountViewModel
     @EnvironmentObject var taskManager: TaskManager
     
@@ -270,7 +270,7 @@ struct AccountSettings: View {
         fatalError("Failed to fetch preview account: \(error)")
     }
     
-    return AccountSettings(viewModel: AccountViewModel(account: account, context: previewContext))
+    return AccountSettingsView(viewModel: AccountViewModel(account: account, context: previewContext))
         .environment(\.managedObjectContext, previewContext)
 }
 

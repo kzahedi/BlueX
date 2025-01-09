@@ -24,20 +24,8 @@ struct ContentView: View {
         NavigationView {
             List {
                 ForEach(accounts) { account in
-                    NavigationLink {
-                        if selectedView == .configuration {
-                            AccountSettings(viewModel: AccountViewModel(account: account, context: viewContext))
-                        } else {
-                            AccountPlotView(viewModel: AccountViewModel(account: account, context: viewContext))
-                        }
-                    } label: {
-                        if account.displayName == nil && account.handle == nil {
-                            Text("New Account")
-                        } else if account.displayName != nil {
-                            Text("\(account.displayName!)")
-                        } else {
-                            Text("\(account.handle!)")
-                        }
+                    NavigationLink(destination: destinationView(for: account)) {
+                        accountLabel(for: account)
                     }
                 }
                 .onDelete(perform: deleteItems)
@@ -59,6 +47,34 @@ struct ContentView: View {
                 }
             }
         )
+    }
+    
+    private func accountLabel(for account: Account) -> some View {
+        if account.displayName == nil && account.handle == nil {
+            return Text("New Account")
+        } else if let displayName = account.displayName {
+            return Text("\(displayName)")
+        } else if let handle = account.handle {
+            return Text("\(handle)")
+        } else {
+            return Text("Unknown Account")
+        }
+    }
+    
+    private func destinationView(for account: Account) -> some View {
+        if selectedView == .configuration {
+            return AnyView(
+                AccountSettingsView(
+                    viewModel: AccountViewModel(account: account, context: viewContext)
+                )
+            )
+        } else {
+            return AnyView(
+                AccountPlotView(
+                    viewModel: PlotPerDayModel(account: account, context: viewContext)
+                )
+            )
+        }
     }
 
     private func switchView() {
