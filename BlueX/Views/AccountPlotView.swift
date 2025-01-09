@@ -28,5 +28,8 @@ struct PlotsPerDay: View {
                         y: .value("Count", dataPoint.count))
             }
         }
+        .chartXScale(domain: viewModel.xMin...viewModel.xMax)
+        .frame(width:1000, height:200)
+        .background(Color.black)
     }
 }

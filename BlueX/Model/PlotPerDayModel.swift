@@ -21,6 +21,8 @@ class PlotPerDayModel: ObservableObject {
     @Published var did: String
     @Published var timestampFeed: String
     @Published var dataPoints: [PostStatsDataPoint]
+    @Published var xMin: Date
+    @Published var xMax: Date
     
     let account: Account
     let context: NSManagedObjectContext
@@ -36,7 +38,9 @@ class PlotPerDayModel: ObservableObject {
         self.did = account.did ?? ""
         self.timestampFeed = ""
         self.dataPoints = []
-       
+        self.xMin = account.startAt ?? Date()
+        self.xMax = Date()
+
         self.updateDataPoints()
     }
     
@@ -44,6 +48,7 @@ class PlotPerDayModel: ObservableObject {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             NSPredicate(format: "accountID == %@", account.id! as CVarArg),
+            NSPredicate(format: "rootID == nil"),
             NSPredicate(format: "createdAt >= %@", account.startAt! as NSDate)
         ])
         
@@ -63,6 +68,10 @@ class PlotPerDayModel: ObservableObject {
             self.dataPoints = groupedByDay.map { (day, posts) in
                 PostStatsDataPoint(day: day, count: posts.count)
             }.sorted { $0.day < $1.day } // Sort by day
+            
+            let today = Calendar.current.startOfDay(for: Date())
+            xMax = self.dataPoints.last!.day < today ? today : self.dataPoints.last!.day
+            xMin = self.account.startAt == nil ?  self.dataPoints.first!.day : self.account.startAt!
             
         } catch {
             print("Error fetching posts: \(error)")
