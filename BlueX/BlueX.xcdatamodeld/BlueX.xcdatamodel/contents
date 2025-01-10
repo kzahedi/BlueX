@@ -17,17 +17,17 @@
         <attribute name="timestampReplyTrees" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampSentiment" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampStatistics" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="history" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="AccountHistory" inverseName="account" inverseEntity="AccountHistory"/>
     </entity>
     <entity name="AccountHistory" representedClassName="AccountHistory" syncable="YES" codeGenerationType="class">
-        <attribute name="accountID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="followersCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="followsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="postsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="history" inverseEntity="Account"/>
     </entity>
     <entity name="Post" representedClassName="Post" syncable="YES" codeGenerationType="class">
         <attribute name="accountID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
-        <attribute name="countAllReplies" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="fetchedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
@@ -36,7 +36,6 @@
         <attribute name="quoteCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="replyCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="replyTreeChecked" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
-        <attribute name="replyTreeDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="repostCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="rootID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="rootURI" optional="YES" attributeType="String"/>
@@ -47,6 +46,7 @@
         <relationship name="parent" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="replies" inverseEntity="Post"/>
         <relationship name="replies" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Post" inverseName="parent" inverseEntity="Post"/>
         <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Sentiment" inverseName="post" inverseEntity="Sentiment"/>
+        <relationship name="statistics" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Statistics" inverseName="post" inverseEntity="Statistics"/>
     </entity>
     <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
@@ -54,5 +54,13 @@
         <attribute name="score" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="tool" optional="YES" attributeType="String"/>
         <relationship name="post" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="sentiments" inverseEntity="Post"/>
+    </entity>
+    <entity name="Statistics" representedClassName="Statistics" syncable="YES" codeGenerationType="class">
+        <attribute name="avgSentimentReplies" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="countedAllReplies" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="countedReplies" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="replyTreeDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sentimentPost" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <relationship name="post" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="statistics" inverseEntity="Post"/>
     </entity>
 </model>

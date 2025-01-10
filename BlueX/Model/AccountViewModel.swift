@@ -67,42 +67,35 @@ class AccountViewModel: ObservableObject {
             account.did = resolveDID(handle: handle)
             print(account.did ?? "DID not found")
         }
-        if let profile = resolveProfile(did: account.did!) {
-            
-            handle = profile.handle
-            displayName = profile.displayName
-            followsCount = String(profile.followsCount)
-            followersCount = String(profile.followersCount)
-            postsCount = String(profile.postsCount)
-            did = account.did!
-            
-            let cutoffDate = Calendar.current.date(byAdding: .hour, value: -12, to: Date())!
-            
-            let fetchRequest: NSFetchRequest<AccountHistory> = AccountHistory.fetchRequest()
-            fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                NSPredicate(format: "accountID == %@", account.id! as CVarArg),
-                NSPredicate(format: "timestamp >= %@", cutoffDate as NSDate)
-            ])
-            
-            do {
-                let results = try self.context.fetch(fetchRequest)
-                
-                if results.isEmpty {
-                    // No recent entries found, create a new one
-                    let newAccountHistory = AccountHistory(context: self.context)
-                    newAccountHistory.accountID = account.id
-                    newAccountHistory.followersCount = Int64(profile.followersCount)
-                    newAccountHistory.followsCount = Int64(profile.followsCount)
-                    newAccountHistory.timestamp = Date()
-                    newAccountHistory.postsCount = Int64(profile.postsCount)
-                    
-                } else {
-                    print("Recent entry found, skipping update.")
+        
+        if let history = account.history as? Set<AccountHistory> {
+            if let newest = history.sorted(by: { $0.timestamp! > $1.timestamp! }).first {
+                if newest.timestamp!.isXHoursAgo(x: 12) == false {
+                    print(newest)
+                    return
                 }
-            } catch {
-                print("Failed to fetch or save Core Data: \(error.localizedDescription)")
             }
-            save()
+            
+            if let profile = resolveProfile(did: account.did!) {
+                
+                handle = profile.handle
+                displayName = profile.displayName
+                followsCount = String(profile.followsCount)
+                followersCount = String(profile.followersCount)
+                postsCount = String(profile.postsCount)
+                did = account.did!
+                
+                // No recent entries found, create a new one
+                let newAccountHistory = AccountHistory(context: self.context)
+                newAccountHistory.account = account
+                newAccountHistory.followersCount = Int64(profile.followersCount)
+                newAccountHistory.followsCount = Int64(profile.followsCount)
+                newAccountHistory.timestamp = Date()
+                newAccountHistory.postsCount = Int64(profile.postsCount)
+                account.addToHistory(newAccountHistory)
+                
+                save()
+            }
         }
     }
     
@@ -134,24 +127,18 @@ class AccountViewModel: ObservableObject {
     }
     
     private func updateCountsFromHistory() {
-        let fetchRequest: NSFetchRequest<AccountHistory> = AccountHistory.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "accountID == %@", account.id! as CVarArg)
-        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-        fetchRequest.fetchLimit = 1
         
         var followersCount: Int64 = 0
         var followsCount: Int64 = 0
         var postsCount: Int64 = 0
         
-        do {
-            let results = try context.fetch(fetchRequest)
-            if results.first != nil {
-                followsCount = results.first!.followsCount
-                followersCount = results.first!.followersCount
-                postsCount = results.first!.postsCount
+        if let history = account.history as? Set<AccountHistory> {
+            
+            if let newest = history.sorted(by: { $0.timestamp! > $1.timestamp! }).first {
+                followsCount = newest.followsCount
+                followersCount = newest.followersCount
+                postsCount = newest.postsCount
             }
-        } catch {
-            print("Failed to fetch AccountHistory: \(error)")
         }
         self.followersCount = String(followersCount)
         self.followsCount = String(followsCount)

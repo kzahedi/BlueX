@@ -35,6 +35,14 @@ extension Date {
         return self < xDaysAgo!
     }
     
+    func isXHoursAgo(x:Int) -> Bool {
+        let calendar = Calendar.current
+        let now = Date()
+        let xDaysAgo = calendar.date(byAdding: .hour, value: -x, to: now)
+        if xDaysAgo == nil { return false }
+        return self < xDaysAgo!
+    }
+    
     func interval(ofComponent comp: Calendar.Component, fromDate date: Date) -> Int {
         
         let currentCalendar = Calendar.current

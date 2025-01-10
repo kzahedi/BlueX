@@ -25,7 +25,7 @@ class TaskManager: ObservableObject {
     
     private var feedHandler = BlueskyFeedHandler()
     private var replyHandler = BlueskyRepliesHandler()
-    private var statistics = Statistics()
+    private var statistics = CalculateStatistics()
     private var sentimentAnalysis = SentimentAnalysis()
     
     private var context : NSManagedObjectContext? = nil

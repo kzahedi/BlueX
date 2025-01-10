@@ -9,7 +9,7 @@ import Foundation
 import NaturalLanguage
 import CoreData
 
-struct Statistics {
+struct CalculateStatistics {
     
     var context : NSManagedObjectContext? = nil
     
@@ -29,21 +29,15 @@ struct Statistics {
         
         
         for post in allNodes {
-            let logMsg = "Processing \(post.uri!) with date \(post.createdAt!)"
-            Logger.shared.log(logMsg)
+            let stats = Statistics(context: context!)
             
-//            DispatchQueue.background(delay:0.0, background: {
-                if post.rootID == nil {
-                    Logger.shared.log("Counting replies")
-                    post.countAllReplies = try! countAllReplies(post:post)
-                }
-                Logger.shared.log("Counting reply tree depth")
-                post.replyTreeDepth = try! countReplyTreeDepth(post:post)
-//            }, completion: {
-                n = n + 1
-                progress(n/count)
-//            })
-
+            stats.post = post
+            post.statistics = stats
+            
+            if post.rootID == nil { stats.countedAllReplies = try! countAllReplies(post:post) }
+            stats.replyTreeDepth = try! countReplyTreeDepth(post:post)
+            n = n + 1
+            progress(n/count)
         }
         account!.timestampStatistics = Date()
         
@@ -83,7 +77,12 @@ struct Statistics {
             var maxDepth:Int64 = 0
             for post in replies {
                 let d = try countReplyTreeDepth(post: post)
-                post.replyTreeDepth = d
+                if post.statistics == nil {
+                    let stats = Statistics(context: self.context!)
+                    post.statistics = stats
+                    stats.post = post
+                }
+                post.statistics!.replyTreeDepth = d
                 if d > maxDepth { maxDepth = d }
             }
             return maxDepth + 1

@@ -93,11 +93,11 @@ class StatisticsModel: ObservableObject {
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.repliesPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: sum(posts:posts, field:\.countAllReplies))
+                CountsPerDay(day: day, count: sum(posts:posts, field:\.statistics!.countedAllReplies))
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.replyTreeDepthPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: mean(posts:posts, field:\.replyTreeDepth))
+                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics!.replyTreeDepth))
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
