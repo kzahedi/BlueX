@@ -19,6 +19,7 @@ struct AccountPlotView: View {
             RepliesPerDay(viewModel: viewModel)
             ReplyTreeDepth(viewModel: viewModel)
             SentimentPerDay(viewModel: viewModel)
+            ReplySentimentPerDay(viewModel: viewModel)
         }
     }
 }
@@ -97,6 +98,26 @@ struct SentimentPerDay: View {
             .frame(width:1000, height:200)
             .background(Color.black)
             .foregroundStyle(Color.cyan)
+            .padding()
+        }
+    }
+}
+
+struct ReplySentimentPerDay: View {
+    @ObservedObject var viewModel: StatisticsModel
+    
+    var body: some View {
+        GroupBox("Average reply-sentiment per day") {
+            Chart {
+                ForEach(viewModel.sentimentReplies, id: \.day) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                            y: .value("Count", dataPoint.count))
+                }
+            }
+            .chartXScale(domain: viewModel.xMin...viewModel.xMax)
+            .frame(width:1000, height:200)
+            .background(Color.black)
+            .foregroundStyle(Color.mint)
             .padding()
         }
     }

@@ -85,6 +85,7 @@ class StatisticsModel: ObservableObject {
             }) { $0.0 }
                 .mapValues { $0.map { $0.1 } } // Strip keys in the array
             
+            let sentimentRepliesCollection: [Date: Double] = getAvgSentimentOverAllReplies(postCollection:postCollection)
             
             // Map to PostStatsDataPoint
             self.postsPerDay = postCollection.map { (day, posts) in
@@ -101,6 +102,10 @@ class StatisticsModel: ObservableObject {
             
             self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
                 CountsPerDay(day: day, count: mean(sentiments:sentiments, field:\.score))
+            }.sorted { $0.day < $1.day } // Sort by day
+            
+            self.sentimentReplies = sentimentRepliesCollection.map { (day, avgSentiment) in
+                CountsPerDay(day: day, count: avgSentiment)
             }.sorted { $0.day < $1.day } // Sort by day
            
             let today = Calendar.current.startOfDay(for: Date())
@@ -140,4 +145,46 @@ class StatisticsModel: ObservableObject {
         return Double(total / Double(sentiments.count))
     }
     
+    private func getAvgSentimentOverAllReplies(postCollection:[Date:[Post]]) -> [Date: Double] {
+       
+        var r : [Date:Double] = [:]
+        
+        for (date, posts) in postCollection {
+            let avgSentiment = posts.map{getAverageSentimentOverAllReplies(rootID:$0.id!)}.reduce(0, +) / Double(posts.count)
+            r[date] = avgSentiment
+        }
+        
+        return r
+    }
+    
+    func getAverageSentimentOverAllReplies(rootID: UUID) -> Double {
+        print("Working on \(rootID)")
+        // Fetch posts with matching rootID
+        let postFetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+                postFetchRequest.predicate = NSPredicate(format: "rootID == %@", rootID as CVarArg)
+        
+        // Execute fetch request
+        do {
+            let posts = try context.fetch(postFetchRequest)
+            
+            // Initialize an array to hold the matching sentiments
+            var matchingSentiments: [Sentiment] = []
+            
+            // For each post, fetch sentiments where tool is "NLTagger"
+            for post in posts {
+                let sentimentFetchRequest: NSFetchRequest<Sentiment> = Sentiment.fetchRequest()
+                sentimentFetchRequest.predicate = NSPredicate(format: "postID == %@ AND tool == %@", post.id! as CVarArg, "NLTagger")
+                
+                // Execute sentiment fetch request
+                let sentiments = try context.fetch(sentimentFetchRequest)
+                matchingSentiments.append(contentsOf: sentiments)
+            }
+            
+            return mean(sentiments:matchingSentiments, field: \.score)
+            
+        } catch {
+            print("Failed to fetch posts or sentiments: \(error)")
+            return 0.0
+        }
+    }
 }
