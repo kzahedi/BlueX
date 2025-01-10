@@ -25,7 +25,7 @@ class TaskManager: ObservableObject {
     
     private var feedHandler = BlueskyFeedHandler()
     private var replyHandler = BlueskyRepliesHandler()
-    private var countReplies = CountReplies()
+    private var statistics = Statistics()
     private var sentimentAnalysis = SentimentAnalysis()
     
     private var context : NSManagedObjectContext? = nil
@@ -39,7 +39,7 @@ class TaskManager: ObservableObject {
         }()
         self.feedHandler.context = backgroundContext
         self.replyHandler.context = backgroundContext
-        self.countReplies.context = backgroundContext
+        self.statistics.context = backgroundContext
         self.sentimentAnalysis.context = backgroundContext
     }
     
@@ -116,7 +116,7 @@ class TaskManager: ObservableObject {
         
         DispatchQueue.background(delay:0.0, background: {
             do {
-                try self.countReplies.runFor(did:did) {progress in
+                try self.statistics.runFor(did:did) {progress in
                     DispatchQueue.main.async {
                         self.calcualteStatisticsProgress = progress
                     }

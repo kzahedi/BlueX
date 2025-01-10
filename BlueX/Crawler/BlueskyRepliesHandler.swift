@@ -182,8 +182,9 @@ struct BlueskyRepliesHandler {
         for uri in uris {
             n = n + 1
             progress(n/count)
-//            print(uri)
+            Logger.shared.log("Working on post with uri \(uri)")
             let r = recursiveGetThread(uri: uri)
+            Logger.shared.log("Received \(r.count) replies")
             for p in r {
                 //                print("Creating \(p.uri!)")
                 var root : Post? = nil
@@ -196,7 +197,6 @@ struct BlueskyRepliesHandler {
                             root = getPost(uri: rootUri, context: self.context!)
                         }
                     }
-                    
                 }
                 let date = convertToDate(from:p.record!.createdAt!) ?? nil
                 post.accountID = accountID

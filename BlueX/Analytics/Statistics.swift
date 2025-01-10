@@ -9,7 +9,7 @@ import Foundation
 import NaturalLanguage
 import CoreData
 
-struct CountReplies {
+struct Statistics {
     
     var context : NSManagedObjectContext? = nil
     
@@ -29,14 +29,21 @@ struct CountReplies {
         
         
         for post in allNodes {
-            n = n + 1
-            progress(n/count)
+            let logMsg = "Processing \(post.uri!) with date \(post.createdAt!)"
+            Logger.shared.log(logMsg)
             
-            if post.rootID == nil {
-                post.countAllReplies = try countAllReplies(rootID:post.id!)
-            }
-            post.replyTreeDepth = try countReplyTreeDepth(uri:post.uri!, depth:0)
-            
+//            DispatchQueue.background(delay:0.0, background: {
+                if post.rootID == nil {
+                    Logger.shared.log("Counting replies")
+                    post.countAllReplies = try! countAllReplies(post:post)
+                }
+                Logger.shared.log("Counting reply tree depth")
+                post.replyTreeDepth = try! countReplyTreeDepth(post:post)
+//            }, completion: {
+                n = n + 1
+                progress(n/count)
+//            })
+
         }
         account!.timestampStatistics = Date()
         
@@ -53,11 +60,12 @@ struct CountReplies {
         return results
     }
     
-    func countAllReplies(rootID:UUID) throws -> Int64 {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "rootID == %@", rootID as CVarArg)
-        let results = try self.context!.fetch(fetchRequest)
-        return Int64(results.count)
+    func countAllReplies(post:Post) throws -> Int64 {
+        if let repliesSet = post.replies as? Set<Post> {
+            let replies = Array(repliesSet)
+            return Int64(replies.count)
+        }
+        return Int64(0)
     }
     
     func countRepliesForNode(uri:String) throws -> Int64 {
@@ -67,25 +75,20 @@ struct CountReplies {
         return Int64(posts.count)
     }
     
-    func countReplyTreeDepth(uri:String, depth:Int) throws -> Int64 {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "parentURI == %@", uri as CVarArg)
-        let posts = try self.context!.fetch(fetchRequest)
+    func countReplyTreeDepth(post:Post) throws -> Int64 {
         
-        guard posts.count > 0 else {
-            return 0
+        if let repliesSet = post.replies as? Set<Post> {
+            let replies = Array(repliesSet)
+            
+            var maxDepth:Int64 = 0
+            for post in replies {
+                let d = try countReplyTreeDepth(post: post)
+                post.replyTreeDepth = d
+                if d > maxDepth { maxDepth = d }
+            }
+            return maxDepth + 1
         }
-        
-        for post in posts {
-            let childUri = post.uri!
-            let d = try countReplyTreeDepth(uri:childUri, depth:depth+1)
-            post.replyTreeDepth = d
-        }
-        
-        try self.context!.save()
-        
-        let maxDepth = posts.max { $0.replyTreeDepth < $1.replyTreeDepth }!.replyTreeDepth
-        return maxDepth + 1
+        return 0
     }
 
     

@@ -71,7 +71,7 @@ struct ContentView: View {
         } else {
             return AnyView(
                 AccountPlotView(
-                    viewModel: PlotPerDayModel(account: account, context: viewContext)
+                    viewModel: StatisticsModel(account: account, context: viewContext)
                 )
             )
         }

@@ -100,7 +100,7 @@ struct ProcessesMenu: Commands {
                 print("Working on \(name)")
 
                 sendNotification(title: "BlueX", subtitle: "Calculating Statistics - Start", body: "Starting to calculate statistics for \(name)")
-                var calc = CountReplies()
+                var calc = Statistics()
                 calc.context = self.backgroundContext!
                 try calc.runFor(did:did) {process in let _ = process}
                 sendNotification(title: "BlueX", subtitle: "Calculating Statistics - Complete", body: "Statistics calculation has completed for \(name)")
@@ -122,7 +122,7 @@ struct ProcessesMenu: Commands {
                 print("Working on \(name)")
 
                 sendNotification(title: "BlueX", subtitle: "Sentiment Analysis - Start", body: "Starting sentiment analysis for \(name)")
-                var calc = CountReplies()
+                var calc = Statistics()
                 calc.context = self.backgroundContext!
                 try calc.runFor(did:did) {process in let _ = process}
                 sendNotification(title: "BlueX", subtitle: "Sentiment Analysis - Complete", body: "The sentityment analysis has completed for \(name)")

@@ -175,12 +175,9 @@ struct BlueskyFeedHandler {
         fetchRequest.sortDescriptors = [sort]
         fetchRequest.fetchLimit = 1
         
-        do {
-            var results = try? context!.fetch(fetchRequest)
-            var date = results!.first!.createdAt ?? Date()
-            return date.toCursor()
-        }
-        return Date().toCursor()
+        let results = try? context!.fetch(fetchRequest)
+        var date = results?.first?.createdAt ?? Date()
+        return date.toCursor()
     }
 }
 

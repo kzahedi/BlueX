@@ -35,6 +35,7 @@ struct SentimentAnalysis {
         do {
             let posts = try fetchPostsWithoutMatchingSentiments(toolValue: tool.stringValue)
             let count = Double(posts.count)
+            print("Running on \(Int(count)) posts")
             
             var taggerFunction : ((Post) -> Void)? = nil
             

@@ -61,7 +61,7 @@ struct AccountSettingsView: View {
                     .disabled(taskManager.isReplyScraperRunning)
                     .buttonStyle(.borderedProminent)
                 }
-                if taskManager.replyTreeProgress > 0.0 {
+                if taskManager.isReplyScraperRunning {
                     HStack {
                         ProgressView("Reply Trees Progress",
                                      value: taskManager.replyTreeProgress)
@@ -204,17 +204,17 @@ struct AccountSettingsView: View {
                         .foregroundColor(.white)
                 }
                 HStack {
-                    Text("Sentiment anaylsis timestamp")
+                    Text("Statistics calculation timestamp")
                     Spacer()
-                    TextField("", text: $viewModel.timestampSentiment)
+                    TextField("", text: $viewModel.timestampStatistics)
                         .frame(width:125)
                         .disabled(true)
                         .foregroundColor(.white)
                 }
                 HStack {
-                    Text("Statistics calculation timestamp")
+                    Text("Sentiment anaylsis timestamp")
                     Spacer()
-                    TextField("", text: $viewModel.timestampStatistics)
+                    TextField("", text: $viewModel.timestampSentiment)
                         .frame(width:125)
                         .disabled(true)
                         .foregroundColor(.white)
