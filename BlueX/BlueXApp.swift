@@ -41,6 +41,7 @@ struct BlueXApp: App {
         }
         .commands {
             ProcessesMenu()
+            LoggerMenu()
         }
         Settings {
             SettingsView()

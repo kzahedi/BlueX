@@ -103,8 +103,9 @@ struct BlueskyFeedHandler {
         
         let today = Date()
         let nrOfDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: today)))
-
-        var cursor = Date().toCursor()
+        let account = try getAccount(did:did, context: self.context!)!
+        
+        var cursor = getEarliestDateAsCursor(force:forceUpdate, id:account.id!)
         
         while true {
             let feed = fetchFeed(for:did, token: token!, limit: limit, cursor:cursor)
@@ -113,6 +114,7 @@ struct BlueskyFeedHandler {
                 break
             }
             
+            Logger.shared.log("Current cursor: \(cursor)")
             for feedItem in feed!.feed {
                 
                 let date = convertToDate(from:feedItem.post.record!.createdAt!) ?? nil
@@ -124,9 +126,8 @@ struct BlueskyFeedHandler {
                 let remainingDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: date!)))
                 let v = min(1.0, max(0.0, remainingDays / nrOfDays))
                 progress(1.0 - v)
-                    
+                
                 let post = getPost(uri: feedItem.post.uri!, context: self.context!)
-                let account = try getAccount(did:did, context: self.context!)!
                 
                 post.accountID = account.id
                 post.createdAt = date!
@@ -139,9 +140,9 @@ struct BlueskyFeedHandler {
                 post.text = feedItem.post.record!.text!
                 post.title = feedItem.post.record!.embed?.external?.title!
                 
- 
+                
             }
-
+            
             if feed!.cursor != nil {
                 let cursorDate = convertToDate(from: feed!.cursor!)
                 if cursorDate == nil {
@@ -157,11 +158,29 @@ struct BlueskyFeedHandler {
             } else {
                 break
             }
+            try self.context!.save()
         }
-        let account = try getAccount(did:did, context: self.context!)!
         account.timestampFeed = Date()
         try self.context!.save()
     }
     
+    func getEarliestDateAsCursor(force:Bool, id:UUID) -> String {
+        if force == true {
+            return Date().toCursor()
+        }
+        
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "accountID == %@", id as CVarArg)
+        let sort = NSSortDescriptor(key: #keyPath(Post.createdAt), ascending: true)
+        fetchRequest.sortDescriptors = [sort]
+        fetchRequest.fetchLimit = 1
+        
+        do {
+            var results = try? context!.fetch(fetchRequest)
+            var date = results!.first!.createdAt ?? Date()
+            return date.toCursor()
+        }
+        return Date().toCursor()
+    }
 }
 
