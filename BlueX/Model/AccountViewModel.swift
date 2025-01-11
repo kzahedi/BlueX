@@ -25,6 +25,7 @@ class AccountViewModel: ObservableObject {
     @Published var followersCount : String
     @Published var followsCount : String
     @Published var postsCount : String
+    @Published var isActive : Bool
 
     let account: Account
     let context: NSManagedObjectContext
@@ -40,6 +41,7 @@ class AccountViewModel: ObservableObject {
         self.displayName = account.displayName ?? ""
         self.handle = account.handle ?? ""
         self.did = account.did ?? ""
+        self.isActive = account.isActive
         self.forceFeedUpdate = account.forceFeedUpdate
         self.forceReplyUpdate = account.forceReplyTreeUpdate
         self.forceSentimentUpdate = account.forceSentimentUpdate
@@ -71,7 +73,6 @@ class AccountViewModel: ObservableObject {
         if let history = account.history as? Set<AccountHistory> {
             if let newest = history.sorted(by: { $0.timestamp! > $1.timestamp! }).first {
                 if newest.timestamp!.isXHoursAgo(x: 12) == false {
-                    print(newest)
                     return
                 }
             }
@@ -110,6 +111,7 @@ class AccountViewModel: ObservableObject {
         account.startAt = startDate.toStartOfDay()
         account.followsCount = Int64(followsCount) ?? 0
         account.followersCount = Int64(followersCount) ?? 0
+        account.isActive = isActive
         
         do {
             try context.save()

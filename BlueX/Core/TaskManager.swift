@@ -56,9 +56,7 @@ class TaskManager: ObservableObject {
         
         DispatchQueue.background(delay:0.0, background: {
             do {
-                try self.replyHandler.runFor(did:did,
-                                             earliestDate: earliestDate,
-                                             forceUpdate: force) {progress in
+                try self.replyHandler.runFor(did:did) {progress in
                     DispatchQueue.main.async {
                         self.replyTreeProgress = progress
                     }
@@ -70,7 +68,7 @@ class TaskManager: ObservableObject {
         }, completion: {
             // Update task completion state on the main thread
             self.isReplyScraperRunning = false
-            self.notifyTaskCompletion(taskName: "Reply tree scraping", accountName:name)
+            notifyTaskCompletion(taskName: "Reply tree scraping", accountName:name)
         })
     }
     
@@ -86,19 +84,14 @@ class TaskManager: ObservableObject {
         print("Starting scraping task for \(did) ...")
         
         DispatchQueue.background(delay:0.0, background: {
-            do {
-                try self.feedHandler.runFor(did:did, earliestDate: earliestDate, forceUpdate: force)
-                {progress in
-                    DispatchQueue.main.async {
-                        self.feedProgress = progress
-                    }
+            self.feedHandler.runFor(did:did) {progress in
+                DispatchQueue.main.async {
+                    self.feedProgress = progress
                 }
-            } catch {
-                print("Error scraping \(did): \(error)")
             }
         }, completion: {
             self.isFeedScraperRunning = false
-            self.notifyTaskCompletion(taskName: "Feed scraping", accountName: name)
+            notifyTaskCompletion(taskName: "Feed scraping", accountName: name)
         })
         // Update task completion state on the main thread
     }
@@ -115,19 +108,14 @@ class TaskManager: ObservableObject {
         print("Calculating statistics for \(did) ...")
         
         DispatchQueue.background(delay:0.0, background: {
-            do {
-                try self.statistics.runFor(did:did) {progress in
-                    DispatchQueue.main.async {
-                        self.calcualteStatisticsProgress = progress
-                    }
+            self.statistics.runFor(did:did) {progress in
+                DispatchQueue.main.async {
+                    self.calcualteStatisticsProgress = progress
                 }
-                
-            } catch {
-                print("Error scraping \(did): \(error)")
             }
         }, completion: {
             self.isCalculatingStatistics = false
-            self.notifyTaskCompletion(taskName: "Statistics calculation", accountName: name)
+            notifyTaskCompletion(taskName: "Statistics calculation", accountName: name)
         })
         // Update task completion state on the main thread
     }
@@ -151,16 +139,8 @@ class TaskManager: ObservableObject {
                 }
             }, completion: {
                 self.isCalculatingSentiments = false
-                self.notifyTaskCompletion(taskName: "Sentiment analsysis \(tool.stringValue)", accountName: name)
+                notifyTaskCompletion(taskName: "Sentiment analsysis \(tool.stringValue)", accountName: name)
             })
         }
-    }
-    
-    func notifyTaskCompletion(taskName: String, accountName: String) {
-        sendNotification(
-            title: "BlueX",
-            subtitle: accountName,
-            body: "\(taskName) has successfully finished."
-        )
     }
 }

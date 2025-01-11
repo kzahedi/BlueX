@@ -68,21 +68,6 @@ struct AccountSettingsView: View {
                     }
                 }
                 HStack {
-                    Text("Calculate statistics")
-                    Spacer()
-                    Button("Run") {
-                        calculateStatistics()
-                    }
-                    .disabled(taskManager.isCalculatingStatistics)
-                    .buttonStyle(.borderedProminent)
-                }
-                if taskManager.isCalculatingStatistics {
-                    HStack {
-                        ProgressView("Statistics Progress",
-                                     value: taskManager.calcualteStatisticsProgress)
-                    }
-                }
-                HStack {
                     Text("Calculate sentiments")
                     Spacer()
                     Button("Run") {
@@ -95,6 +80,21 @@ struct AccountSettingsView: View {
                     HStack {
                         ProgressView("Sentiments Progress",
                                      value: taskManager.calcualtedSentimentsProgress)
+                    }
+                }
+                HStack {
+                    Text("Calculate statistics")
+                    Spacer()
+                    Button("Run") {
+                        calculateStatistics()
+                    }
+                    .disabled(taskManager.isCalculatingStatistics)
+                    .buttonStyle(.borderedProminent)
+                }
+                if taskManager.isCalculatingStatistics {
+                    HStack {
+                        ProgressView("Statistics Progress",
+                                     value: taskManager.calcualteStatisticsProgress)
                     }
                 }
             }
@@ -155,6 +155,12 @@ struct AccountSettingsView: View {
                     .onChange(of:viewModel.startDate){ viewModel.save()}
                 }
                 HStack {
+                    Text("Is active")
+                    Spacer()
+                    Toggle("", isOn: $viewModel.isActive)
+                        .onChange(of:viewModel.isActive){ viewModel.save()}
+                }
+                HStack {
                     Text("Force update of already processed feeds")
                     Spacer()
                     Toggle("", isOn: $viewModel.forceFeedUpdate)
@@ -204,17 +210,17 @@ struct AccountSettingsView: View {
                         .foregroundColor(.white)
                 }
                 HStack {
-                    Text("Statistics calculation timestamp")
+                    Text("Sentiment anaylsis timestamp")
                     Spacer()
-                    TextField("", text: $viewModel.timestampStatistics)
+                    TextField("", text: $viewModel.timestampSentiment)
                         .frame(width:125)
                         .disabled(true)
                         .foregroundColor(.white)
                 }
                 HStack {
-                    Text("Sentiment anaylsis timestamp")
+                    Text("Statistics calculation timestamp")
                     Spacer()
-                    TextField("", text: $viewModel.timestampSentiment)
+                    TextField("", text: $viewModel.timestampStatistics)
                         .frame(width:125)
                         .disabled(true)
                         .foregroundColor(.white)
@@ -253,24 +259,5 @@ struct AccountSettingsView: View {
                                         name:viewModel.account.displayName!)
     }
 
-}
-
-
-
-#Preview {
-    let previewContext = createPreviewContext()
-    let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
-    fetchRequest.fetchLimit = 1
-    
-    let account: Account
-    do {
-        account = try previewContext.fetch(fetchRequest).first ?? Account(context: previewContext)
-        account.id = UUID()
-    } catch {
-        fatalError("Failed to fetch preview account: \(error)")
-    }
-    
-    return AccountSettingsView(viewModel: AccountViewModel(account: account, context: previewContext))
-        .environment(\.managedObjectContext, previewContext)
 }
 

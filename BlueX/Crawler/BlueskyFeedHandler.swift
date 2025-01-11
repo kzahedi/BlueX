@@ -88,42 +88,44 @@ struct BlueskyFeedHandler {
         return returnValue
     }
     
-    public func runFor(did:String,
-                       earliestDate:Date? = nil,
-                       forceUpdate:Bool = false,
-                       progress: @escaping (Double) -> Void) throws {
+    public func runFor(did:String, progress: @escaping (Double) -> Void) {
         
         if self.context == nil {
             print("No context set")
             return
         }
-        
-        let limit = 100
+        let account = try? getAccount(did:did, context: self.context!)!
         let token = getToken()
+        runFor(account:account!, token:token!, progress:progress)
+    }
+    
+    public func runFor(account:Account, token:String, progress: @escaping (Double) -> Void) {
+
+        let limit = 100
+        let earliestDate = account.startAt ?? Date()
+        let forceUpdate = account.forceFeedUpdate
         
         let today = Date()
-        let nrOfDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: today)))
-        let account = try getAccount(did:did, context: self.context!)!
+        let nrOfDays : Double = abs(Double(earliestDate.interval(ofComponent: .day, fromDate: today)))
         
         var cursor = getEarliestDateAsCursor(force:forceUpdate, id:account.id!)
         
         while true {
-            let feed = fetchFeed(for:did, token: token!, limit: limit, cursor:cursor)
+            let feed = fetchFeed(for:account.did!, token: token, limit: limit, cursor:cursor)
             
             if feed == nil {
                 break
             }
             
-            Logger.shared.log("Current cursor: \(cursor)")
             for feedItem in feed!.feed {
                 
                 let date = convertToDate(from:feedItem.post.record!.createdAt!) ?? nil
                 
-                if date == nil || date! < earliestDate! {
+                if date == nil || date! < earliestDate {
                     continue
                 }
                 
-                let remainingDays : Double = abs(Double(earliestDate!.interval(ofComponent: .day, fromDate: date!)))
+                let remainingDays : Double = abs(Double(earliestDate.interval(ofComponent: .day, fromDate: date!)))
                 let v = min(1.0, max(0.0, remainingDays / nrOfDays))
                 progress(1.0 - v)
                 
@@ -149,19 +151,17 @@ struct BlueskyFeedHandler {
                     print("Problem with \(feed!.cursor!)")
                     break
                 }
-                if earliestDate != nil {
-                    if cursorDate! < earliestDate! {
-                        break
-                    }
-                }
+                if cursorDate! < earliestDate {
+                    break
+            }
                 cursor = feed!.cursor!
             } else {
                 break
             }
-            try self.context!.save()
+            try? self.context!.save()
         }
         account.timestampFeed = Date()
-        try self.context!.save()
+        try? self.context!.save()
     }
     
     func getEarliestDateAsCursor(force:Bool, id:UUID) -> String {
@@ -176,7 +176,7 @@ struct BlueskyFeedHandler {
         fetchRequest.fetchLimit = 1
         
         let results = try? context!.fetch(fetchRequest)
-        var date = results?.first?.createdAt ?? Date()
+        let date = results?.first?.createdAt ?? Date()
         return date.toCursor()
     }
 }

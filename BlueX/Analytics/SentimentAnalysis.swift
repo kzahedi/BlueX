@@ -29,14 +29,30 @@ struct SentimentAnalysis {
     
     var context : NSManagedObjectContext? = nil
 
-    public func runFor(did:String, tool: SentimentAnalysisTool, update:Bool = true, progress: @escaping (Double) -> Void) {
+    public func runFor(did:String, tool: SentimentAnalysisTool, progress: @escaping (Double) -> Void) {
+        if let account = try? getAccount(did:did, context:context!) {
+            runFor(account:account, tool:tool, progress:progress)
+        }
+    }
+    
+    public func runFor(account:Account, tool: SentimentAnalysisTool, progress: @escaping (Double) -> Void) {
+        
+        let force = account.forceSentimentUpdate
         
         print("Running sentiment analysis")
         do {
-            let posts = try fetchPostsWithoutMatchingSentiments(toolValue: tool.stringValue)
-            let count = Double(posts.count)
-            print("Running on \(Int(count)) posts")
+            let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+            var posts = try self.context!.fetch(fetchRequest)
             
+            posts = posts.filter { post in
+                post.sentiments?.contains { (sentiment: Sentiment) in
+                    sentiment.tool != tool.stringValue
+                } ?? force
+            }
+            
+            print("Running on \(posts.count) posts")
+            
+            let count = Double(posts.count)
             var taggerFunction : ((Post) -> Void)? = nil
             
             switch tool {
@@ -49,10 +65,8 @@ struct SentimentAnalysis {
                 index = index + 1
                 progress(index/count)
             }
-            let account = try getAccount(did:did, context:context!)
-            if account != nil {
-                account!.timestampSentiment = Date()
-            }
+            account.timestampSentiment = Date()
+            
         } catch {
             print(error)
         }
@@ -72,41 +86,36 @@ struct SentimentAnalysis {
         if sentimentScore.0 != nil {
             let score = Double(sentimentScore.0!.rawValue)
             if score != nil {
-                let sentiment = Sentiment(context: self.context!)
-                sentiment.postID = post.id!
-                sentiment.id = UUID()
-                sentiment.score = score!
-                sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
-                sentiment.post = post
-                try? self.context!.save()
+                if let sentimentsSet = post.sentiments as? Set<Sentiment> {
+                    let sentiments = Array(sentimentsSet)
+                    if let sentiment = sentiments.filter({$0.tool == SentimentAnalysisTool.NLTagger.stringValue }).first {
+                        sentiment.score = score!
+                        try? self.context!.save()
+                    } else {
+                        let sentiment = Sentiment(context: self.context!)
+                        sentiment.id = UUID()
+                        sentiment.score = score!
+                        sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
+                        sentiment.post = post
+                        post.addToSentiments(sentiment)
+                        try? self.context!.save()
+                    }
+                }
             }
         }
     }
     
-    func fetchPostsWithoutMatchingSentiments(toolValue: String) throws -> [Post] {
+    func fetchPostsWithoutMatchingSentiments(toolName: String, force:Bool) throws -> [Post] {
         // Create a fetch request for the Post entity
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         
         // Predicate: Select posts that do not have any sentiment with the specified tool and matching postID
-        fetchRequest.predicate = NSPredicate(format: "NOT (SUBQUERY(sentiments, $s, $s.postID == id AND $s.tool == %@).@count > 0)", toolValue)
+        if force == false {
+            fetchRequest.predicate = NSPredicate(format: "NOT (SUBQUERY(sentiments, $s, $s.postID == id AND $s.tool == %@).@count > 0)", toolName)
+        }
         
         // Execute the fetch request
         return try self.context!.fetch(fetchRequest)
     }
-    
-    func fetchPost(by uuid: UUID, context: NSManagedObjectContext) throws -> Post? {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-        fetchRequest.fetchLimit = 1
-        return try context.fetch(fetchRequest).first
-    }
-    
-    func fetchSentiment(by uuid: UUID, context: NSManagedObjectContext) throws -> Sentiment? {
-        let fetchRequest: NSFetchRequest<Sentiment> = Sentiment.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
-        fetchRequest.fetchLimit = 1
-        return try context.fetch(fetchRequest).first
-    }
-
 }
 

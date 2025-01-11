@@ -85,8 +85,6 @@ class StatisticsModel: ObservableObject {
             }) { $0.0 }
                 .mapValues { $0.map { $0.1 } } // Strip keys in the array
             
-            let sentimentRepliesCollection: [Date: Double] = getAvgSentimentOverAllReplies(postCollection:postCollection)
-            
             // Map to PostStatsDataPoint
             self.postsPerDay = postCollection.map { (day, posts) in
                 CountsPerDay(day: day, count: posts.count)
@@ -104,8 +102,8 @@ class StatisticsModel: ObservableObject {
                 CountsPerDay(day: day, count: mean(sentiments:sentiments, field:\.score))
             }.sorted { $0.day < $1.day } // Sort by day
             
-            self.sentimentReplies = sentimentRepliesCollection.map { (day, avgSentiment) in
-                CountsPerDay(day: day, count: avgSentiment)
+            self.sentimentReplies = postCollection.map { (day, posts) in
+                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics!.avgSentimentReplies))
             }.sorted { $0.day < $1.day } // Sort by day
            
             let today = Calendar.current.startOfDay(for: Date())
@@ -145,18 +143,7 @@ class StatisticsModel: ObservableObject {
         return Double(total / Double(sentiments.count))
     }
     
-    private func getAvgSentimentOverAllReplies(postCollection:[Date:[Post]]) -> [Date: Double] {
-       
-        var r : [Date:Double] = [:]
-        
-        for (date, posts) in postCollection {
-            let avgSentiment = posts.map{getAverageSentimentOverAllReplies(rootID:$0.id!)}.reduce(0, +) / Double(posts.count)
-            r[date] = avgSentiment
-        }
-        
-        return r
-    }
-    
+   
     func getAverageSentimentOverAllReplies(rootID: UUID) -> Double {
         print("Working on \(rootID)")
         // Fetch posts with matching rootID

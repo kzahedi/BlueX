@@ -19,7 +19,6 @@ struct AccountPlotView: View {
             RepliesPerDay(viewModel: viewModel)
             ReplyTreeDepth(viewModel: viewModel)
             SentimentPerDay(viewModel: viewModel)
-            ReplySentimentPerDay(viewModel: viewModel)
         }
     }
 }
@@ -53,11 +52,11 @@ struct RepliesPerDay: View {
                     BarMark(x: .value("Month", dataPoint.day, unit:.day),
                             y: .value("Count", dataPoint.count))
                 }
+                .foregroundStyle(Color.green)
             }
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)
-            .foregroundStyle(Color.green)
             .padding()
         }
     }
@@ -73,11 +72,11 @@ struct ReplyTreeDepth: View {
                     BarMark(x: .value("Month", dataPoint.day, unit:.day),
                             y: .value("Count", dataPoint.count))
                 }
+                .foregroundStyle(Color.orange)
             }
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)
-            .foregroundStyle(Color.orange)
             .padding()
         }
     }
@@ -91,34 +90,24 @@ struct SentimentPerDay: View {
             Chart {
                 ForEach(viewModel.sentimentPosts, id: \.day) { dataPoint in
                     LineMark(x: .value("Month", dataPoint.day, unit:.day),
-                            y: .value("Count", dataPoint.count))
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Avg Sentiments Posts"))
+                    .foregroundStyle(by: .value("Type", "Avg Sentiments Posts"))
+                }
+                ForEach(viewModel.sentimentReplies, id: \.day) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Avg Sentiments Replies"))
+                    .foregroundStyle(by: .value("Type", "Avg Sentiments Replies"))
                 }
             }
+            .chartForegroundStyleScale(["Avg Sentiments Posts": .green, "Avg Sentiments Replies": .blue])
+            .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)
-            .foregroundStyle(Color.cyan)
             .padding()
         }
     }
 }
 
-struct ReplySentimentPerDay: View {
-    @ObservedObject var viewModel: StatisticsModel
-    
-    var body: some View {
-        GroupBox("Average reply-sentiment per day") {
-            Chart {
-                ForEach(viewModel.sentimentReplies, id: \.day) { dataPoint in
-                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
-                            y: .value("Count", dataPoint.count))
-                }
-            }
-            .chartXScale(domain: viewModel.xMin...viewModel.xMax)
-            .frame(width:1000, height:200)
-            .background(Color.black)
-            .foregroundStyle(Color.mint)
-            .padding()
-        }
-    }
-}

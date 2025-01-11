@@ -10,9 +10,8 @@ import CoreData
 struct BlueskyRepliesHandler {
     var context : NSManagedObjectContext? = nil
     var token : String = ""
-    var accountID : UUID = UUID()
     
-    private func getThread(url:URL) throws -> ([String], [ApiPost]) {
+    private func getThread(url:URL, token:String) throws -> ([String], [ApiPost]) {
         var feedRequest = URLRequest(url: url)
         let group = DispatchGroup()
         var uris : [String] = []
@@ -109,17 +108,17 @@ struct BlueskyRepliesHandler {
         return URL(string: url)!
     }
     
-    public func recursiveGetThread(uri:String) -> [ApiPost] {
+    public func recursiveGetThread(uri:String, token:String) -> [ApiPost] {
         var uris : [String] = []
         var posts : [ApiPost] = []
         let url = createRequestURL(uri:uri)
         do {
-            (uris, posts) = try getThread(url:url)
+            (uris, posts) = try getThread(url:url, token:token)
         } catch {
             print(error)
         }
         for uri in uris {
-            let p = recursiveGetThread(uri: uri)
+            let p = recursiveGetThread(uri: uri, token:token)
             posts = posts + p
         }
         
@@ -128,106 +127,101 @@ struct BlueskyRepliesHandler {
     
     
     
-    public mutating func runFor(did:String,
-                                earliestDate:Date? = nil,
-                                forceUpdate:Bool = false,
-                                progress: @escaping (Double) -> Void) throws {
+    public func runFor(did:String, progress: @escaping (Double) -> Void) throws {
         if self.context == nil {
             print("No context set")
             return
         }
         
-        let account = try getAccount(did:did, context:self.context!)
-        
-        if account == nil {
-            print("Cannot find account")
-            return
-        }
-        
-        self.accountID = account!.id!
-        
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        if earliestDate != nil && forceUpdate == false {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)",
-                                                 account!.id! as CVarArg, earliestDate! as NSDate)
-        } else if forceUpdate == false {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)",
-                                                 account!.id! as CVarArg, earliestDate! as NSDate)
-        } else {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil",
-                                                 account!.id! as CVarArg, earliestDate! as NSDate)
-        }
-        
-        let results = try self.context!.fetch(fetchRequest)
-        print("Found \(results.count) posts")
-        
-        self.token = getToken()!
-        
-        var filteredResults = results.filter{$0.createdAt! >= earliestDate! || forceUpdate}
-        
-        if forceUpdate == false {
-            // Step 1: Collect all parentIDs
-            let parentURIs = Set(filteredResults.compactMap { $0.parentURI })
-            
-            // Step 2: Filter posts whose id is not in the set of parentIDs
-            // If there is a post, that is the parent of another post, remove it
-            filteredResults = filteredResults.filter { !parentURIs.contains($0.uri!) }
-        }
-        
-        let uris = filteredResults.map{$0.uri!}
-        
-        var n : Double = 0.0
-        let count : Double = Double(uris.count)
-        
-        for uri in uris {
-            n = n + 1
-            progress(n/count)
-            Logger.shared.log("Working on post with uri \(uri)")
-            let r = recursiveGetThread(uri: uri)
-            Logger.shared.log("Received \(r.count) replies")
-            for p in r {
-                //                print("Creating \(p.uri!)")
-                var root : Post? = nil
-                let post = getPost(uri: p.uri!, context: self.context!)
-                
-                if p.record != nil {
-                    if p.record!.reply != nil {
-                        if p.record!.reply!.parent != nil {
-                            let rootUri = p.record!.reply!.parent!.uri!
-                            root = getPost(uri: rootUri, context: self.context!)
-                        }
-                    }
-                }
-                let date = convertToDate(from:p.record!.createdAt!) ?? nil
-                post.accountID = accountID
-                post.createdAt = date
-                post.fetchedAt = Date()
-                post.uri = p.uri
-                post.likeCount = Int64(p.likeCount!)
-                post.replyCount = Int64(p.replyCount!)
-                post.quoteCount = Int64(p.quoteCount!)
-                post.repostCount = Int64(p.repostCount!)
-                if let rootUri = p.record?.reply?.root?.uri {
-                    post.rootURI = rootUri
-                }
-                if let parentUri = p.record?.reply?.parent?.uri {
-                    post.parentURI = parentUri
-                }
-                if root != nil {
-                    post.rootID = root!.id!
-                }
-                post.text = p.record!.text!
-                post.title = p.record!.embed?.external?.title!
-                post.replyTreeChecked = true
-                
-                if root != nil {
-                    post.parent = root!
-                    root!.addToReplies(post)
-                }
-                try self.context!.save()
+        if let account = try getAccount(did:did, context:self.context!) {
+            if let token = getToken() {
+                runFor(account:account, token:token, progress:progress)
             }
         }
-        account!.timestampReplyTrees = Date()
-        try self.context!.save()
+    }
+    
+    public func runFor(account:Account, token:String, progress: @escaping (Double) -> Void) {
+        
+        let force = account.forceReplyTreeUpdate
+        let startAt = account.startAt
+        
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        
+        if startAt != nil && force == false {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)", account.id! as CVarArg, account.startAt! as NSDate)
+        } else if force == true && startAt != nil {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil", account.id! as CVarArg, account.startAt! as NSDate)
+        } else if force == false && startAt == nil {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)", account.id! as CVarArg)
+        } else {
+            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil", account.id! as CVarArg)
+        }
+        
+        if let results = try? self.context!.fetch(fetchRequest) {
+            var filteredResults = results.filter{$0.createdAt! >= account.startAt! || account.forceReplyTreeUpdate == true}
+            if account.forceReplyTreeUpdate == false {
+                // Step 1: Collect all parentIDs
+                let parentURIs = Set(filteredResults.compactMap { $0.parentURI })
+                
+                // Step 2: Filter posts whose id is not in the set of parentIDs
+                // If there is a post, that is the parent of another post, remove it
+                filteredResults = filteredResults.filter { !parentURIs.contains($0.uri!) }
+            }
+            
+            
+            var n : Double = 0.0
+            let count : Double = Double(filteredResults.count)
+            
+            for post in filteredResults {
+                let uri = post.uri!
+                n = n + 1
+                progress(n/count)
+                let r = recursiveGetThread(uri: uri, token:token)
+                for p in r {
+                    //                print("Creating \(p.uri!)")
+                    var root : Post? = nil
+                    let post = getPost(uri: p.uri!, context: self.context!)
+                    
+                    if p.record != nil {
+                        if p.record!.reply != nil {
+                            if p.record!.reply!.parent != nil {
+                                let rootUri = p.record!.reply!.parent!.uri!
+                                root = getPost(uri: rootUri, context: self.context!)
+                            }
+                        }
+                    }
+                    let date = convertToDate(from:p.record!.createdAt!) ?? nil
+                    post.accountID = account.id
+                    post.createdAt = date
+                    post.fetchedAt = Date()
+                    post.uri = p.uri
+                    post.likeCount = Int64(p.likeCount!)
+                    post.replyCount = Int64(p.replyCount!)
+                    post.quoteCount = Int64(p.quoteCount!)
+                    post.repostCount = Int64(p.repostCount!)
+                    if let rootUri = p.record?.reply?.root?.uri {
+                        post.rootURI = rootUri
+                    }
+                    if let parentUri = p.record?.reply?.parent?.uri {
+                        post.parentURI = parentUri
+                    }
+                    if root != nil {
+                        post.rootID = root!.id!
+                    }
+                    post.text = p.record!.text!
+                    post.title = p.record!.embed?.external?.title!
+                    post.replyTreeChecked = true
+                    
+                    if root != nil {
+                        post.parent = root!
+                        root!.addToReplies(post)
+                    }
+                }
+                post.replyTreeChecked = true
+                try? self.context!.save()
+            }
+            account.timestampReplyTrees = Date()
+            try? self.context!.save()
+        }
     }
 }
