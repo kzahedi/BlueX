@@ -28,43 +28,35 @@ struct CalculateStatistics {
     func runFor(account: Account, progress: @escaping (Double) -> Void) {
         var n : Double = 0.0
         print("Running for account \(account.displayName!)")
-        if let allNodes = try? getAllNodes(accountID:account.id!) {
-            let count = Double(allNodes.count)
+        let nodes = account.posts as? Set<Post> ?? Set<Post>()
+        let allNodes = Array(nodes)
+        let count = Double(allNodes.count)
+        
+        print("Found \(allNodes.count) root nodes")
+        
+        for post in allNodes {
+            let stats = Statistics(context: context!)
             
-            print("Found \(allNodes.count) root nodes")
+            stats.post = post
+            post.statistics = stats
             
-            for post in allNodes {
-                let stats = Statistics(context: context!)
-                
-                stats.post = post
-                post.statistics = stats
-                
-                stats.countedAllReplies = countAllReplies(post:post)
-                stats.replyTreeDepth = countReplyTreeDepth(post:post)
-                let sentiments = collectSentiments(post:post)
-                if sentiments.count == 0 {
-                    stats.avgSentimentReplies = 0.0
-                } else {
-                    stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
-                }
-                n = n + 1
-                progress(n/count)
-                try? self.context!.save()
+            stats.countedAllReplies = countAllReplies(post:post)
+            stats.replyTreeDepth = countReplyTreeDepth(post:post)
+            let sentiments = collectSentiments(post:post)
+            if sentiments.count == 0 {
+                stats.avgSentimentReplies = 0.0
+            } else {
+                stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
             }
-            account.timestampStatistics = Date()
-            
+            n = n + 1
+            progress(n/count)
             try? self.context!.save()
-            
-            print("Done with counting replies")
         }
-    }
-    
-    
-    private func getAllNodes(accountID:UUID) throws -> [Post] {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "accountID == %@", accountID as CVarArg)
-        let results = try self.context!.fetch(fetchRequest)
-        return results
+        account.timestampStatistics = Date()
+        
+        try? self.context!.save()
+        
+        print("Done with counting replies")
     }
     
     private func countAllReplies(post:Post) -> Int64 {
@@ -87,7 +79,7 @@ struct CalculateStatistics {
         if let repliesSet = post.replies as? Set<Post> {
             let replies = Array(repliesSet)
             
-            var maxDepth:Int64 = 0
+            var maxDepth:Int64 = -1
             for post in replies {
                 let d = countReplyTreeDepth(post: post)
                 if post.statistics == nil {
@@ -100,7 +92,7 @@ struct CalculateStatistics {
             }
             return maxDepth + 1
         }
-        return 0
+        return -1
     }
 
     private func collectSentiments(post:Post) -> [Double] {

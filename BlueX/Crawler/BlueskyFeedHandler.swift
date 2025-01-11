@@ -108,7 +108,7 @@ struct BlueskyFeedHandler {
         let today = Date()
         let nrOfDays : Double = abs(Double(earliestDate.interval(ofComponent: .day, fromDate: today)))
         
-        var cursor = getEarliestDateAsCursor(force:forceUpdate, id:account.id!)
+        var cursor = getEarliestDateAsCursor(force:forceUpdate, account:account)
         
         while true {
             let feed = fetchFeed(for:account.did!, token: token, limit: limit, cursor:cursor)
@@ -131,7 +131,6 @@ struct BlueskyFeedHandler {
                 
                 let post = getPost(uri: feedItem.post.uri!, context: self.context!)
                 
-                post.accountID = account.id
                 post.createdAt = date!
                 post.fetchedAt = Date()
                 post.uri = feedItem.post.uri
@@ -141,8 +140,11 @@ struct BlueskyFeedHandler {
                 post.repostCount = Int64(feedItem.post.repostCount!)
                 post.text = feedItem.post.record!.text!
                 post.title = feedItem.post.record!.embed?.external?.title!
+                account.addToPosts(post)
+                post.account = account
                 
-                
+                try? self.context!.save()
+
             }
             
             if feed!.cursor != nil {
@@ -164,19 +166,14 @@ struct BlueskyFeedHandler {
         try? self.context!.save()
     }
     
-    func getEarliestDateAsCursor(force:Bool, id:UUID) -> String {
+    func getEarliestDateAsCursor(force:Bool, account:Account) -> String {
         if force == true {
             return Date().toCursor()
         }
         
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "accountID == %@", id as CVarArg)
-        let sort = NSSortDescriptor(key: #keyPath(Post.createdAt), ascending: true)
-        fetchRequest.sortDescriptors = [sort]
-        fetchRequest.fetchLimit = 1
-        
-        let results = try? context!.fetch(fetchRequest)
-        let date = results?.first?.createdAt ?? Date()
+        let postsSet = account.posts as? Set<Post> ?? Set<Post>()
+        var posts = Array(postsSet)
+        let date = posts.sorted{ $0.createdAt! < $1.createdAt!}.first?.createdAt ?? Date()
         return date.toCursor()
     }
 }

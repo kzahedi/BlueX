@@ -17,6 +17,7 @@ struct AccountPlotView: View {
         ScrollView {
             PlotsPerDay(viewModel: viewModel)
             RepliesPerDay(viewModel: viewModel)
+            AvgRepliesPerDay(viewModel: viewModel)
             ReplyTreeDepth(viewModel: viewModel)
             SentimentPerDay(viewModel: viewModel)
         }
@@ -62,6 +63,26 @@ struct RepliesPerDay: View {
     }
 }
 
+struct AvgRepliesPerDay: View {
+    @ObservedObject var viewModel: StatisticsModel
+
+    var body: some View {
+        GroupBox("Avg number of replies per day") {
+            Chart {
+                ForEach(viewModel.avgRepliesPerDay) { dataPoint in
+                    BarMark(x: .value("Month", dataPoint.day, unit:.day),
+                            y: .value("Count", dataPoint.count))
+                }
+                .foregroundStyle(Color.pink)
+            }
+            .chartXScale(domain: viewModel.xMin...viewModel.xMax)
+            .frame(width:1000, height:200)
+            .background(Color.black)
+            .padding()
+        }
+    }
+}
+
 struct ReplyTreeDepth: View {
     @ObservedObject var viewModel: StatisticsModel
     
@@ -98,10 +119,10 @@ struct SentimentPerDay: View {
                     LineMark(x: .value("Month", dataPoint.day, unit:.day),
                              y: .value("Count", dataPoint.count),
                              series: .value("Type", "Avg Sentiments Replies"))
-                    .foregroundStyle(by: .value("Type", "Avg Sentiments Replies"))
+                    .foregroundStyle(by: .value("Type", "Avg Sentiments Posts"))
                 }
             }
-            .chartForegroundStyleScale(["Avg Sentiments Posts": .green, "Avg Sentiments Replies": .blue])
+            .chartForegroundStyleScale(["Avg Post Sentiments ": .green, "Avg Replies Sentiments": .blue])
             .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)

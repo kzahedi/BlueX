@@ -35,43 +35,49 @@ struct SentimentAnalysis {
         }
     }
     
+    private func checkForSentiment(post:Post, tool:SentimentAnalysisTool) -> Bool {
+        let s = post.sentiments as? Set<Sentiment> ?? Set()
+        let sArray = Array(s)
+        return sArray.filter{$0.tool == tool.stringValue}.count > 0
+    }
+    
     public func runFor(account:Account, tool: SentimentAnalysisTool, progress: @escaping (Double) -> Void) {
         
         let force = account.forceSentimentUpdate
         
         print("Running sentiment analysis")
-        do {
-            let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-            var posts = try self.context!.fetch(fetchRequest)
-            
-            posts = posts.filter { post in
-                post.sentiments?.contains { (sentiment: Sentiment) in
-                    sentiment.tool != tool.stringValue
-                } ?? force
-            }
-            
-            print("Running on \(posts.count) posts")
-            
-            let count = Double(posts.count)
-            var taggerFunction : ((Post) -> Void)? = nil
-            
-            switch tool {
-                case .NLTagger: taggerFunction = calculateSentimentNLTagger
-            }
-            
-            var index : Double = 0.0
-            for post in posts {
-                taggerFunction!(post)
-                index = index + 1
-                progress(index/count)
-            }
-            account.timestampSentiment = Date()
-            
-        } catch {
-            print(error)
+        
+        let postsSet = account.posts as? Set<Post> ?? Set()
+        var posts = Array(postsSet)
+        posts = posts.filter { post in checkForSentiment(post:post, tool:tool) == false || force}
+        
+        var taggerFunction : ((Post) -> Void)? = nil
+        switch tool {
+            case .NLTagger: taggerFunction = calculateSentimentNLTagger
         }
+        
+        for post in posts {
+            let count = Double(posts.count)
+            var index : Double = 0.0
+            recursiveCalculateSentiment(post:post, tagger:taggerFunction!)
+            index = index + 1
+            progress(index/count)
+        }
+
+        account.timestampSentiment = Date()
+            
         try? context!.save()
         print("Done with sentiment analysis")
+    }
+    
+    private func recursiveCalculateSentiment(post:Post, tagger:(Post)->Void) {
+        let s = post.replies as? Set<Post> ?? Set()
+        let posts = Array(s)
+        if posts.count == 0 { return }
+        for post in posts {
+            tagger(post)
+            recursiveCalculateSentiment(post: post, tagger: tagger)
+        }
     }
     
     private func calculateSentimentNLTagger(post: Post) -> Void {

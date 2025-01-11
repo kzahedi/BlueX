@@ -18,7 +18,8 @@
         <attribute name="timestampReplyTrees" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampSentiment" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampStatistics" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <relationship name="history" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="AccountHistory" inverseName="account" inverseEntity="AccountHistory"/>
+        <relationship name="history" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="AccountHistory" inverseName="account" inverseEntity="AccountHistory"/>
+        <relationship name="posts" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Post" inverseName="account" inverseEntity="Post"/>
     </entity>
     <entity name="AccountHistory" representedClassName="AccountHistory" syncable="YES" codeGenerationType="class">
         <attribute name="followersCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
@@ -28,7 +29,6 @@
         <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="history" inverseEntity="Account"/>
     </entity>
     <entity name="Post" representedClassName="Post" syncable="YES" codeGenerationType="class">
-        <attribute name="accountID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="fetchedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
@@ -44,9 +44,10 @@
         <attribute name="threadDepth" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="title" optional="YES" attributeType="String"/>
         <attribute name="uri" optional="YES" attributeType="String"/>
+        <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="posts" inverseEntity="Account"/>
         <relationship name="parent" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Post" inverseName="replies" inverseEntity="Post"/>
         <relationship name="replies" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Post" inverseName="parent" inverseEntity="Post"/>
-        <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Sentiment" inverseName="post" inverseEntity="Sentiment"/>
+        <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Sentiment" inverseName="post" inverseEntity="Sentiment"/>
         <relationship name="statistics" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Statistics" inverseName="post" inverseEntity="Statistics"/>
     </entity>
     <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">

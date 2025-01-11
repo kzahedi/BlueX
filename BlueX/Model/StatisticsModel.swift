@@ -22,6 +22,7 @@ class StatisticsModel: ObservableObject {
     @Published var timestampFeed: String
     @Published var postsPerDay: [CountsPerDay<Int>]
     @Published var repliesPerDay: [CountsPerDay<Int>]
+    @Published var avgRepliesPerDay: [CountsPerDay<Double>]
     @Published var replyTreeDepthPerDay: [CountsPerDay<Double>]
     @Published var sentimentPosts: [CountsPerDay<Double>]
     @Published var sentimentReplies: [CountsPerDay<Double>]
@@ -43,6 +44,7 @@ class StatisticsModel: ObservableObject {
         self.timestampFeed = ""
         self.postsPerDay = []
         self.repliesPerDay = []
+        self.avgRepliesPerDay = []
         self.replyTreeDepthPerDay = []
         self.sentimentPosts = []
         self.sentimentReplies = []
@@ -53,73 +55,66 @@ class StatisticsModel: ObservableObject {
     }
     
     func updateDataPoints() {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            NSPredicate(format: "accountID == %@", account.id! as CVarArg),
-            NSPredicate(format: "rootID == nil"),
-            NSPredicate(format: "createdAt >= %@", account.startAt! as NSDate)
-        ])
-        fetchRequest.relationshipKeyPathsForPrefetching = ["statistics"]
         
-        do {
-            let posts = try context.fetch(fetchRequest)
-            
-            // Use Calendar to group posts by day (ignoring time of day)
-            let postCollection : [Date:[Post]] = Dictionary(grouping: posts) { post in
-                guard let timestamp = post.createdAt else {
-                    return Date.distantPast // Fallback for invalid timestamps
-                }
-                return Calendar.current.startOfDay(for: timestamp)
+        let postsSet = account.posts as? Set<Post> ?? Set()
+        var posts = Array(postsSet)
+        posts = posts.filter{$0.rootID == nil && $0.createdAt! >= account.startAt!}
+       
+        
+        // Use Calendar to group posts by day (ignoring time of day)
+        let postCollection : [Date:[Post]] = Dictionary(grouping: posts) { post in
+            guard let timestamp = post.createdAt else {
+                return Date.distantPast // Fallback for invalid timestamps
             }
-            
-            let sentimentCollection: [Date: [Sentiment]] = Dictionary(grouping: posts.compactMap { post -> (Date, Sentiment)? in
-                guard
-                    let createdAt = post.createdAt,
-                    let sentiments = post.sentiments as? Set<Sentiment>,
-                    let firstSentiment = sentiments.first(where: { $0.tool == SentimentAnalysisTool.NLTagger.stringValue })
-                else {
-                    return nil // Skip posts with missing data
-                }
-                
-                let day = Calendar.current.startOfDay(for: createdAt)
-                return (day, firstSentiment)
-            }) { $0.0 }
-                .mapValues { $0.map { $0.1 } } // Strip keys in the array
-            
-            // Map to PostStatsDataPoint
-            self.postsPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: posts.count)
-            }.sorted { $0.day < $1.day } // Sort by day
-            
-            self.repliesPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: sum(posts:posts, field:\.statistics?.countedAllReplies))
-            }.sorted { $0.day < $1.day } // Sort by day
-            
-            self.replyTreeDepthPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.replyTreeDepth))
-            }.sorted { $0.day < $1.day } // Sort by day
-            
-            self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
-                CountsPerDay(day: day, count: mean(sentiments:sentiments, field:\.score))
-            }.sorted { $0.day < $1.day } // Sort by day
-            
-            self.sentimentReplies = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.avgSentimentReplies))
-            }.sorted { $0.day < $1.day } // Sort by day
-           
-            let today = Calendar.current.startOfDay(for: Date())
-            if self.postsPerDay.last == nil {
-                xMax = Date()
-            } else {
-                xMax = self.postsPerDay.last!.day < today ? today : self.postsPerDay.last!.day
-            }
-            xMin = self.account.startAt == nil ?  self.postsPerDay.first!.day : self.account.startAt!
-            
-        } catch {
-            print("Error fetching posts: \(error)")
-            self.postsPerDay = []
-            self.repliesPerDay = []
+            return Calendar.current.startOfDay(for: timestamp)
         }
+        
+        let sentimentCollection: [Date: [Sentiment]] = Dictionary(grouping: posts.compactMap { post -> (Date, Sentiment)? in
+            guard
+                let createdAt = post.createdAt,
+                let sentiments = post.sentiments as? Set<Sentiment>,
+                let firstSentiment = sentiments.first(where: { $0.tool == SentimentAnalysisTool.NLTagger.stringValue })
+            else {
+                return nil // Skip posts with missing data
+            }
+            
+            let day = Calendar.current.startOfDay(for: createdAt)
+            return (day, firstSentiment)
+        }) { $0.0 }
+            .mapValues { $0.map { $0.1 } } // Strip keys in the array
+        
+        // Map to PostStatsDataPoint
+        self.postsPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: posts.count)
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.repliesPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: sum(posts:posts, field:\.statistics?.countedAllReplies))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.avgRepliesPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.countedAllReplies))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.replyTreeDepthPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.replyTreeDepth))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
+            CountsPerDay(day: day, count: mean(sentiments:sentiments, field:\.score))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.sentimentReplies = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.avgSentimentReplies))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        if self.postsPerDay.last == nil {
+            xMax = Date()
+        } else {
+            xMax = self.postsPerDay.last!.day < today ? today : self.postsPerDay.last!.day
+        }
+        xMin = self.account.startAt == nil ?  self.postsPerDay.first!.day : self.account.startAt!
     }
     
     private func sum(posts: [Post], field: KeyPath<Post, Int64?>) -> Int {

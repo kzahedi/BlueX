@@ -16,9 +16,7 @@ struct PersistenceController {
         let viewContext = result.container.viewContext
         for _ in 0..<10 {
             let newAccount = Account(context: viewContext)
-//            let accountHistory = AccountHistory(context: viewContext)
             newAccount.id = UUID()
-//            accountHistory.accountID = newAccount.id
         }
         do {
             try viewContext.save()

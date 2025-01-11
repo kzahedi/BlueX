@@ -12,6 +12,7 @@ struct UpdateAllTasks {
     static let shared = UpdateAllTasks()
 
     let context = PersistenceController.shared.container.viewContext
+    let backgroundContext : NSManagedObjectContext
     var feedScraper : BlueskyFeedHandler = BlueskyFeedHandler()
     var repliesScraper : BlueskyRepliesHandler = BlueskyRepliesHandler()
     var statistics = CalculateStatistics()
@@ -20,7 +21,7 @@ struct UpdateAllTasks {
     let logger : Logger = Logger.shared
 
     private init() {
-        let backgroundContext: NSManagedObjectContext = {
+        backgroundContext = {
             let context = PersistenceController.shared.container.newBackgroundContext()
             context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
             return context
@@ -36,7 +37,7 @@ struct UpdateAllTasks {
             DispatchQueue.background(delay:0.0, background:{
                 print("Token: \(token)")
                 let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
-                if let accounts = try? context.fetch(fetchRequest) {
+                if let accounts = try? backgroundContext.fetch(fetchRequest) {
                     var activeAccounts = accounts.filter{$0.isActive}
                     activeAccounts.shuffle()
                     for account in activeAccounts {

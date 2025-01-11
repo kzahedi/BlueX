@@ -145,84 +145,73 @@ struct BlueskyRepliesHandler {
         let force = account.forceReplyTreeUpdate
         let startAt = account.startAt
         
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        let postsSet = account.posts as? Set<Post> ?? Set()
+        var posts = Array(postsSet)
         
         if startAt != nil && force == false {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)", account.id! as CVarArg, account.startAt! as NSDate)
+            posts = posts.filter{ $0.createdAt! >= startAt! && $0.rootURI == nil && $0.replyTreeChecked != true}
         } else if force == true && startAt != nil {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND createdAt >= %@ AND rootURI==nil", account.id! as CVarArg, account.startAt! as NSDate)
+            posts = posts.filter{ $0.createdAt! >= startAt! && $0.rootURI == nil}
         } else if force == false && startAt == nil {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil AND (replyTreeChecked==false OR replyTreeChecked==nil)", account.id! as CVarArg)
+            posts = posts.filter{ $0.rootURI == nil && $0.replyTreeChecked != true}
         } else {
-            fetchRequest.predicate = NSPredicate(format: "accountID == %@ AND rootURI==nil", account.id! as CVarArg)
+            posts = posts.filter{ $0.rootURI == nil}
         }
         
-        if let results = try? self.context!.fetch(fetchRequest) {
-            var filteredResults = results.filter{$0.createdAt! >= account.startAt! || account.forceReplyTreeUpdate == true}
-            if account.forceReplyTreeUpdate == false {
-                // Step 1: Collect all parentIDs
-                let parentURIs = Set(filteredResults.compactMap { $0.parentURI })
+        
+        print("Reply tree running on \(posts.count) posts")
+        var n : Double = 0.0
+        let count : Double = Double(posts.count)
+        
+        for post in posts {
+            let uri = post.uri!
+            n = n + 1
+            progress(n/count)
+            let r = recursiveGetThread(uri: uri, token:token)
+            for p in r {
+                //                print("Creating \(p.uri!)")
+                var root : Post? = nil
+                let post = getPost(uri: p.uri!, context: self.context!)
                 
-                // Step 2: Filter posts whose id is not in the set of parentIDs
-                // If there is a post, that is the parent of another post, remove it
-                filteredResults = filteredResults.filter { !parentURIs.contains($0.uri!) }
-            }
-            
-            
-            print("Reply tree running on \(filteredResults.count) posts")
-            var n : Double = 0.0
-            let count : Double = Double(filteredResults.count)
-            
-            for post in filteredResults {
-                let uri = post.uri!
-                n = n + 1
-                progress(n/count)
-                let r = recursiveGetThread(uri: uri, token:token)
-                for p in r {
-                    //                print("Creating \(p.uri!)")
-                    var root : Post? = nil
-                    let post = getPost(uri: p.uri!, context: self.context!)
-                    
-                    if p.record != nil {
-                        if p.record!.reply != nil {
-                            if p.record!.reply!.parent != nil {
-                                let rootUri = p.record!.reply!.parent!.uri!
-                                root = getPost(uri: rootUri, context: self.context!)
-                            }
+                if p.record != nil {
+                    if p.record!.reply != nil {
+                        if p.record!.reply!.parent != nil {
+                            let rootUri = p.record!.reply!.parent!.uri!
+                            root = getPost(uri: rootUri, context: self.context!)
                         }
                     }
-                    let date = convertToDate(from:p.record!.createdAt!) ?? nil
-                    post.accountID = account.id
-                    post.createdAt = date
-                    post.fetchedAt = Date()
-                    post.uri = p.uri
-                    post.likeCount = Int64(p.likeCount!)
-                    post.replyCount = Int64(p.replyCount!)
-                    post.quoteCount = Int64(p.quoteCount!)
-                    post.repostCount = Int64(p.repostCount!)
-                    if let rootUri = p.record?.reply?.root?.uri {
-                        post.rootURI = rootUri
-                    }
-                    if let parentUri = p.record?.reply?.parent?.uri {
-                        post.parentURI = parentUri
-                    }
-                    if root != nil {
-                        post.rootID = root!.id!
-                    }
-                    post.text = p.record!.text!
-                    post.title = p.record!.embed?.external?.title!
-                    post.replyTreeChecked = true
-                    
-                    if root != nil {
-                        post.parent = root!
-                        root!.addToReplies(post)
-                    }
                 }
+                let date = convertToDate(from:p.record!.createdAt!) ?? nil
+                post.createdAt = date
+                post.fetchedAt = Date()
+                post.uri = p.uri
+                post.likeCount = Int64(p.likeCount!)
+                post.replyCount = Int64(p.replyCount!)
+                post.quoteCount = Int64(p.quoteCount!)
+                post.repostCount = Int64(p.repostCount!)
+                if let rootUri = p.record?.reply?.root?.uri {
+                    post.rootURI = rootUri
+                }
+                if let parentUri = p.record?.reply?.parent?.uri {
+                    post.parentURI = parentUri
+                }
+                if root != nil {
+                    post.rootID = root!.id!
+                }
+                post.text = p.record!.text!
+                post.title = p.record!.embed?.external?.title!
                 post.replyTreeChecked = true
+                
+                if root != nil {
+                    post.parent = root!
+                    root!.addToReplies(post)
+                }
                 try? self.context!.save()
             }
-            account.timestampReplyTrees = Date()
+            post.replyTreeChecked = true
             try? self.context!.save()
         }
+        account.timestampReplyTrees = Date()
+        try? self.context!.save()
     }
 }
