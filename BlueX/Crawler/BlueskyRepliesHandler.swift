@@ -169,6 +169,7 @@ struct BlueskyRepliesHandler {
             }
             
             
+            print("Reply tree running on \(filteredResults.count) posts")
             var n : Double = 0.0
             let count : Double = Double(filteredResults.count)
             

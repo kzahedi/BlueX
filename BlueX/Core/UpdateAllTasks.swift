@@ -43,7 +43,7 @@ struct UpdateAllTasks {
                         scrapeFeed(account:account, token:token)
                         scrapeRaplyTrees(account:account, token:token)
                         calculateSentiments(account:account, tool: .NLTagger)
-                        calculateStatistics(account:account, tool: .NLTagger)
+                        calculateStatistics(account:account)
                     }
                 }
             }, completion:{})
@@ -74,8 +74,8 @@ struct UpdateAllTasks {
         notifyTaskCompletion(taskName: "Completed calculating sentiments", accountName: account.displayName!)
     }
     
-    private func calculateStatistics(account: Account, tool: SentimentAnalysisTool) {
-        print("Calculating statistics for \(account.displayName!) with \(tool.stringValue)")
+    private func calculateStatistics(account: Account) {
+        print("Calculating statistics for \(account.displayName!)")
         notifyTaskCompletion(taskName: "Started calculating statistics", accountName: account.displayName!)
         statistics.runFor(account: account) { _ in }
         notifyTaskCompletion(taskName: "Completed calculating statistics", accountName: account.displayName!)

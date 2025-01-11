@@ -57,6 +57,11 @@ struct PersistenceController {
         }
         
         container.viewContext.automaticallyMergesChangesFromParent = true
+        
+        // enable automatic cache cleanups
+        container.persistentStoreDescriptions.forEach { description in
+            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        }
     }
     
 }

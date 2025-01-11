@@ -27,6 +27,7 @@ struct CalculateStatistics {
     
     func runFor(account: Account, progress: @escaping (Double) -> Void) {
         var n : Double = 0.0
+        print("Running for account \(account.displayName!)")
         if let allNodes = try? getAllNodes(accountID:account.id!) {
             let count = Double(allNodes.count)
             
@@ -38,7 +39,7 @@ struct CalculateStatistics {
                 stats.post = post
                 post.statistics = stats
                 
-                if post.rootID == nil { stats.countedAllReplies = countAllReplies(post:post) }
+                stats.countedAllReplies = countAllReplies(post:post)
                 stats.replyTreeDepth = countReplyTreeDepth(post:post)
                 let sentiments = collectSentiments(post:post)
                 if sentiments.count == 0 {
@@ -48,6 +49,7 @@ struct CalculateStatistics {
                 }
                 n = n + 1
                 progress(n/count)
+                try? self.context!.save()
             }
             account.timestampStatistics = Date()
             

@@ -59,6 +59,7 @@ class StatisticsModel: ObservableObject {
             NSPredicate(format: "rootID == nil"),
             NSPredicate(format: "createdAt >= %@", account.startAt! as NSDate)
         ])
+        fetchRequest.relationshipKeyPathsForPrefetching = ["statistics"]
         
         do {
             let posts = try context.fetch(fetchRequest)
@@ -91,11 +92,11 @@ class StatisticsModel: ObservableObject {
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.repliesPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: sum(posts:posts, field:\.statistics!.countedAllReplies))
+                CountsPerDay(day: day, count: sum(posts:posts, field:\.statistics?.countedAllReplies))
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.replyTreeDepthPerDay = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics!.replyTreeDepth))
+                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.replyTreeDepth))
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
@@ -103,7 +104,7 @@ class StatisticsModel: ObservableObject {
             }.sorted { $0.day < $1.day } // Sort by day
             
             self.sentimentReplies = postCollection.map { (day, posts) in
-                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics!.avgSentimentReplies))
+                CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.avgSentimentReplies))
             }.sorted { $0.day < $1.day } // Sort by day
            
             let today = Calendar.current.startOfDay(for: Date())
@@ -121,20 +122,29 @@ class StatisticsModel: ObservableObject {
         }
     }
     
-    private func sum(posts: [Post], field: KeyPath<Post, Int64>) -> Int {
-        return Int(posts.map { $0[keyPath: field] }.reduce(0, +))
+    private func sum(posts: [Post], field: KeyPath<Post, Int64?>) -> Int {
+        return posts
+            .compactMap { $0[keyPath: field] } // Unwrap optional Int64
+            .reduce(0, { $0 + Int($1) }) // Convert Int64 to Int and sum
     }
     
-    private func mean(posts: [Post], field: KeyPath<Post, Int64>) -> Double {
+    private func mean(posts: [Post], field: KeyPath<Post, Int64?>) -> Double {
         guard !posts.isEmpty else { return 0 }
-        let total = posts.map { $0[keyPath: field] }.reduce(0, +)
-        return Double(total) / Double(posts.count)
+        
+        let total = posts
+            .compactMap { $0[keyPath: field] } // Unwrap optional Int64?
+            .reduce(0, { $0 + $1 }) // Sum the values (Int64?)
+        
+        return total > 0 ? Double(total) / Double(posts.count) : 0
     }
     
-    private func mean(posts: [Post], field: KeyPath<Post, Double>) -> Double {
-        guard !posts.isEmpty else { return 0 }
-        let total = posts.map { $0[keyPath: field] }.reduce(0, +)
-        return Double(total / Double(posts.count))
+    private func mean(posts: [Post], field: KeyPath<Post, Double?>) -> Double {
+        guard !posts.isEmpty else { return 0.0 }
+        let total = posts
+            .compactMap { $0[keyPath: field] } // Unwrap optional Int64?
+            .reduce(0, { $0 + $1 }) // Sum the values (Int64?)
+        
+        return total > 0 ? Double(total) / Double(posts.count) : 0
     }
     
     private func mean(sentiments: [Sentiment], field: KeyPath<Sentiment, Double>) -> Double {
