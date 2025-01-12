@@ -15,7 +15,7 @@ struct ContentView: View {
     @State private var selectedView: ContentViewType = .configuration
 
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Account.id, ascending: true)],
+        sortDescriptors: [NSSortDescriptor(keyPath: \Account.displayName, ascending: true)],
         animation: .default)
 
     private var accounts: FetchedResults<Account>
@@ -41,11 +41,7 @@ struct ContentView: View {
             Text("Select an item")
         }
         .background(
-            KeyEventHandlingView { keyEvent in
-                if keyEvent.keyCode == 49 { // Spacebar key code is 49
-                    switchView()
-                }
-            }
+            KeyEventHandlingView { keyEvent in if keyEvent.keyCode == 49 { switchView() } }
         )
     }
     

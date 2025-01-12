@@ -54,12 +54,35 @@ class StatisticsModel: ObservableObject {
         self.updateDataPoints()
     }
     
+    
+    private func getRecursivePosts(from:Post) -> [Post] {
+        var r : [Post] = []
+        if let replies = from.replies?.allObjects as? [Post] {
+            r = r + replies
+            for reply in replies {
+                let rr = getRecursivePosts(from:reply)
+                r = r + rr
+            }
+        }
+        return r
+    }
+
+    private func getAllPostsFrom(account:Account) -> [Post] {
+        var r : [Post] = []
+        if let posts = account.posts?.allObjects as? [Post] {
+            for post in posts {
+                let p = getRecursivePosts(from:post)
+                r = r + p
+            }
+            r = r + posts
+        }
+        return r
+    }
+    
     func updateDataPoints() {
         
-        let postsSet = account.posts as? Set<Post> ?? Set()
-        var posts = Array(postsSet)
-        posts = posts.filter{$0.rootID == nil && $0.createdAt! >= account.startAt!}
-       
+        let posts = getAllPostsFrom(account:account)
+        print("Count posts: \(posts.count)")
         
         // Use Calendar to group posts by day (ignoring time of day)
         let postCollection : [Date:[Post]] = Dictionary(grouping: posts) { post in
@@ -69,19 +92,7 @@ class StatisticsModel: ObservableObject {
             return Calendar.current.startOfDay(for: timestamp)
         }
         
-        let sentimentCollection: [Date: [Sentiment]] = Dictionary(grouping: posts.compactMap { post -> (Date, Sentiment)? in
-            guard
-                let createdAt = post.createdAt,
-                let sentiments = post.sentiments as? Set<Sentiment>,
-                let firstSentiment = sentiments.first(where: { $0.tool == SentimentAnalysisTool.NLTagger.stringValue })
-            else {
-                return nil // Skip posts with missing data
-            }
-            
-            let day = Calendar.current.startOfDay(for: createdAt)
-            return (day, firstSentiment)
-        }) { $0.0 }
-            .mapValues { $0.map { $0.1 } } // Strip keys in the array
+        let sentimentCollection: [Date: [Sentiment]] = getSentiments(collection:postCollection, tool: .NLTagger)
         
         // Map to PostStatsDataPoint
         self.postsPerDay = postCollection.map { (day, posts) in
@@ -178,5 +189,23 @@ class StatisticsModel: ObservableObject {
             print("Failed to fetch posts or sentiments: \(error)")
             return 0.0
         }
+    }
+    
+    private func getSentiments(collection:[Date:[Post]], tool:SentimentAnalysisTool) -> [Date:[Sentiment]] {
+        var r : [Date:[Sentiment]] = [:]
+        
+        for (day, posts) in collection {
+            if r.keys.contains(day) == false {
+                r[day] = []
+            }
+            
+            for post in posts{
+                if let sentimentSet = post.sentiments as? Set<Sentiment> {
+                    let sentiments = Array(sentimentSet).filter { $0.tool! == tool.stringValue }
+                    r[day] = r[day]! + sentiments
+                }
+            }
+        }
+        return r
     }
 }

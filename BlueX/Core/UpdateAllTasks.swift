@@ -8,7 +8,7 @@
 import Foundation
 import CoreData
 
-struct UpdateAllTasks {
+class UpdateAllTasks {
     static let shared = UpdateAllTasks()
 
     let context = PersistenceController.shared.container.viewContext
@@ -17,10 +17,15 @@ struct UpdateAllTasks {
     var repliesScraper : BlueskyRepliesHandler = BlueskyRepliesHandler()
     var statistics = CalculateStatistics()
     var sentimentAnalysis = SentimentAnalysis()
+    var feedUpdates : Int = 0
  
     let logger : Logger = Logger.shared
+    var lastPrintTime: Date = .distantPast
+    let interval: TimeInterval
+    
+    @Published var feedProgress : Double = 0.0
 
-    private init() {
+    private init(interval: TimeInterval = 1.0) {
         backgroundContext = {
             let context = PersistenceController.shared.container.newBackgroundContext()
             context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
@@ -30,6 +35,7 @@ struct UpdateAllTasks {
         self.repliesScraper.context = backgroundContext
         self.sentimentAnalysis.context = backgroundContext
         self.statistics.context = backgroundContext
+        self.interval = interval
     }
 
     public func execute() {
@@ -37,14 +43,14 @@ struct UpdateAllTasks {
             DispatchQueue.background(delay:0.0, background:{
                 print("Token: \(token)")
                 let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
-                if let accounts = try? backgroundContext.fetch(fetchRequest) {
+                if let accounts = try? self.backgroundContext.fetch(fetchRequest) {
                     var activeAccounts = accounts.filter{$0.isActive}
                     activeAccounts.shuffle()
                     for account in activeAccounts {
-                        scrapeFeed(account:account, token:token)
-                        scrapeRaplyTrees(account:account, token:token)
-                        calculateSentiments(account:account, tool: .NLTagger)
-                        calculateStatistics(account:account)
+                        self.scrapeFeed(account:account, token:token)
+                        self.scrapeRaplyTrees(account:account, token:token)
+                        self.calculateSentiments(account:account, tool: .NLTagger)
+                        self.calculateStatistics(account:account)
                     }
                 }
             }, completion:{})
@@ -56,30 +62,49 @@ struct UpdateAllTasks {
     private func scrapeFeed(account: Account, token:String) {
         print("Scraping feed for \(account.displayName!)")
         notifyTaskCompletion(taskName: "Started scraping feed", accountName: account.displayName!)
-        feedScraper.runFor(account: account, token:token) { _ in }
+        feedScraper.runFor(account: account, token:token) {progress in
+            DispatchQueue.main.async {
+                print("Scraping feed progress for \(account.displayName!) is \(Int(round(progress * 100)))%")
+            }
+        }
         notifyTaskCompletion(taskName: "Completed scraping feed", accountName: account.displayName!)
     }
     
     private func scrapeRaplyTrees(account: Account, token:String) {
         print("Scraping reply tree for \(account.displayName!)")
-        feedScraper.runFor(account: account, token:token) { _ in }
         notifyTaskCompletion(taskName: "Started scraping reply trees", accountName: account.displayName!)
-        repliesScraper.runFor(account: account, token:token) { _ in }
+        repliesScraper.runFor(account: account, token:token) {progress in
+            DispatchQueue.main.async {
+                print("Scraping reply tree progress for \(account.displayName!) is \(Int(round(progress * 100)))%")
+            }
+        }
         notifyTaskCompletion(taskName: "Completed scraping reply trees", accountName: account.displayName!)
     }
     
     private func calculateSentiments(account: Account, tool: SentimentAnalysisTool) {
         print("Calculate sentiments for \(account.displayName!) with \(tool.stringValue)")
         notifyTaskCompletion(taskName: "Started calculating sentiments", accountName: account.displayName!)
-        sentimentAnalysis.runFor(account: account, tool: tool) { _ in }
+        sentimentAnalysis.runFor(account: account, tool: tool) {progress in
+            DispatchQueue.main.async {
+                print("Calculating sentiments for \(account.displayName!) is \(Int(round(progress * 100)))%")
+            }
+        }
         notifyTaskCompletion(taskName: "Completed calculating sentiments", accountName: account.displayName!)
     }
     
     private func calculateStatistics(account: Account) {
         print("Calculating statistics for \(account.displayName!)")
         notifyTaskCompletion(taskName: "Started calculating statistics", accountName: account.displayName!)
-        statistics.runFor(account: account) { _ in }
+        statistics.runFor(account: account) { progress in
+            DispatchQueue.main.async {
+                print("Calculating statistics for \(account.displayName!) is \(Int(round(progress * 100)))%")
+            }
+        }
         notifyTaskCompletion(taskName: "Completed calculating statistics", accountName: account.displayName!)
+    }
+    
+    private func feedUpdate(value:Double) {
+        
     }
 
 }

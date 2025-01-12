@@ -28,35 +28,39 @@ struct CalculateStatistics {
     func runFor(account: Account, progress: @escaping (Double) -> Void) {
         var n : Double = 0.0
         print("Running for account \(account.displayName!)")
-        let nodes = account.posts as? Set<Post> ?? Set<Post>()
-        let allNodes = Array(nodes)
-        let count = Double(allNodes.count)
-        
-        print("Found \(allNodes.count) root nodes")
-        
-        for post in allNodes {
-            let stats = Statistics(context: context!)
-            
-            stats.post = post
-            post.statistics = stats
-            
-            stats.countedAllReplies = countAllReplies(post:post)
-            stats.replyTreeDepth = countReplyTreeDepth(post:post)
-            let sentiments = collectSentiments(post:post)
-            if sentiments.count == 0 {
-                stats.avgSentimentReplies = 0.0
-            } else {
-                stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
+        if let nodes = account.posts?.allObjects as? [Post] {
+            let count = Double(nodes.count)
+            print("Found \(nodes.count) root nodes")
+            for post in nodes {
+                recursiveCalculateStatistics(post:post)
+                n = n + 1
+                progress(n/count)
             }
-            n = n + 1
-            progress(n/count)
-            try? self.context!.save()
         }
         account.timestampStatistics = Date()
-        
+        try? self.context!.save()
+        print("Done with counting replies")
+    }
+    
+    private func recursiveCalculateStatistics(post:Post) {
+        let stats = post.statistics ?? Statistics(context: self.context!)
+        post.statistics = stats
+        stats.post = post
+        stats.countedAllReplies = countAllReplies(post:post)
+        stats.replyTreeDepth = countReplyTreeDepth(post:post)
+        let sentiments = collectSentiments(post:post)
+        if sentiments.count == 0 {
+            stats.avgSentimentReplies = 0.0
+        } else {
+            stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
+        }
         try? self.context!.save()
         
-        print("Done with counting replies")
+        if let replies = post.replies?.allObjects as? [Post] {
+            for reply in replies {
+                recursiveCalculateStatistics(post:reply)
+            }
+        }
     }
     
     private func countAllReplies(post:Post) -> Int64 {

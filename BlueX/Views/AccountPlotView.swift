@@ -45,6 +45,11 @@ struct PlotsPerDay: View {
 
 struct RepliesPerDay: View {
     @ObservedObject var viewModel: StatisticsModel
+    
+//    init(viewModel: StatisticsModel){
+//        print("RepliesPerDay")
+//        self.viewModel = viewModel
+//    }
 
     var body: some View {
         GroupBox("Sum of replies per day") {
@@ -119,10 +124,10 @@ struct SentimentPerDay: View {
                     LineMark(x: .value("Month", dataPoint.day, unit:.day),
                              y: .value("Count", dataPoint.count),
                              series: .value("Type", "Avg Sentiments Replies"))
-                    .foregroundStyle(by: .value("Type", "Avg Sentiments Posts"))
+                    .foregroundStyle(by: .value("Type", "Avg Sentiments Replies"))
                 }
             }
-            .chartForegroundStyleScale(["Avg Post Sentiments ": .green, "Avg Replies Sentiments": .blue])
+            .chartForegroundStyleScale(["Avg Sentiments Posts": .green, "Avg Sentiments Replies": .blue])
             .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
