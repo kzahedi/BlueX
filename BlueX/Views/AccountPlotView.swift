@@ -15,11 +15,39 @@ struct AccountPlotView: View {
     
     var body: some View {
         ScrollView {
-            PlotsPerDay(viewModel: viewModel)
-            RepliesPerDay(viewModel: viewModel)
+//            PlotsPerDay(viewModel: viewModel)
+//            RepliesPerDay(viewModel: viewModel)
+            PlotsRepliesPerDay(viewModel: viewModel)
             AvgRepliesPerDay(viewModel: viewModel)
             ReplyTreeDepth(viewModel: viewModel)
             SentimentPerDay(viewModel: viewModel)
+        }
+    }
+}
+
+struct PlotsRepliesPerDay: View {
+    @ObservedObject var viewModel: StatisticsModel
+    
+    var body: some View {
+        GroupBox("Posts and replies per day") {
+            Chart {
+                ForEach(viewModel.plotsRepliesDataPoints) { dataPoint in
+                    BarMark(x: .value("Month", dataPoint.date, unit:.day),
+                            y: .value("Count", dataPoint.plotValue))
+                    .foregroundStyle(by: .value("Series", dataPoint.series))
+                    .position(by: .value("Series", dataPoint.series))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            //        .chartForegroundStyleScale([
+            //            "Plots per day": .blue,
+            //            "Replies per day": .orange
+            //        ])
+            //        .chartLegend(position: .top, alignment: .leading, spacing: 8)
+            .chartXScale(domain: viewModel.xMin...viewModel.xMax)
+            .frame(width:1000, height:300)
+            .background(Color.black)
+            .padding()
         }
     }
 }
@@ -114,7 +142,6 @@ struct ReplyTreeDepth: View {
                 .foregroundStyle(Color.indigo)
             }
             .chartForegroundStyleScale(["Avg Reply Tree Depth": .orange, "Max Reply Tree Depth": .indigo])
-            .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)
@@ -143,7 +170,6 @@ struct SentimentPerDay: View {
                 }
             }
             .chartForegroundStyleScale(["Avg Sentiments Posts": .green, "Avg Sentiments Replies": .blue])
-            .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)

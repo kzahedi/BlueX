@@ -15,6 +15,13 @@ struct CountsPerDay<T: Codable> : Codable, Identifiable {
     var count: T
 }
 
+struct DataPoint: Identifiable {
+    let id = UUID()
+    var date: Date
+    var plotValue: Int
+    var series: String
+}
+
 class StatisticsModel: ObservableObject {
     @Published var displayName: String
     @Published var handle: String
@@ -28,6 +35,7 @@ class StatisticsModel: ObservableObject {
     @Published var maxReplyTreeDepthPerDay: [CountsPerDay<Int>]
     @Published var sentimentPosts: [CountsPerDay<Double>]
     @Published var sentimentReplies: [CountsPerDay<Double>]
+    @Published var plotsRepliesDataPoints: [DataPoint]
     @Published var xMin: Date
     @Published var xMax: Date
     
@@ -54,6 +62,8 @@ class StatisticsModel: ObservableObject {
         self.sentimentReplies = []
         self.xMin = account.startAt ?? Date()
         self.xMax = Date()
+        
+        self.plotsRepliesDataPoints = []
         
         self.updateDataPoints()
     }
@@ -130,7 +140,16 @@ class StatisticsModel: ObservableObject {
         self.sentimentReplies = postCollection.map { (day, posts) in
             CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.avgSentimentReplies))
         }.sorted { $0.day < $1.day } // Sort by day
-        print(self.sentimentReplies)
+        
+        self.plotsRepliesDataPoints = []
+        for dayCount in postsPerDay {
+            let dp = DataPoint(date: dayCount.day, plotValue: dayCount.count, series: "Posts per Day")
+            self.plotsRepliesDataPoints.append(dp)
+        }
+        for dayCount in repliesPerDay {
+            let dp = DataPoint(date: dayCount.day, plotValue: dayCount.count, series: "Replies per Day")
+            self.plotsRepliesDataPoints.append(dp)
+        }
         
         let today = Date()
         if self.postsPerDay.last == nil {
