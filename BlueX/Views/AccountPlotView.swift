@@ -46,11 +46,6 @@ struct PlotsPerDay: View {
 struct RepliesPerDay: View {
     @ObservedObject var viewModel: StatisticsModel
     
-//    init(viewModel: StatisticsModel){
-//        print("RepliesPerDay")
-//        self.viewModel = viewModel
-//    }
-
     var body: some View {
         GroupBox("Sum of replies per day") {
             Chart {
@@ -72,14 +67,23 @@ struct AvgRepliesPerDay: View {
     @ObservedObject var viewModel: StatisticsModel
 
     var body: some View {
-        GroupBox("Avg number of replies per day") {
+        GroupBox("Replies per day") {
             Chart {
                 ForEach(viewModel.avgRepliesPerDay) { dataPoint in
-                    BarMark(x: .value("Month", dataPoint.day, unit:.day),
-                            y: .value("Count", dataPoint.count))
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                            y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Avg number of replies"))
+                    .foregroundStyle(by: .value("Type", "Avg number of replies"))
                 }
                 .foregroundStyle(Color.pink)
+                ForEach(viewModel.maxRepliesPerDay) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                            y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Max number of replies"))
+                    .foregroundStyle(by: .value("Type", "Max number of replies"))
+                }
             }
+            .chartForegroundStyleScale(["Avg number of replies": .orange, "Max number of replies": .indigo])
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)
@@ -92,14 +96,25 @@ struct ReplyTreeDepth: View {
     @ObservedObject var viewModel: StatisticsModel
     
     var body: some View {
-        GroupBox("Average reply tree depth per day") {
+        GroupBox("Reply tree depth") {
             Chart {
                 ForEach(viewModel.replyTreeDepthPerDay) { dataPoint in
-                    BarMark(x: .value("Month", dataPoint.day, unit:.day),
-                            y: .value("Count", dataPoint.count))
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Avg Reply Tree Depth"))
+                    .foregroundStyle(by: .value("Type", "Avg Reply Tree Depth"))
                 }
                 .foregroundStyle(Color.orange)
+                ForEach(viewModel.maxReplyTreeDepthPerDay) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Max Reply Tree Depth"))
+                    .foregroundStyle(by: .value("Type", "Max Reply Tree Depth"))
+                }
+                .foregroundStyle(Color.indigo)
             }
+            .chartForegroundStyleScale(["Avg Reply Tree Depth": .orange, "Max Reply Tree Depth": .indigo])
+            .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:200)
             .background(Color.black)

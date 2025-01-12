@@ -11,10 +11,10 @@ struct BlueskyRepliesHandler {
     var context : NSManagedObjectContext? = nil
     var token : String = ""
     
-    private func getThread(url:URL, token:String) throws -> ([String], [ApiPost]) {
+    private func getReplies(post:Post, token:String) throws -> [ApiPost] {
+        let url = createRequestURL(uri:post.uri!)
         var feedRequest = URLRequest(url: url)
         let group = DispatchGroup()
-        var uris : [String] = []
         var posts : [ApiPost] = []
        
         feedRequest.httpMethod = "GET"
@@ -53,7 +53,11 @@ struct BlueskyRepliesHandler {
                 
                 
                 let threadResponse = try decodeThread(from: data!)
-                (uris, posts) = recursiveParseThread(thread: threadResponse.thread)
+                
+                if threadResponse.thread.replies != nil {
+                    let replies = threadResponse.thread.replies!
+                    posts = replies.map{$0.post!}
+                }
                 
                 group.leave()
             } catch let decodingError as DecodingError {
@@ -70,59 +74,75 @@ struct BlueskyRepliesHandler {
         }
         feedTask.resume()
         group.wait()
-        return (uris, posts)
+        return posts
     }
-    
-    func recursiveParseThread(thread:Thread) -> ([String], [ApiPost]) {
-        var uris : [String] = []
-        var posts : [ApiPost] = []
-        
-        // check all leafs again
-        if let replies = thread.replies {
-            if replies.count > 0 {
-                posts.append(thread.post!)
-            }
-            for reply in replies {
-                if reply.replies == nil || reply.replies!.isEmpty {
-                    if reply.post != nil && reply.post!.uri != nil {
-                        uris.append(reply.post!.uri!)
-                    }
-                }
-                if reply.replies != nil && reply.replies!.count > 0 {
-                    let (u, p) = recursiveParseThread(thread:reply)
-                    uris = uris + u
-                    posts += p
-                }
-            }
-            
-        }
-        
-        return (uris, posts)
-        
-    }
-    
-    
     
     private func createRequestURL(uri:String) -> URL {
-        let url = "https://api.bsky.social/xrpc/app.bsky.feed.getPostThread?parentHeight=0&depth=1000&uri=\(uri)"
+        // only get one level of replies
+        let url = "https://api.bsky.social/xrpc/app.bsky.feed.getPostThread?parentHeight=0&depth=1&uri=\(uri)"
         return URL(string: url)!
     }
     
-    public func recursiveGetThread(uri:String, token:String) -> [ApiPost] {
-        var uris : [String] = []
-        var posts : [ApiPost] = []
-        let url = createRequestURL(uri:uri)
-        do {
-            (uris, posts) = try getThread(url:url, token:token)
-        } catch {
-            print(error)
+    private func update(dst:inout Post, from:ApiPost) {
+        let date = convertToDate(from:from.record!.createdAt!) ?? nil
+        dst.createdAt = date
+        dst.fetchedAt = Date()
+        dst.uri = from.uri
+        dst.likeCount = Int64(from.likeCount!)
+        dst.replyCount = Int64(from.replyCount!)
+        dst.quoteCount = Int64(from.quoteCount!)
+        dst.repostCount = Int64(from.repostCount!)
+        if let rootUri = from.record?.reply?.root?.uri {
+            dst.rootURI = rootUri
         }
-        for uri in uris {
-            let p = recursiveGetThread(uri: uri, token:token)
-            posts = posts + p
+        if let parentUri = from.record?.reply?.parent?.uri {
+            dst.parentURI = parentUri
+        }
+        dst.text = from.record!.text!
+        dst.title = from.record!.embed?.external?.title!
+        dst.replyTreeChecked = true
+    }
+    
+    private func createNewReply(parent:Post, child:ApiPost) {
+        var newChild = Post(context: self.context!)
+        update(dst: &newChild, from: child)
+        newChild.parent = parent
+        newChild.rootID = parent.rootID
+        parent.addToReplies(newChild)
+        try? self.context?.save()
+    }
+    
+    public func recursiveGetThread(post:Post, force:Bool, token:String) {
+        let storedReplies = post.replies?.allObjects as? [Post] ?? []
+        let uris = storedReplies.map{$0.uri!}
+        
+        if let replies = try? getReplies(post:post, token:token) {
+            for reply in replies {
+                if force == false { // only create new replies
+                    if uris.contains(reply.uri!) { // already in the list
+                        continue
+                    }
+                    createNewReply(parent:post, child:reply)
+                } else {
+                    if uris.contains(reply.uri!) { // already in the list
+                        var oldPost = storedReplies.first(where:{$0.uri! == reply.uri!})!
+                        update(dst: &oldPost, from: reply)
+                    } else {
+                        createNewReply(parent:post, child:reply)
+                    }
+                }
+                try? self.context!.save()
+            }
         }
         
-        return posts
+        if let replies = post.replies?.allObjects as? [Post] {
+            for reply in replies {
+                recursiveGetThread(post:reply, force:force, token:token)
+            }
+        }
+        
+        post.replyTreeChecked = true
+        try? self.context!.save()
     }
     
     
@@ -164,54 +184,38 @@ struct BlueskyRepliesHandler {
         let count : Double = Double(posts.count)
         
         for post in posts {
-            let uri = post.uri!
             n = n + 1
             progress(n/count)
-            let r = recursiveGetThread(uri: uri, token:token)
-            for p in r {
-                //                print("Creating \(p.uri!)")
-                var root : Post? = nil
-                let post = getPost(uri: p.uri!, context: self.context!)
-                
-                if p.record != nil {
-                    if p.record!.reply != nil {
-                        if p.record!.reply!.parent != nil {
-                            let rootUri = p.record!.reply!.parent!.uri!
-                            root = getPost(uri: rootUri, context: self.context!)
-                        }
-                    }
-                }
-                let date = convertToDate(from:p.record!.createdAt!) ?? nil
-                post.createdAt = date
-                post.fetchedAt = Date()
-                post.uri = p.uri
-                post.likeCount = Int64(p.likeCount!)
-                post.replyCount = Int64(p.replyCount!)
-                post.quoteCount = Int64(p.quoteCount!)
-                post.repostCount = Int64(p.repostCount!)
-                if let rootUri = p.record?.reply?.root?.uri {
-                    post.rootURI = rootUri
-                }
-                if let parentUri = p.record?.reply?.parent?.uri {
-                    post.parentURI = parentUri
-                }
-                if root != nil {
-                    post.rootID = root!.id!
-                }
-                post.text = p.record!.text!
-                post.title = p.record!.embed?.external?.title!
-                post.replyTreeChecked = true
-                
-                if root != nil {
-                    post.parent = root!
-                    root!.addToReplies(post)
-                }
-                try? self.context!.save()
-            }
-            post.replyTreeChecked = true
-            try? self.context!.save()
+            recursiveGetThread(post:post, force:force, token:token)
         }
         account.timestampReplyTrees = Date()
         try? self.context!.save()
     }
 }
+
+//                let date = convertToDate(from:p.record!.createdAt!) ?? nil
+//                post.createdAt = date
+//                post.fetchedAt = Date()
+//                post.uri = p.uri
+//                post.likeCount = Int64(p.likeCount!)
+//                post.replyCount = Int64(p.replyCount!)
+//                post.quoteCount = Int64(p.quoteCount!)
+//                post.repostCount = Int64(p.repostCount!)
+//                if let rootUri = p.record?.reply?.root?.uri {
+//                    post.rootURI = rootUri
+//                }
+//                if let parentUri = p.record?.reply?.parent?.uri {
+//                    post.parentURI = parentUri
+//                }
+//                if root != nil {
+//                    post.rootID = root!.id!
+//                }
+//                post.text = p.record!.text!
+//                post.title = p.record!.embed?.external?.title!
+//                post.replyTreeChecked = true
+//                
+//                if root != nil {
+//                    post.parent = root!
+//                    root!.addToReplies(post)
+//                }
+// 

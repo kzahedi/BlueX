@@ -23,7 +23,9 @@ class StatisticsModel: ObservableObject {
     @Published var postsPerDay: [CountsPerDay<Int>]
     @Published var repliesPerDay: [CountsPerDay<Int>]
     @Published var avgRepliesPerDay: [CountsPerDay<Double>]
+    @Published var maxRepliesPerDay: [CountsPerDay<Int>]
     @Published var replyTreeDepthPerDay: [CountsPerDay<Double>]
+    @Published var maxReplyTreeDepthPerDay: [CountsPerDay<Int>]
     @Published var sentimentPosts: [CountsPerDay<Double>]
     @Published var sentimentReplies: [CountsPerDay<Double>]
     @Published var xMin: Date
@@ -45,7 +47,9 @@ class StatisticsModel: ObservableObject {
         self.postsPerDay = []
         self.repliesPerDay = []
         self.avgRepliesPerDay = []
+        self.maxRepliesPerDay = []
         self.replyTreeDepthPerDay = []
+        self.maxReplyTreeDepthPerDay = []
         self.sentimentPosts = []
         self.sentimentReplies = []
         self.xMin = account.startAt ?? Date()
@@ -107,8 +111,16 @@ class StatisticsModel: ObservableObject {
             CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.countedAllReplies))
         }.sorted { $0.day < $1.day } // Sort by day
         
+        self.maxRepliesPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: max(posts:posts, field:\.statistics?.countedAllReplies))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
         self.replyTreeDepthPerDay = postCollection.map { (day, posts) in
             CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.replyTreeDepth))
+        }.sorted { $0.day < $1.day } // Sort by day
+        
+        self.maxReplyTreeDepthPerDay = postCollection.map { (day, posts) in
+            CountsPerDay(day: day, count: max(posts:posts, field:\.statistics?.replyTreeDepth))
         }.sorted { $0.day < $1.day } // Sort by day
         
         self.sentimentPosts = sentimentCollection.map { (day, sentiments) in
@@ -118,8 +130,9 @@ class StatisticsModel: ObservableObject {
         self.sentimentReplies = postCollection.map { (day, posts) in
             CountsPerDay(day: day, count: mean(posts:posts, field:\.statistics?.avgSentimentReplies))
         }.sorted { $0.day < $1.day } // Sort by day
+        print(self.sentimentReplies)
         
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = Date()
         if self.postsPerDay.last == nil {
             xMax = Date()
         } else {
@@ -132,6 +145,12 @@ class StatisticsModel: ObservableObject {
         return posts
             .compactMap { $0[keyPath: field] } // Unwrap optional Int64
             .reduce(0, { $0 + Int($1) }) // Convert Int64 to Int and sum
+    }
+    
+    private func max(posts: [Post], field: KeyPath<Post, Int64?>) -> Int {
+        return Int(posts
+            .compactMap { $0[keyPath: field] } // Unwrap optional Int64
+            .max()!)
     }
     
     private func mean(posts: [Post], field: KeyPath<Post, Int64?>) -> Double {
@@ -150,7 +169,8 @@ class StatisticsModel: ObservableObject {
             .compactMap { $0[keyPath: field] } // Unwrap optional Int64?
             .reduce(0, { $0 + $1 }) // Sum the values (Int64?)
         
-        return total > 0 ? Double(total) / Double(posts.count) : 0
+        
+        return Double(total) / Double(posts.count)
     }
     
     private func mean(sentiments: [Sentiment], field: KeyPath<Sentiment, Double>) -> Double {

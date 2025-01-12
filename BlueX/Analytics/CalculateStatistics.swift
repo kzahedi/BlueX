@@ -54,6 +54,7 @@ struct CalculateStatistics {
         } else {
             stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
         }
+        print("Sentiment replies: \(stats.avgSentimentReplies)")
         try? self.context!.save()
         
         if let replies = post.replies?.allObjects as? [Post] {
