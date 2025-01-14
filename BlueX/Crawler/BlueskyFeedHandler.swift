@@ -88,7 +88,7 @@ struct BlueskyFeedHandler {
         return returnValue
     }
     
-    public func runFor(did:String, progress: @escaping (Double) -> Void) {
+    public func runFor(did:String, progress: @escaping (Double) -> Void) async {
         
         if self.context == nil {
             print("No context set")
@@ -144,7 +144,6 @@ struct BlueskyFeedHandler {
                 post.account = account
                 
                 try? self.context!.save()
-
             }
             
             if feed!.cursor != nil {
@@ -172,8 +171,9 @@ struct BlueskyFeedHandler {
         }
         
         let postsSet = account.posts as? Set<Post> ?? Set<Post>()
-        var posts = Array(postsSet)
-        let date = posts.sorted{ $0.createdAt! < $1.createdAt!}.first?.createdAt ?? Date()
+        let posts = Array(postsSet)
+        var date = posts.sorted{ $0.createdAt! < $1.createdAt!}.first?.createdAt ?? Date()
+        date = date.toStartOfDay()
         return date.toCursor()
     }
 }

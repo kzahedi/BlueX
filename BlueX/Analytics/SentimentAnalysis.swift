@@ -43,8 +43,6 @@ struct SentimentAnalysis {
     
     public func runFor(account:Account, tool: SentimentAnalysisTool, progress: @escaping (Double) -> Void) {
         
-        let force = account.forceSentimentUpdate
-        
         print("Running sentiment analysis")
         
         let postsSet = account.posts as? Set<Post> ?? Set()
@@ -109,19 +107,6 @@ struct SentimentAnalysis {
                 }
             }
         }
-    }
-    
-    func fetchPostsWithoutMatchingSentiments(toolName: String, force:Bool) throws -> [Post] {
-        // Create a fetch request for the Post entity
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        
-        // Predicate: Select posts that do not have any sentiment with the specified tool and matching postID
-        if force == false {
-            fetchRequest.predicate = NSPredicate(format: "NOT (SUBQUERY(sentiments, $s, $s.postID == id AND $s.tool == %@).@count > 0)", toolName)
-        }
-        
-        // Execute the fetch request
-        return try self.context!.fetch(fetchRequest)
     }
 }
 

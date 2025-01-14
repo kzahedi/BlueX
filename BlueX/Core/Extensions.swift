@@ -27,12 +27,16 @@ extension Date {
         return ISO8601DateFormatter().string(from: self)
     }
     
-    func isXDaysAgo(x:Int) -> Bool {
+    func isOlderThanXDays(x:Int) -> Bool {
         let calendar = Calendar.current
         let now = Date()
         let xDaysAgo = calendar.date(byAdding: .day, value: -x, to: now)
         if xDaysAgo == nil { return false }
         return self < xDaysAgo!
+    }
+    
+    func isYoungerThanXDays(x:Int) -> Bool {
+        return !isOlderThanXDays(x: x)
     }
     
     func isXHoursAgo(x:Int) -> Bool {

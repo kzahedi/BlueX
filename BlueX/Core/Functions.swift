@@ -53,3 +53,4 @@ func notifyTaskCompletion(taskName: String, accountName: String) {
         body: "\(taskName) has successfully finished."
     )
 }
+

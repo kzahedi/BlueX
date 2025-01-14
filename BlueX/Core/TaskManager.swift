@@ -84,9 +84,11 @@ class TaskManager: ObservableObject {
         print("Starting scraping task for \(did) ...")
         
         DispatchQueue.background(delay:0.0, background: {
-            self.feedHandler.runFor(did:did) {progress in
-                DispatchQueue.main.async {
-                    self.feedProgress = progress
+            Task {
+                await self.feedHandler.runFor(did:did) {progress in
+                    DispatchQueue.main.async {
+                        self.feedProgress = progress
+                    }
                 }
             }
         }, completion: {

@@ -56,7 +56,8 @@ struct BlueskyRepliesHandler {
                 
                 if threadResponse.thread.replies != nil {
                     let replies = threadResponse.thread.replies!
-                    posts = replies.map{$0.post!}
+                    posts = replies.filter{$0.post != nil}
+                                   .map{$0.post!}
                 }
                 
                 group.leave()
@@ -133,6 +134,7 @@ struct BlueskyRepliesHandler {
                 }
                 try? self.context!.save()
             }
+            post.replyTreeChecked = true
         }
         
         if let replies = post.replies?.allObjects as? [Post] {
@@ -141,7 +143,6 @@ struct BlueskyRepliesHandler {
             }
         }
         
-        post.replyTreeChecked = true
         try? self.context!.save()
     }
     
@@ -169,15 +170,22 @@ struct BlueskyRepliesHandler {
         var posts = Array(postsSet)
         
         if startAt != nil && force == false {
-            posts = posts.filter{ $0.createdAt! >= startAt! && $0.rootURI == nil && $0.replyTreeChecked != true}
+            posts = posts
+                .filter{
+                    $0.rootURI == nil &&
+                    $0.createdAt! >= startAt! &&
+                    ($0.replyTreeChecked != true ||
+                     $0.createdAt!.isYoungerThanXDays(x: 2))}
         } else if force == true && startAt != nil {
-            posts = posts.filter{ $0.createdAt! >= startAt! && $0.rootURI == nil}
+            posts = posts.filter{$0.createdAt! >= startAt! &&
+                                 $0.rootURI == nil}
         } else if force == false && startAt == nil {
-            posts = posts.filter{ $0.rootURI == nil && $0.replyTreeChecked != true}
+            posts = posts.filter{$0.rootURI == nil &&
+                ($0.replyTreeChecked != true ||
+                 $0.createdAt!.isYoungerThanXDays(x: 2))}
         } else {
-            posts = posts.filter{ $0.rootURI == nil}
+            posts = posts.filter{ $0.rootURI == nil }
         }
-        
         
         print("Reply tree running on \(posts.count) posts")
         var n : Double = 0.0
@@ -192,30 +200,3 @@ struct BlueskyRepliesHandler {
         try? self.context!.save()
     }
 }
-
-//                let date = convertToDate(from:p.record!.createdAt!) ?? nil
-//                post.createdAt = date
-//                post.fetchedAt = Date()
-//                post.uri = p.uri
-//                post.likeCount = Int64(p.likeCount!)
-//                post.replyCount = Int64(p.replyCount!)
-//                post.quoteCount = Int64(p.quoteCount!)
-//                post.repostCount = Int64(p.repostCount!)
-//                if let rootUri = p.record?.reply?.root?.uri {
-//                    post.rootURI = rootUri
-//                }
-//                if let parentUri = p.record?.reply?.parent?.uri {
-//                    post.parentURI = parentUri
-//                }
-//                if root != nil {
-//                    post.rootID = root!.id!
-//                }
-//                post.text = p.record!.text!
-//                post.title = p.record!.embed?.external?.title!
-//                post.replyTreeChecked = true
-//                
-//                if root != nil {
-//                    post.parent = root!
-//                    root!.addToReplies(post)
-//                }
-// 

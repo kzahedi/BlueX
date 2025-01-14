@@ -96,7 +96,6 @@ class StatisticsModel: ObservableObject {
     func updateDataPoints() {
         
         let posts = getAllPostsFrom(account:account)
-        print("Count posts: \(posts.count)")
         
         // Use Calendar to group posts by day (ignoring time of day)
         let postCollection : [Date:[Post]] = Dictionary(grouping: posts) { post in
@@ -168,8 +167,9 @@ class StatisticsModel: ObservableObject {
     
     private func max(posts: [Post], field: KeyPath<Post, Int64?>) -> Int {
         return Int(posts
-            .compactMap { $0[keyPath: field] } // Unwrap optional Int64
-            .max()!)
+                .compactMap { $0[keyPath: field] } // Unwrap optional Int64
+                .max()
+                .map { Int($0) } ?? 0)
     }
     
     private func mean(posts: [Post], field: KeyPath<Post, Int64?>) -> Double {

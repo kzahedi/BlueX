@@ -31,19 +31,22 @@ struct PlotsRepliesPerDay: View {
     var body: some View {
         GroupBox("Posts and replies per day") {
             Chart {
-                ForEach(viewModel.plotsRepliesDataPoints) { dataPoint in
-                    BarMark(x: .value("Month", dataPoint.date, unit:.day),
-                            y: .value("Count", dataPoint.plotValue))
-                    .foregroundStyle(by: .value("Series", dataPoint.series))
-                    .position(by: .value("Series", dataPoint.series))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                ForEach(viewModel.postsPerDay) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Total number of posts per day"))
+                    .foregroundStyle(by: .value("Type", "Total number of posts per day"))
+                }
+                ForEach(viewModel.repliesPerDay) { dataPoint in
+                    LineMark(x: .value("Month", dataPoint.day, unit:.day),
+                             y: .value("Count", dataPoint.count),
+                             series: .value("Type", "Total number of replies per day"))
+                    .foregroundStyle(by: .value("Type", "Total number of replies per day"))
                 }
             }
-            //        .chartForegroundStyleScale([
-            //            "Plots per day": .blue,
-            //            "Replies per day": .orange
-            //        ])
-            //        .chartLegend(position: .top, alignment: .leading, spacing: 8)
+            .chartForegroundStyleScale(["Total number of posts per day": .indigo,
+                                        "Total number of replies per day": .orange])
+//            .chartLegend(position: .top, alignment: .leading, spacing: 8)
             .chartXScale(domain: viewModel.xMin...viewModel.xMax)
             .frame(width:1000, height:300)
             .background(Color.black)
@@ -103,7 +106,6 @@ struct AvgRepliesPerDay: View {
                              series: .value("Type", "Avg number of replies"))
                     .foregroundStyle(by: .value("Type", "Avg number of replies"))
                 }
-                .foregroundStyle(Color.pink)
                 ForEach(viewModel.maxRepliesPerDay) { dataPoint in
                     LineMark(x: .value("Month", dataPoint.day, unit:.day),
                             y: .value("Count", dataPoint.count),
@@ -178,3 +180,8 @@ struct SentimentPerDay: View {
     }
 }
 
+//                    BarMark(x: .value("Month", dataPoint.date, unit:.day),
+//                            y: .value("Count", dataPoint.plotValue))
+//                    .foregroundStyle(by: .value("Series", dataPoint.series))
+//                    .position(by: .value("Series", dataPoint.series))
+//                    .clipShape(RoundedRectangle(cornerRadius: 16))
