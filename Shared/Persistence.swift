@@ -37,15 +37,18 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         } else {
-            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("BlueX.sqlite")
-            
+//            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+//                .appendingPathComponent("BlueX")
+//                .appendingPathComponent("BlueX.sqlite")
+            let url = URL(fileURLWithPath: "/Users/zahedi/Documents/BlueX/BlueX.sqlite")
+            print("Will read from \(url)")
+
             container.persistentStoreDescriptions.first!.url = url
         }
         
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {
-                print("Unresolved error \(error), \(error.userInfo)")
+//                print("Unresolved error \(error), \(error.userInfo)")
                 fatalError("Unresolved error \(error), \(error.userInfo)")
             } else {
                 print("Persistent store loaded successfully: \(storeDescription)")

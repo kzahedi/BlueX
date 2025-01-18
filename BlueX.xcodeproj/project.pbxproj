@@ -23,11 +23,24 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		27F6810F2D3C539800433FEB /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = /usr/share/man/man1/;
+			dstSubfolderSpec = 0;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		272D89102D2D4E4300724733 /* BlueX.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = BlueX.xctestplan; sourceTree = "<group>"; };
 		277929892D286CB00007C602 /* BlueX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlueX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2779299F2D286CB10007C602 /* BlueXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlueXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		277929A92D286CB10007C602 /* BlueXUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlueXUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		27F681112D3C539800433FEB /* Scraper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Scraper; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -44,6 +57,16 @@
 		277929AC2D286CB10007C602 /* BlueXUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = BlueXUITests;
+			sourceTree = "<group>";
+		};
+		27F681122D3C539800433FEB /* Scraper */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Scraper;
+			sourceTree = "<group>";
+		};
+		27F681212D3C60C600433FEB /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -70,16 +93,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27F6810E2D3C539800433FEB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		277929802D286CB00007C602 = {
 			isa = PBXGroup;
 			children = (
+				27F681212D3C60C600433FEB /* Shared */,
 				272D89102D2D4E4300724733 /* BlueX.xctestplan */,
 				2779298B2D286CB00007C602 /* BlueX */,
 				277929A22D286CB10007C602 /* BlueXTests */,
 				277929AC2D286CB10007C602 /* BlueXUITests */,
+				27F681122D3C539800433FEB /* Scraper */,
 				2779298A2D286CB00007C602 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +122,7 @@
 				277929892D286CB00007C602 /* BlueX.app */,
 				2779299F2D286CB10007C602 /* BlueXTests.xctest */,
 				277929A92D286CB10007C602 /* BlueXUITests.xctest */,
+				27F681112D3C539800433FEB /* Scraper */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -111,6 +144,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				2779298B2D286CB00007C602 /* BlueX */,
+				27F681212D3C60C600433FEB /* Shared */,
 			);
 			name = BlueX;
 			packageProductDependencies = (
@@ -165,6 +199,29 @@
 			productReference = 277929A92D286CB10007C602 /* BlueXUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		27F681102D3C539800433FEB /* Scraper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27F681172D3C539800433FEB /* Build configuration list for PBXNativeTarget "Scraper" */;
+			buildPhases = (
+				27F6810D2D3C539800433FEB /* Sources */,
+				27F6810E2D3C539800433FEB /* Frameworks */,
+				27F6810F2D3C539800433FEB /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				27F681122D3C539800433FEB /* Scraper */,
+				27F681212D3C60C600433FEB /* Shared */,
+			);
+			name = Scraper;
+			packageProductDependencies = (
+			);
+			productName = Scraper;
+			productReference = 27F681112D3C539800433FEB /* Scraper */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -186,6 +243,9 @@
 						CreatedOnToolsVersion = 16.2;
 						TestTargetID = 277929882D286CB00007C602;
 					};
+					27F681102D3C539800433FEB = {
+						CreatedOnToolsVersion = 16.2;
+					};
 				};
 			};
 			buildConfigurationList = 277929842D286CB00007C602 /* Build configuration list for PBXProject "BlueX" */;
@@ -197,6 +257,9 @@
 			);
 			mainGroup = 277929802D286CB00007C602;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				273420BD2D36CB3F002AC324 /* XCRemoteSwiftPackageReference "Progress" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2779298A2D286CB00007C602 /* Products */;
 			projectDirPath = "";
@@ -205,6 +268,7 @@
 				277929882D286CB00007C602 /* BlueX */,
 				2779299E2D286CB10007C602 /* BlueXTests */,
 				277929A82D286CB10007C602 /* BlueXUITests */,
+				27F681102D3C539800433FEB /* Scraper */,
 			);
 		};
 /* End PBXProject section */
@@ -249,6 +313,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		277929A52D286CB10007C602 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27F6810D2D3C539800433FEB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -511,6 +582,30 @@
 			};
 			name = Release;
 		};
+		27F681152D3C539800433FEB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = CKF3U884G2;
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = kgz.BlueX;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		27F681162D3C539800433FEB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = CKF3U884G2;
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = kgz.BlueX;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -550,7 +645,27 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		27F681172D3C539800433FEB /* Build configuration list for PBXNativeTarget "Scraper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27F681152D3C539800433FEB /* Debug */,
+				27F681162D3C539800433FEB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		273420BD2D36CB3F002AC324 /* XCRemoteSwiftPackageReference "Progress" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jkandzi/Progress.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 277929812D286CB00007C602 /* Project object */;
 }
