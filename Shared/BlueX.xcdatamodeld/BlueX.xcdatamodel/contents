@@ -19,6 +19,7 @@
         <attribute name="timestampSentiment" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampStatistics" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="history" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="AccountHistory" inverseName="account" inverseEntity="AccountHistory"/>
+        <relationship name="logs" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="ScrapingLog" inverseName="account" inverseEntity="ScrapingLog"/>
         <relationship name="posts" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Post" inverseName="account" inverseEntity="Post"/>
     </entity>
     <entity name="AccountHistory" representedClassName="AccountHistory" syncable="YES" codeGenerationType="class">
@@ -49,6 +50,12 @@
         <relationship name="replies" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Post" inverseName="parent" inverseEntity="Post"/>
         <relationship name="sentiments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Sentiment" inverseName="post" inverseEntity="Sentiment"/>
         <relationship name="statistics" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Statistics" inverseName="post" inverseEntity="Statistics"/>
+    </entity>
+    <entity name="ScrapingLog" representedClassName="ScrapingLog" syncable="YES" codeGenerationType="class">
+        <attribute name="completed" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="type" optional="YES" attributeType="String"/>
+        <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="logs" inverseEntity="Account"/>
     </entity>
     <entity name="Sentiment" representedClassName="Sentiment" syncable="YES" codeGenerationType="class">
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		27F6812E2D3C6E0C00433FEB /* Progress in Frameworks */ = {isa = PBXBuildFile; productRef = 27F6812D2D3C6E0C00433FEB /* Progress */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		277929A02D286CB10007C602 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -43,9 +47,23 @@
 		27F681112D3C539800433FEB /* Scraper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Scraper; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		27F681382D3C77D400433FEB /* Exceptions for "BlueX" folder in "Scraper" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Core/Credentials.swift,
+				Crawler/BlueSkyFunctions.swift,
+			);
+			target = 27F681102D3C539800433FEB /* Scraper */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2779298B2D286CB00007C602 /* BlueX */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				27F681382D3C77D400433FEB /* Exceptions for "BlueX" folder in "Scraper" target */,
+			);
 			path = BlueX;
 			sourceTree = "<group>";
 		};
@@ -97,6 +115,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				27F6812E2D3C6E0C00433FEB /* Progress in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +131,7 @@
 				277929A22D286CB10007C602 /* BlueXTests */,
 				277929AC2D286CB10007C602 /* BlueXUITests */,
 				27F681122D3C539800433FEB /* Scraper */,
+				27F6812C2D3C6E0C00433FEB /* Frameworks */,
 				2779298A2D286CB00007C602 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -125,6 +145,13 @@
 				27F681112D3C539800433FEB /* Scraper */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		27F6812C2D3C6E0C00433FEB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -217,6 +244,7 @@
 			);
 			name = Scraper;
 			packageProductDependencies = (
+				27F6812D2D3C6E0C00433FEB /* Progress */,
 			);
 			productName = Scraper;
 			productReference = 27F681112D3C539800433FEB /* Scraper */;
@@ -666,6 +694,14 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		27F6812D2D3C6E0C00433FEB /* Progress */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 273420BD2D36CB3F002AC324 /* XCRemoteSwiftPackageReference "Progress" */;
+			productName = Progress;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 277929812D286CB00007C602 /* Project object */;
 }

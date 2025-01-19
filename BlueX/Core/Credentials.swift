@@ -4,7 +4,6 @@
 //
 //  Created by Keyan Ghazi-Zahedi on 25.12.24.
 //
-import SwiftUI
 import Foundation
 
 class Credentials {

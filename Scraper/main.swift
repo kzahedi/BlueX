@@ -6,15 +6,18 @@
 //
 
 import Foundation
+import Progress
 
 let accountHandler : AccountHandler = AccountHandler.shared
 let feedScraper = FeedScraper()
 
 print("Found the following accounts:")
 
-
-accountHandler.printAccountInformation()
-
-
 feedScraper.scrape()
 
+var bar = ProgressBar(count: 4)
+
+for _ in 0...3 {
+    bar.next()
+    sleep(1)
+}

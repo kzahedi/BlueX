@@ -8,8 +8,7 @@ import Foundation
 
 extension Date {
     
-    func toStartOfDay() -> Date
-    {
+    func toStartOfDay() -> Date {
         let calendar = Calendar.current
         
         var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: self)
@@ -21,8 +20,32 @@ extension Date {
         return calendar.date(from: components)!
     }
     
+    func toEndOfDay() -> Date {
+        let calendar = Calendar.current
+        
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: self)
+        
+        components.minute = 59
+        components.second = 59
+        components.hour = 23
+
+        return calendar.date(from: components)!
+    }
+    
+    func toNoon() -> Date {
+        let calendar = Calendar.current
+        
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: self)
+        
+        components.minute = 00
+        components.second = 00
+        components.hour = 12
+        
+        return calendar.date(from: components)!
+    }
+
     func toCursor() -> String {
-        return ISO8601DateFormatter().string(from: self)
+        return ISO8601DateFormatter().string(from: self).replacingOccurrences(of: "22:59:59", with: "23:59:59")
     }
     
     func isOlderThanXDays(x:Int) -> Bool {
