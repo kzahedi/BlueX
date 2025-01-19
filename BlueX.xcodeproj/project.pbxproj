@@ -56,6 +56,13 @@
 			);
 			target = 27F681102D3C539800433FEB /* Scraper */;
 		};
+		27F681532D3DBA8B00433FEB /* Exceptions for "Scraper" folder in "BlueX" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				PersistenceCli.swift,
+			);
+			target = 277929882D286CB00007C602 /* BlueX */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +86,9 @@
 		};
 		27F681122D3C539800433FEB /* Scraper */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				27F681532D3DBA8B00433FEB /* Exceptions for "Scraper" folder in "BlueX" target */,
+			);
 			path = Scraper;
 			sourceTree = "<group>";
 		};

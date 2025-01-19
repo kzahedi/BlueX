@@ -10,7 +10,7 @@ import CoreData
 import Progress
 
 struct FeedScraper {
-    let context = PersistenceController.shared.container.viewContext
+    let context = CliPersistenceController.shared.container.viewContext
 
     let accountHandler : AccountHandler = AccountHandler.shared
     let dateFormatter = DateFormatter()

@@ -45,8 +45,6 @@ struct BlueXApp: App {
         Settings {
             SettingsView()
         }
-        
-        
     }
 }
 

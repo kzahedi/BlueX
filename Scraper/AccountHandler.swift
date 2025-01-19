@@ -12,7 +12,7 @@ class AccountHandler {
     static let shared : AccountHandler = AccountHandler()
     public let accounts : [Account]
 
-    let context = PersistenceController.shared.container.viewContext
+    let context = CliPersistenceController.shared.container.viewContext
     
     
     private init(){

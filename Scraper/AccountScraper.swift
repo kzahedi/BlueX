@@ -12,7 +12,7 @@ import CoreData
 
 
 struct AccountScaper {
-    let context = PersistenceController.shared.container.viewContext
+    let context = CliPersistenceController.shared.container.viewContext
     
     func updateAccount(account:Account) {
         

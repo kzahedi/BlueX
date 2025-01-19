@@ -129,7 +129,7 @@ struct BlueskyFeedHandler {
                 let v = min(1.0, max(0.0, remainingDays / nrOfDays))
                 progress(1.0 - v)
                 
-                let post = getPost(uri: feedItem.post.uri!, context: self.context!)
+                let post = getPostFromCoreData(uri: feedItem.post.uri!, context: self.context!)
                 
                 post.createdAt = date!
                 post.fetchedAt = Date()
