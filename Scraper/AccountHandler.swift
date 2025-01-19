@@ -14,11 +14,11 @@ class AccountHandler {
 
     let context = CliPersistenceController.shared.container.viewContext
     
-    
     private init(){
         let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
         do {
-            self.accounts = try context.fetch(fetchRequest)
+            let a = try context.fetch(fetchRequest)
+            self.accounts = Array(Set(a))
         } catch {
             print("Cannot access accounts")
             exit(-1)

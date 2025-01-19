@@ -63,7 +63,7 @@ struct FeedScraper {
                     bar.setValue(max - dates.count)
                     let scrapingDate = dates.first!
                     scrapeDay(account:account, day:scrapingDate, token:token)
-                    dates = getScrapingDates(account:account)
+                    dates.removeFirst()
                 }
             }
             
