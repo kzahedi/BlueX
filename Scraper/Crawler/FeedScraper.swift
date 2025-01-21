@@ -61,21 +61,25 @@ struct FeedScraper {
         return dates
     }
     
-    public func scrape(token:String) {
+    public func scrapeAllActiveAccounts(token:String) {
         for account in accountHandler.accounts {
             if account.isActive {
-                print("Scraping data for \(account.displayName!):")
-                var dates = getScrapingDates(account:account)
-                let count = dates.count
-                var bar = ProgressBar(count: count)
-                while !dates.isEmpty {
-                    bar.setValue(min(count, count - dates.count + 1))
-                    let scrapingDate = dates.removeFirst()
-                    scrapeDay(account:account, day:scrapingDate, token:token)
-                }
-                print("Done.\n")
+                scrape(account: account, token: token)
             }
         }
+    }
+    
+    public func scrape(account:Account, token:String) {
+        print("Scraping data for \(account.displayName!):")
+        var dates = getScrapingDates(account:account)
+        let count = dates.count
+        var bar = ProgressBar(count: count)
+        while !dates.isEmpty {
+            bar.setValue(min(count, count - dates.count + 1))
+            let scrapingDate = dates.removeFirst()
+            scrapeDay(account:account, day:scrapingDate, token:token)
+        }
+        print("Done.\n")
     }
     
     private func scrapeDay(account:Account, day:Date, token:String) {

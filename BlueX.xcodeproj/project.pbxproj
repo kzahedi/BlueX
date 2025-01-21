@@ -59,7 +59,7 @@
 		27F681532D3DBA8B00433FEB /* Exceptions for "Scraper" folder in "BlueX" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				PersistenceCli.swift,
+				Core/PersistenceCli.swift,
 			);
 			target = 277929882D286CB00007C602 /* BlueX */;
 		};

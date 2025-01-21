@@ -8,42 +8,59 @@
 import Foundation
 import NaturalLanguage
 import CoreData
+import Progress
 
 struct CalculateStatistics {
     
-    var context : NSManagedObjectContext? = nil
-    
-    public func runFor(did: String, progress: @escaping (Double) -> Void) {
-        
-        print("Counting replies per post")
-        
-        let account = try? getAccount(did: did, context: self.context!)
-        if account == nil {
-            return
+    let context = CliPersistenceController.shared.container.viewContext
+    let accountHandler : AccountHandler = AccountHandler.shared
+    let predicatFormat = "account == %@ AND rootURI == nil AND statistics == nil"
+
+    func calculateStatisticsForAllActiveAccounts(batchSize:Int = 100) {
+        for account in accountHandler.accounts {
+            if account.isActive == false { continue }
+            calculateFor(account:account, batchSize: batchSize)
         }
-        
-        runFor(account:account!, progress:progress)
     }
     
-    func runFor(account: Account, progress: @escaping (Double) -> Void) {
-        var n : Double = 0.0
+    func calculateFor(account: Account, batchSize:Int) {
         print("Running for account \(account.displayName!)")
-        if let nodes = account.posts?.allObjects as? [Post] {
-            let count = Double(nodes.count)
-            print("Found \(nodes.count) root nodes")
-            for post in nodes {
-                recursiveCalculateStatistics(post:post)
-                n = n + 1
-                progress(n/count)
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: predicatFormat, account)
+        let count = try! context.count(for: fetchRequest)
+        print("Found \(count) posts to scrape")
+        var bar = ProgressBar(count: count)
+        
+        
+        while true {
+            let batch = getBatch(account:account, batchSize:batchSize)
+            if batch.count == 0 { break }
+            for post in batch {
+                bar.next()
+                recursiveCalculateStatistics(post: post)
             }
         }
+        
         account.timestampStatistics = Date()
-        try? self.context!.save()
-        print("Done with counting replies")
+        
+        try? context.save()
+        print("Done with sentiment analysis")
     }
     
+    private func getBatch(account:Account, batchSize:Int) -> [Post] {
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: predicatFormat, account)
+        fetchRequest.fetchLimit = batchSize
+        
+        do {
+            return try context.fetch(fetchRequest)
+        } catch {
+            return []
+        }
+    }
+
     private func recursiveCalculateStatistics(post:Post) {
-        let stats = post.statistics ?? Statistics(context: self.context!)
+        let stats = post.statistics ?? Statistics(context: self.context)
         post.statistics = stats
         stats.post = post
         stats.countedAllReplies = countAllReplies(post:post)
@@ -54,7 +71,7 @@ struct CalculateStatistics {
         } else {
             stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
         }
-        try? self.context!.save()
+        try? self.context.save()
         
         if let replies = post.replies?.allObjects as? [Post] {
             for reply in replies {
@@ -74,7 +91,7 @@ struct CalculateStatistics {
     private func countRepliesForNode(uri:String) throws -> Int64 {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "parentURI == %@", uri as CVarArg)
-        let posts = try self.context!.fetch(fetchRequest)
+        let posts = try self.context.fetch(fetchRequest)
         return Int64(posts.count)
     }
     
@@ -87,7 +104,7 @@ struct CalculateStatistics {
             for post in replies {
                 let d = countReplyTreeDepth(post: post)
                 if post.statistics == nil {
-                    let stats = Statistics(context: self.context!)
+                    let stats = Statistics(context: self.context)
                     post.statistics = stats
                     stats.post = post
                 }

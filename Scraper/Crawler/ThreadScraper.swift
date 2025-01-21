@@ -13,37 +13,37 @@ struct ThreadScraper {
     let context = CliPersistenceController.shared.container.viewContext
 
     let accountHandler : AccountHandler = AccountHandler.shared
-    let dateFormatter = DateFormatter()
     let accountScraper = AccountScaper()
     
-    init(){
-        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-    }
-    
-    public func scrape(token:String, batchSize:Int = 100) {
+    public func scrapeAllActiveAccounts(token:String, batchSize:Int = 100) {
         for account in accountHandler.accounts {
             if account.isActive == false { continue }
-            print("Scraping thread data for:")
-            print(account)
-            
-            let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-            fetchRequest.predicate = NSPredicate(format: "(replyTreeChecked == false OR replyTreeChecked == nil) AND account == %@ AND rootURI == nil",
-                                                 account)
-            let count = try! context.count(for: fetchRequest)
-            print("Found \(count) posts to scrape")
-            var bar = ProgressBar(count: count)
-            
-            while true {
-                let batch = getPostBatch(batchSize:batchSize, account:account)
-                for post in batch {
-                    recursiveGetThread(post:post, force:false, token:token)
-                    bar.next()
-                }
-            }
-            account.timestampReplyTrees = Date()
-            try? context.save()
-            print("Done.\n")
+            scrape(account:account, token:token, batchSize:batchSize)
         }
+    }
+    
+    public func scrape(account:Account, token:String, batchSize:Int = 100) {
+        print("Scraping thread data for:")
+        print(account)
+        
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "(replyTreeChecked == false OR replyTreeChecked == nil) AND account == %@ AND rootURI == nil",
+                                             account)
+        let count = try! context.count(for: fetchRequest)
+        print("Found \(count) posts to scrape")
+        var bar = ProgressBar(count: count)
+        
+        while true {
+            let batch = getPostBatch(batchSize:batchSize, account:account)
+            if batch.count == 0 { break }
+            for post in batch {
+                recursiveGetThread(post:post, force:false, token:token)
+                bar.next()
+            }
+        }
+        account.timestampReplyTrees = Date()
+        try? context.save()
+        print("Done.\n")
     }
     
     private func getPostBatch(batchSize:Int=100, account:Account) -> [Post] {

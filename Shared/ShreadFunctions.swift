@@ -79,3 +79,12 @@ func printPredicate(_ predicate: NSPredicate) {
         print("Predicate: \(predicate)")
     }
 }
+
+func getSentimentScore(post:Post, tool: SentimentAnalysisTool) -> Double {
+    if let sentimentsSet = post.sentiments as? Set<Sentiment> {
+        let sentiments = Array(sentimentsSet)
+        let toolStr = tool.stringValue
+        return sentiments.filter{$0.tool == toolStr}.first?.score ?? 0.0
+    }
+    return 0.0
+}
