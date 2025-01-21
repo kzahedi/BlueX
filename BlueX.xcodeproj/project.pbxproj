@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		27F6812E2D3C6E0C00433FEB /* Progress in Frameworks */ = {isa = PBXBuildFile; productRef = 27F6812D2D3C6E0C00433FEB /* Progress */; };
+		27F6816B2D403C7E00433FEB /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 27F6816A2D403C7E00433FEB /* ArgumentParser */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -125,6 +126,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				27F6816B2D403C7E00433FEB /* ArgumentParser in Frameworks */,
 				27F6812E2D3C6E0C00433FEB /* Progress in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -255,6 +257,7 @@
 			name = Scraper;
 			packageProductDependencies = (
 				27F6812D2D3C6E0C00433FEB /* Progress */,
+				27F6816A2D403C7E00433FEB /* ArgumentParser */,
 			);
 			productName = Scraper;
 			productReference = 27F681112D3C539800433FEB /* Scraper */;
@@ -297,6 +300,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				273420BD2D36CB3F002AC324 /* XCRemoteSwiftPackageReference "Progress" */,
+				27F681692D403C6100433FEB /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2779298A2D286CB00007C602 /* Products */;
@@ -703,6 +707,14 @@
 				minimumVersion = 0.4.0;
 			};
 		};
+		27F681692D403C6100433FEB /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -710,6 +722,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 273420BD2D36CB3F002AC324 /* XCRemoteSwiftPackageReference "Progress" */;
 			productName = Progress;
+		};
+		27F6816A2D403C7E00433FEB /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 27F681692D403C6100433FEB /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
