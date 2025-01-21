@@ -11,10 +11,12 @@ import Progress
 
 struct FeedScraper {
     let context = CliPersistenceController.shared.container.viewContext
-
+    
     let accountHandler : AccountHandler = AccountHandler.shared
     let dateFormatter = DateFormatter()
-    let accountScraper = AccountScaper()
+    
+    let calendar = Calendar.current
+
     
     init(){
         dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
@@ -26,23 +28,31 @@ struct FeedScraper {
         let startAt = account.startAt ?? today
         let calendar = Calendar.current
         
-        var currentDate = startAt
-        while currentDate <= today {
-            let intervalStart = currentDate.toStartOfDay()
-            if let nextDate = calendar.date(byAdding: .day, value: 1, to: currentDate) {
+        var currentDate = Date()
+        while currentDate >= startAt {
+            currentDate = currentDate.toNoon()
+            let intervalStart = calendar.startOfDay(for: currentDate)
+            let intervalEnd = calendar.date(byAdding: .day, value: 1, to: intervalStart)!
+            let tmpo = currentDate
+            if let nextDate = calendar.date(byAdding: .day, value: -1, to: currentDate) {
                 currentDate = nextDate
             }
-            let intervalEnd = currentDate.toEndOfDay()
+            
+            if intervalEnd.isOlderThanXDays(x: 1) == false {
+                dates.append(intervalEnd.toEndOfDay())
+                continue
+            }
             
             let fetchRequest: NSFetchRequest<ScrapingLog> = ScrapingLog.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp < %@ AND account == %@ AND completed == true and type == 'feed'",
                                                  intervalStart as NSDate,
                                                  intervalEnd as NSDate,
                                                  account)
-            //            fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp < %@ AND account == %@",
             do {
                 let logs = try context.fetch(fetchRequest)
-                if logs.count == 0 { dates.append(intervalStart.toEndOfDay()) }
+                if logs.count == 0 {
+                    dates.append(intervalEnd.toNoon())
+                }
             } catch {
                 print("Failed to fetch posts: \(error)")
             }
@@ -51,38 +61,35 @@ struct FeedScraper {
         return dates
     }
     
-    public func scrape() {
-        if let token = getBlueSkyToken() {
-            for account in accountHandler.accounts {
-                print("Scraping data for:")
-                print(account)
+    public func scrape(token:String) {
+        for account in accountHandler.accounts {
+            if account.isActive {
+                print("Scraping data for \(account.displayName!):")
                 var dates = getScrapingDates(account:account)
-                let max = dates.count
-                var bar = ProgressBar(count: max)
+                let count = dates.count
+                var bar = ProgressBar(count: count)
                 while !dates.isEmpty {
-                    bar.setValue(max - dates.count)
-                    let scrapingDate = dates.first!
+                    bar.setValue(min(count, count - dates.count + 1))
+                    let scrapingDate = dates.removeFirst()
                     scrapeDay(account:account, day:scrapingDate, token:token)
-                    dates.removeFirst()
                 }
+                print("Done.\n")
             }
-            
         }
     }
     
     private func scrapeDay(account:Account, day:Date, token:String) {
-        //        accountScraper.updateAccount(account: account)
-        
         let limit = 1 // fetch post by post
-        var cursor = day.toCursor()
-        var dayCompleted = false
+        var dayCompleted = true
         let startOfDay = day.toStartOfDay()
         let endOfDay = day.toEndOfDay()
-
+        var cursor = endOfDay.toCursor()
+        
         while true {
             let feed = fetchFeed(for:account.did!, token: token, limit: limit, cursor:cursor)
             
             if feed == nil {
+                dayCompleted = false // TODO: check
                 break
             }
             
@@ -99,9 +106,9 @@ struct FeedScraper {
                     dayCompleted = true
                     break
                 }
-
+                
                 let post = getPostFromCoreData(uri: feedItem.post.uri!, context: self.context)
-
+                
                 post.createdAt = date!
                 post.fetchedAt = Date()
                 post.uri = feedItem.post.uri
@@ -119,7 +126,10 @@ struct FeedScraper {
             if feed!.cursor != nil {
                 let cursorDate = convertToDate(from: feed!.cursor!)
                 if cursorDate == nil {
-                    dayCompleted = false
+                    dayCompleted = true
+                    if feed!.feed.isEmpty == false {
+                        dayCompleted = false
+                    }
                     break
                 }
                 if cursorDate! < startOfDay {
@@ -128,6 +138,7 @@ struct FeedScraper {
                 }
                 cursor = feed!.cursor!
             } else {
+                dayCompleted = true
                 break
             }
         }
@@ -141,15 +152,15 @@ struct FeedScraper {
         
         if foundLog == nil {
             log = ScrapingLog(context: self.context)
-            log.timestamp = day
+            account.addToLogs(log)
         } else {
             log = foundLog!
         }
+        log.timestamp = day.toNoon()
         log.completed = dayCompleted
         log.type = "feed"
         log.account = account
         
-        account.addToLogs(log)
         
         account.timestampFeed = Date()
         try? self.context.save()

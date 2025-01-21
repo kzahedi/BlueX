@@ -77,7 +77,9 @@ class AccountViewModel: ObservableObject {
                 }
             }
             
-            if let profile = resolveProfile(did: account.did!) {
+            let token = getToken()!
+            
+            if let profile = resolveProfile(did: account.did!, token:token) {
                 
                 handle = profile.handle
                 displayName = profile.displayName

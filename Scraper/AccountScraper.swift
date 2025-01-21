@@ -14,7 +14,7 @@ import CoreData
 struct AccountScaper {
     let context = CliPersistenceController.shared.container.viewContext
     
-    func updateAccount(account:Account) {
+    func updateAccount(account:Account, token:String) {
         
         if let handle = account.handle {
             if account.did == nil {
@@ -29,7 +29,7 @@ struct AccountScaper {
                     }
                 }
                 
-                if let profile = resolveProfile(did: account.did!) {
+                if let profile = resolveProfile(did: account.did!, token:token) {
                     
                     let displayName = profile.displayName
                     let followsCount = String(profile.followsCount)

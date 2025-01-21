@@ -54,6 +54,7 @@ func getPostFromCoreData(uri:String, context:NSManagedObjectContext) -> Post {
     let post = Post(context: context)
     post.uri = uri
     post.id = UUID()
+    post.replyTreeChecked = false
     return post
 }
 

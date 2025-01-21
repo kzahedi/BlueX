@@ -45,7 +45,7 @@ extension Date {
     }
 
     func toCursor() -> String {
-        return ISO8601DateFormatter().string(from: self).replacingOccurrences(of: "22:59:59", with: "23:59:59")
+        return ISO8601DateFormatter().string(from: self).replacingTimeWithEndOfDay()
     }
     
     func isOlderThanXDays(x:Int) -> Bool {

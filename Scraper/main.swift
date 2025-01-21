@@ -9,7 +9,19 @@ import Foundation
 import Progress
 
 let accountHandler : AccountHandler = AccountHandler.shared
-let feedScraper = FeedScraper()
-
-feedScraper.scrape()
+if let token = getBlueSkyToken() {
+    let feedScraper = FeedScraper()
+    let threadScraper = ThreadScraper()
+    let accountScraper = AccountScaper()
+    
+    for account in accountHandler.accounts {
+        accountScraper.updateAccount(account: account, token: token)
+    }
+    
+    feedScraper.scrape(token:token)
+    threadScraper.scrape(token:token)
+    
+} else {
+    print("Cannot get BlueSky token.")
+}
 

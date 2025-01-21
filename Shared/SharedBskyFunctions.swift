@@ -112,11 +112,10 @@ func resolveDID(handle: String) -> String? {
 }
 
 
-func resolveProfile(did: String) -> ProfileResponse? {
+func resolveProfile(did: String, token: String) -> ProfileResponse? {
     let didURL = "https://bsky.social/xrpc/app.bsky.actor.getProfile"
     let group = DispatchGroup()
     let url = URL(string: "\(didURL)?actor=\(did)")
-    let token = getToken()!
     
     var request = URLRequest(url: url!)
     request.httpMethod = "GET"
