@@ -9,7 +9,9 @@ import Foundation
 import Progress
 
 let accountHandler : AccountHandler = AccountHandler.shared
+
 if let token = getBlueSkyToken() {
+    
     let feedScraper = FeedScraper()
     let threadScraper = ThreadScraper()
     let accountScraper = AccountScaper()
@@ -18,10 +20,14 @@ if let token = getBlueSkyToken() {
         accountScraper.updateAccount(account: account, token: token)
     }
     
-    feedScraper.scrape(token:token)
-    threadScraper.scrape(token:token)
+//    feedScraper.scrape(token:token)
+//    threadScraper.scrape(token:token)
     
 } else {
     print("Cannot get BlueSky token.")
 }
 
+let sentiment = SentimentAnalysis()
+
+
+sentiment.calculateSentiments()

@@ -67,3 +67,15 @@ func setDateString(date:Date?, optional:String = "N/A") -> String {
     }
     return optional
 }
+
+func printPredicate(_ predicate: NSPredicate) {
+    if let comparisonPredicate = predicate as? NSComparisonPredicate {
+        let left = comparisonPredicate.leftExpression.description
+        let right = comparisonPredicate.rightExpression.description
+        let op = comparisonPredicate.predicateOperatorType
+        
+        print("Predicate: \(left) \(op) \(right)")
+    } else {
+        print("Predicate: \(predicate)")
+    }
+}

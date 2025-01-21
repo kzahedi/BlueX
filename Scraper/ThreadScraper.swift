@@ -30,7 +30,6 @@ struct ThreadScraper {
             fetchRequest.predicate = NSPredicate(format: "(replyTreeChecked == false OR replyTreeChecked == nil) AND account == %@ AND rootURI == nil",
                                                  account)
             let count = try! context.count(for: fetchRequest)
-            
             print("Found \(count) posts to scrape")
             var bar = ProgressBar(count: count)
             
@@ -41,17 +40,9 @@ struct ThreadScraper {
                     bar.next()
                 }
             }
+            account.timestampReplyTrees = Date()
+            try? context.save()
             print("Done.\n")
-
-            
-            //                var dates = getScrapingDates(account:account)
-            //                let count = dates.count
-            //                var bar = ProgressBar(count: count)
-            //                while !dates.isEmpty {
-            //                    bar.setValue(min(count, count - dates.count + 1))
-            //                    let scrapingDate = dates.removeFirst()
-            //                    scrapeDay(account:account, day:scrapingDate, token:token)
-            //                }
         }
     }
     
