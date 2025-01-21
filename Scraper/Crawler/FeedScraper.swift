@@ -64,13 +64,14 @@ struct FeedScraper {
     public func scrapeAllActiveAccounts(token:String) {
         for account in accountHandler.accounts {
             if account.isActive {
+                print(account)
                 scrape(account: account, token: token)
             }
         }
     }
     
     public func scrape(account:Account, token:String) {
-        print("Scraping data for \(account.displayName!):")
+        print("Scraping feed data for \(account.displayName!)")
         var dates = getScrapingDates(account:account)
         let count = dates.count
         var bar = ProgressBar(count: count)

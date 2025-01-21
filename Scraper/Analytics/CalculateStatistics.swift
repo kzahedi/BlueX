@@ -19,16 +19,16 @@ struct CalculateStatistics {
     func calculateStatisticsForAllActiveAccounts(batchSize:Int = 100) {
         for account in accountHandler.accounts {
             if account.isActive == false { continue }
+            print(account)
             calculateFor(account:account, batchSize: batchSize)
         }
     }
     
-    func calculateFor(account: Account, batchSize:Int) {
-        print("Running for account \(account.displayName!)")
+    func calculateFor(account: Account, batchSize:Int = 100) {
+        print("Calculating statistics for \(account.displayName!)")
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: predicatFormat, account)
         let count = try! context.count(for: fetchRequest)
-        print("Found \(count) posts to scrape")
         var bar = ProgressBar(count: count)
         
         

@@ -25,8 +25,6 @@ class TaskManager: ObservableObject {
     
     private var feedHandler = BlueskyFeedHandler()
     private var replyHandler = BlueskyRepliesHandler()
-    private var statistics = CalculateStatistics()
-    private var sentimentAnalysis = SentimentAnalysis()
     
     private var context : NSManagedObjectContext? = nil
     
@@ -39,8 +37,6 @@ class TaskManager: ObservableObject {
         }()
         self.feedHandler.context = backgroundContext
         self.replyHandler.context = backgroundContext
-        self.statistics.context = backgroundContext
-        self.sentimentAnalysis.context = backgroundContext
     }
     
     func runReplyScraper(did:String, name:String, earliestDate:Date, force:Bool) {
@@ -100,49 +96,9 @@ class TaskManager: ObservableObject {
     
     func calculateStatistics(did:String, name:String) {
         // Prevent starting the task again if it's already running
-        guard !isCalculatingStatistics else {
-            print("Task is already running.")
-            return
-        }
-        
-        // Start background task
-        isCalculatingStatistics = true
-        print("Calculating statistics for \(did) ...")
-        
-        DispatchQueue.background(delay:0.0, background: {
-            self.statistics.runFor(did:did) {progress in
-                DispatchQueue.main.async {
-                    self.calcualteStatisticsProgress = progress
-                }
-            }
-        }, completion: {
-            self.isCalculatingStatistics = false
-            notifyTaskCompletion(taskName: "Statistics calculation", accountName: name)
-        })
-        // Update task completion state on the main thread
+      
     }
     
     func calculateSentiments(did:String, name:String) {
-        // Prevent starting the task again if it's already running
-        guard !isCalculatingSentiments else {
-            return
-        }
-        
-        // Start background task
-        isCalculatingSentiments = true
-        print("Calculating sentiments for \(did) ...")
-        
-        for tool in SentimentAnalysisTool.allCases {
-            DispatchQueue.background(delay:0.0, background: {
-                self.sentimentAnalysis.runFor(did:did, tool: tool) {progress in
-                    DispatchQueue.main.async {
-                        self.calcualtedSentimentsProgress = progress
-                    }
-                }
-            }, completion: {
-                self.isCalculatingSentiments = false
-                notifyTaskCompletion(taskName: "Sentiment analsysis \(tool.stringValue)", accountName: name)
-            })
-        }
     }
 }

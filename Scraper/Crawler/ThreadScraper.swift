@@ -18,14 +18,14 @@ struct ThreadScraper {
     public func scrapeAllActiveAccounts(token:String, batchSize:Int = 100) {
         for account in accountHandler.accounts {
             if account.isActive == false { continue }
+            print(account)
             scrape(account:account, token:token, batchSize:batchSize)
         }
     }
     
     public func scrape(account:Account, token:String, batchSize:Int = 100) {
-        print("Scraping thread data for:")
-        print(account)
-        
+        print("Scraping thread data for \(account.displayName!)")
+
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "(replyTreeChecked == false OR replyTreeChecked == nil) AND account == %@ AND rootURI == nil",
                                              account)

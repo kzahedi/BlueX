@@ -22,9 +22,12 @@ if let token = getBlueSkyToken() {
         accountScraper.updateAccount(account: account, token: token)
         
         if account.isActive {
+            print("Working on:")
+            print(account)
             feedScraper.scrape(account:account, token:token)
             threadScraper.scrape(account:account, token:token)
             sentiment.calculateSentimentsFor(account:account, tool: .NLTagger)
+            statistics.calculateFor(account:account)
         }
     }
     

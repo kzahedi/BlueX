@@ -54,7 +54,7 @@ struct AccountScaper {
                     
                     do {
                         try context.save()
-                        print("Account updated successfully.")
+                        print("Account \(account.displayName!) updated successfully.")
                     } catch {
                         print("Failed to save account: \(error)")
                     }

@@ -21,11 +21,13 @@ struct SentimentAnalysis {
         print("Running sentiment analysis")
         for account in accountHandler.accounts {
             if account.isActive == false { continue }
+            print(account)
             calculateSentimentsFor(account: account, tool:tool, batchSize: batchSize)
         }
     }
     
     public func calculateSentimentsFor(account:Account, tool : SentimentAnalysisTool = .NLTagger, batchSize:Int = 100) {
+        print("Calculating sentiments for \(account.displayName!)")
         var taggerFunction : ((Post) -> Void)? = nil
         switch tool {
             case .NLTagger: taggerFunction = calculateSentimentNLTagger
@@ -34,7 +36,6 @@ struct SentimentAnalysis {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: predicatFormat, account, tool.stringValue as CVarArg)
         let count = try! context.count(for: fetchRequest)
-        print("Found \(count) posts to calculate sentiments")
         var bar = ProgressBar(count: count)
         
         while true {
@@ -91,8 +92,10 @@ struct SentimentAnalysis {
         text = text.replacingOccurrences(of: "\\r?\\n", with: "", options: .regularExpression)
         tagger.string = text
         let sentimentScore = tagger.tag(at: text.startIndex, unit: .paragraph, scheme: .sentimentScore)
+        var createNew = false
+        var score : Double? = nil
         if sentimentScore.0 != nil {
-            let score = Double(sentimentScore.0!.rawValue)
+            score = Double(sentimentScore.0!.rawValue)
             if let sentimentsSet = post.sentiments as? Set<Sentiment> {
                 let sentiments = Array(sentimentsSet)
                 if let sentiment = sentiments.filter({$0.tool == SentimentAnalysisTool.NLTagger.stringValue }).first {
@@ -101,21 +104,28 @@ struct SentimentAnalysis {
                     }
                     sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
                     try? self.context.save()
+                    createNew = false
                 } else {
-                    let sentiment = Sentiment(context: self.context)
-                    sentiment.id = UUID()
-                    if score != nil {
-                        sentiment.score = score!
-                    }
-                    sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
-                    sentiment.post = post
-                    post.addToSentiments(sentiment)
-                    try? self.context.save()
+                    createNew = true
                 }
             } else {
-                print("Score is nil")
+                createNew = true
             }
+        } else {
+            createNew = true
         }
+        if createNew {
+            let sentiment = Sentiment(context: self.context)
+            sentiment.id = UUID()
+            if score != nil {
+                sentiment.score = score!
+            }
+            sentiment.tool = SentimentAnalysisTool.NLTagger.stringValue
+            sentiment.post = post
+            post.addToSentiments(sentiment)
+            try? self.context.save()
+        }
+        
     }
     
  

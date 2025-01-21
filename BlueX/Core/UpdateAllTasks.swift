@@ -15,8 +15,6 @@ class UpdateAllTasks {
     let backgroundContext : NSManagedObjectContext
     var feedScraper : BlueskyFeedHandler = BlueskyFeedHandler()
     var repliesScraper : BlueskyRepliesHandler = BlueskyRepliesHandler()
-    var statistics = CalculateStatistics()
-    var sentimentAnalysis = SentimentAnalysis()
     var feedUpdates : Int = 0
  
     let logger : Logger = Logger.shared
@@ -33,8 +31,6 @@ class UpdateAllTasks {
         }()
         self.feedScraper.context = backgroundContext
         self.repliesScraper.context = backgroundContext
-        self.sentimentAnalysis.context = backgroundContext
-        self.statistics.context = backgroundContext
         self.interval = interval
     }
 
@@ -49,8 +45,6 @@ class UpdateAllTasks {
                     for account in activeAccounts {
                         self.scrapeFeed(account:account, token:token)
                         self.scrapeRaplyTrees(account:account, token:token)
-                        self.calculateSentiments(account:account, tool: .NLTagger)
-                        self.calculateStatistics(account:account)
                     }
                 }
             }, completion:{})
@@ -80,29 +74,6 @@ class UpdateAllTasks {
         }
         notifyTaskCompletion(taskName: "Completed scraping reply trees", accountName: account.displayName!)
     }
-    
-    private func calculateSentiments(account: Account, tool: SentimentAnalysisTool) {
-        print("Calculate sentiments for \(account.displayName!) with \(tool.stringValue)")
-        notifyTaskCompletion(taskName: "Started calculating sentiments", accountName: account.displayName!)
-        sentimentAnalysis.runFor(account: account, tool: tool) {progress in
-            DispatchQueue.main.async {
-                print("Calculating sentiments for \(account.displayName!) is \(Int(round(progress * 100)))%")
-            }
-        }
-        notifyTaskCompletion(taskName: "Completed calculating sentiments", accountName: account.displayName!)
-    }
-    
-    private func calculateStatistics(account: Account) {
-        print("Calculating statistics for \(account.displayName!)")
-        notifyTaskCompletion(taskName: "Started calculating statistics", accountName: account.displayName!)
-        statistics.runFor(account: account) { progress in
-            DispatchQueue.main.async {
-                print("Calculating statistics for \(account.displayName!) is \(Int(round(progress * 100)))%")
-            }
-        }
-        notifyTaskCompletion(taskName: "Completed calculating statistics", accountName: account.displayName!)
-    }
-    
     private func feedUpdate(value:Double) {
         
     }
