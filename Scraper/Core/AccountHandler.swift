@@ -10,7 +10,7 @@ import CoreData
 
 class AccountHandler {
     static let shared : AccountHandler = AccountHandler()
-    public let accounts : [Account]
+    public var accounts : [Account]
 
     let context = CliPersistenceController.shared.container.viewContext
     
@@ -19,6 +19,7 @@ class AccountHandler {
         do {
             let a = try context.fetch(fetchRequest)
             self.accounts = Array(Set(a))
+            self.accounts.sort(by: {$0.displayName! < $1.displayName!})
         } catch {
             print("Cannot access accounts")
             exit(-1)

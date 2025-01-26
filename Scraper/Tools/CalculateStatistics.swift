@@ -15,6 +15,7 @@ struct CalculateStatistics {
     let context = CliPersistenceController.shared.container.viewContext
     let accountHandler : AccountHandler = AccountHandler.shared
     let predicatFormat = "account == %@ AND rootURI == nil AND statistics == nil"
+    let predicatFormatALL = "account == %@ AND rootURI == nil"
 
     func calculateStatisticsForAllActiveAccounts(batchSize:Int = 100) {
         for account in accountHandler.accounts {
@@ -25,12 +26,21 @@ struct CalculateStatistics {
     }
     
     func calculateFor(account: Account, batchSize:Int = 100) {
+        if let posts = account.posts as? Set<Post> {
+            for post in posts {
+                if post.statistics != nil {
+                    context.delete(post.statistics!)
+                }
+            }
+            try? context.save()
+        }
+        
         print("Calculating statistics for \(account.displayName!)")
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: predicatFormat, account)
+        fetchRequest.predicate = NSPredicate(format: predicatFormatALL, account)
         let count = try! context.count(for: fetchRequest)
         var bar = ProgressBar(count: count)
-        
+        bar.setValue(0)
         
         while true {
             let batch = getBatch(account:account, batchSize:batchSize)
@@ -44,7 +54,7 @@ struct CalculateStatistics {
         account.timestampStatistics = Date()
         
         try? context.save()
-        print("Done with sentiment analysis")
+        print("Done with statistics analysis")
     }
     
     private func getBatch(account:Account, batchSize:Int) -> [Post] {
@@ -60,60 +70,66 @@ struct CalculateStatistics {
     }
 
     private func recursiveCalculateStatistics(post:Post) {
+        
+        if post.statistics != nil {
+            context.delete(post.statistics!)
+            try? context.save()
+        }
+        
+        var totalNumberOfReplies : Int64 = 0
+        var nrOfReplies : Int64 = 0
+        
+        if let replies = post.replies?.allObjects as? [Post] {
+            nrOfReplies = Int64(replies.count)
+            totalNumberOfReplies = nrOfReplies
+            for reply in replies {
+                recursiveCalculateStatistics(post:reply)
+                totalNumberOfReplies += reply.statistics!.totalNumberOfReplies
+            }
+        }
+        
         let stats = post.statistics ?? Statistics(context: self.context)
         post.statistics = stats
         stats.post = post
-        stats.countedAllReplies = countAllReplies(post:post)
-        stats.replyTreeDepth = countReplyTreeDepth(post:post)
+        stats.totalNumberOfReplies = totalNumberOfReplies
+        stats.nrOfReplies = nrOfReplies
+        stats.replyTreeDepth = collectReplyTreeDepth(post:post)
         let sentiments = collectSentiments(post:post)
         if sentiments.count == 0 {
             stats.avgSentimentReplies = 0.0
         } else {
             stats.avgSentimentReplies = sentiments.reduce(0.0, +) / Double(sentiments.count)
         }
-        try? self.context.save()
+        try? context.save()
         
-        if let replies = post.replies?.allObjects as? [Post] {
-            for reply in replies {
-                recursiveCalculateStatistics(post:reply)
-            }
-        }
     }
     
     private func countAllReplies(post:Post) -> Int64 {
+        var n : Int64 = 0
         if let repliesSet = post.replies as? Set<Post> {
-            let replies = Array(repliesSet)
-            return Int64(replies.count)
+            n += Int64((Array(repliesSet)).count)
+            for reply in repliesSet {
+                n += reply.statistics!.totalNumberOfReplies 
+            }
+            return n
         }
         return Int64(0)
     }
     
-    private func countRepliesForNode(uri:String) throws -> Int64 {
-        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "parentURI == %@", uri as CVarArg)
-        let posts = try self.context.fetch(fetchRequest)
-        return Int64(posts.count)
-    }
-    
-    private func countReplyTreeDepth(post:Post) -> Int64 {
-        
+    private func collectReplyTreeDepth(post:Post) -> Int64 {
+        var depth : Int64 = 0
         if let repliesSet = post.replies as? Set<Post> {
             let replies = Array(repliesSet)
-            
-            var maxDepth:Int64 = -1
+            var maxDepth:Int64 = 0
             for post in replies {
-                let d = countReplyTreeDepth(post: post)
-                if post.statistics == nil {
-                    let stats = Statistics(context: self.context)
-                    post.statistics = stats
-                    stats.post = post
-                }
-                post.statistics!.replyTreeDepth = d
+                let d = post.statistics?.replyTreeDepth ?? 0
                 if d > maxDepth { maxDepth = d }
             }
-            return maxDepth + 1
+            if replies.count > 0 {
+                depth = maxDepth + 1
+            }
         }
-        return -1
+        return depth
     }
 
     private func collectSentiments(post:Post) -> [Double] {

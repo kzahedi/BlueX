@@ -33,7 +33,6 @@ struct FeedScraper {
             currentDate = currentDate.toNoon()
             let intervalStart = calendar.startOfDay(for: currentDate)
             let intervalEnd = calendar.date(byAdding: .day, value: 1, to: intervalStart)!
-            let tmpo = currentDate
             if let nextDate = calendar.date(byAdding: .day, value: -1, to: currentDate) {
                 currentDate = nextDate
             }
@@ -43,10 +42,13 @@ struct FeedScraper {
                 continue
             }
             
+            let (day, month, year) = currentDate.dayMonthYear()
+ 
             let fetchRequest: NSFetchRequest<ScrapingLog> = ScrapingLog.fetchRequest()
-            fetchRequest.predicate = NSPredicate(format: "timestamp >= %@ AND timestamp < %@ AND account == %@ AND completed == true and type == 'feed'",
-                                                 intervalStart as NSDate,
-                                                 intervalEnd as NSDate,
+            fetchRequest.predicate = NSPredicate(format: "day == %@ AND month == %@ AND AND year == %@ AND account == %@ AND completed == true and type == 'feed'",
+                                                 day as CVarArg,
+                                                 month as CVarArg,
+                                                 year as CVarArg,
                                                  account)
             do {
                 let logs = try context.fetch(fetchRequest)
@@ -75,6 +77,8 @@ struct FeedScraper {
         var dates = getScrapingDates(account:account)
         let count = dates.count
         var bar = ProgressBar(count: count)
+        bar.setValue(0)
+        
         while !dates.isEmpty {
             bar.setValue(min(count, count - dates.count + 1))
             let scrapingDate = dates.removeFirst()

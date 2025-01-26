@@ -77,4 +77,14 @@ extension Date {
         
         return end - start
     }
+    
+    func dayMonthYear() -> (Int, Int, Int) {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: self)
+        let month = calendar.component(.month, from: self)
+        let day = calendar.component(.day, from: self)
+        return (day, month, year)
+    }
+    
+    
 }

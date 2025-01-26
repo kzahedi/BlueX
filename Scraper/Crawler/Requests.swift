@@ -69,5 +69,6 @@ public func getBlueSkyToken() -> String? {
     }
     tokenTask.resume()
     group.wait()
+    print("Token: \(returnValue ?? "not found")")
     return returnValue
 }

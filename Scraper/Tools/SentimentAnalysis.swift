@@ -37,7 +37,8 @@ struct SentimentAnalysis {
         fetchRequest.predicate = NSPredicate(format: predicatFormat, account, tool.stringValue as CVarArg)
         let count = try! context.count(for: fetchRequest)
         var bar = ProgressBar(count: count)
-        
+        bar.setValue(0)
+ 
         while true {
             let batch = getBatch(account:account, tool:tool, batchSize:batchSize)
             if batch.count == 0 { break }

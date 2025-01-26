@@ -88,3 +88,44 @@ func getSentimentScore(post:Post, tool: SentimentAnalysisTool) -> Double {
     }
     return 0.0
 }
+
+func createDateFrom(day:Int, month:Int, year:Int) -> Date {
+    //create an instance of DateComponents to keep your code flexible
+    var dateComponents = DateComponents()
+    
+    //create the date components
+    dateComponents.year = year
+    dateComponents.month = month
+    dateComponents.day = day
+    dateComponents.timeZone = TimeZone(abbreviation: "GMT")
+    dateComponents.hour = 12
+    dateComponents.minute = 00
+    
+    //create an instance of a Calendar for point of reference ex: myCalendar, and use the dateComponents as the parameter
+    return Calendar.current.date(from: dateComponents)!
+}
+
+func createDateString(day:Int, month:Int, year:Int) -> String? {
+    // Create a DateComponents object
+    var dateComponents = DateComponents()
+    dateComponents.day = day
+    dateComponents.month = month
+    dateComponents.year = year
+    
+    // Create a Calendar instance
+    let calendar = Calendar.current
+    
+    // Get the Date from the DateComponents
+    if let date = calendar.date(from: dateComponents) {
+        // Create a DateFormatter
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "dd-MM-yyyy" // Set the desired format
+        
+        // Convert the Date to a string in the desired format
+        let dateString = dateFormatter.string(from: date)
+        
+        // Return the formatted date string
+        return dateString
+    }
+    return nil
+}

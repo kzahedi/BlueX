@@ -32,6 +32,7 @@ struct ThreadScraper {
         let count = try! context.count(for: fetchRequest)
         print("Found \(count) posts to scrape")
         var bar = ProgressBar(count: count)
+        bar.setValue(0)
         
         while true {
             let batch = getPostBatch(batchSize:batchSize, account:account)
