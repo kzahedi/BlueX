@@ -1,0 +1,132 @@
+import Foundation
+import SwiftData
+
+final class ThreadScraper {
+    private let api: BlueskyAPIClient
+    private let context: ModelContext
+
+    init(api: BlueskyAPIClient, context: ModelContext) {
+        self.api = api
+        self.context = context
+    }
+
+    /// Scrapes reply trees for posts with replyTreeStatus == .pending or .inProgress.
+    /// - Returns: total number of reply posts stored
+    func scrapeNextBatch(token: String, batchSize: Int = 10) async throws -> Int {
+        let pendingPosts = try fetchPendingRootPosts(limit: batchSize)
+        var totalReplies = 0
+        for post in pendingPosts {
+            totalReplies += try await scrapeThread(rootPost: post, token: token)
+        }
+        return totalReplies
+    }
+
+    private func scrapeThread(rootPost: Post, token: String) async throws -> Int {
+        rootPost.replyTreeStatus = .inProgress
+        try context.save()
+
+        let result = await api.getPostThread(uri: rootPost.uri, token: token)
+
+        switch result {
+        case .success(let response):
+            let count = try processThreadView(
+                view: response.thread,
+                rootURI: rootPost.uri,
+                parentURI: nil,
+                depth: 0
+            )
+            rootPost.replyTreeStatus = .complete
+            rootPost.replyTreeLastChecked = Date()
+            try context.save()
+            return count
+
+        case .failure(let error):
+            // Leave as .inProgress so the coordinator can retry next batch
+            rootPost.replyTreeStatus = .inProgress
+            try context.save()
+            throw error
+        }
+    }
+
+    // Why: This is a recursive function. Each ATProtoThreadView can contain nested replies,
+    // which also contain nested replies. We walk the entire tree depth-first.
+    @discardableResult
+    private func processThreadView(view: ATProtoThreadView, rootURI: String, parentURI: String?, depth: Int) throws -> Int {
+        guard case .post(let threadPost) = view else { return 0 }
+
+        var count = 0
+        // Don't re-store the root post (already stored by FeedScraper)
+        if depth > 0 {
+            if isDuplicate(uri: threadPost.post.uri) {
+                updateEngagement(uri: threadPost.post.uri, from: threadPost.post)
+            } else {
+                let post = mapToPost(threadPost.post, parentURI: parentURI, rootURI: rootURI, depth: depth)
+                context.insert(post)
+                count = 1
+            }
+        }
+
+        for reply in threadPost.replies ?? [] {
+            count += try processThreadView(
+                view: reply,
+                rootURI: rootURI,
+                parentURI: threadPost.post.uri,
+                depth: depth + 1
+            )
+        }
+        return count
+    }
+
+    private func mapToPost(_ apiPost: ATProtoPost, parentURI: String?, rootURI: String, depth: Int) -> Post {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let createdAt = formatter.date(from: apiPost.record.createdAt) ?? Date()
+        let post = Post(
+            uri: apiPost.uri,
+            text: apiPost.record.text,
+            createdAt: createdAt,
+            authorDID: apiPost.author.did,
+            authorHandle: apiPost.author.handle,
+            parentURI: parentURI,
+            rootURI: rootURI,
+            isRootPost: false,
+            depth: depth
+        )
+        post.likeCount = apiPost.likeCount ?? 0
+        post.replyCount = apiPost.replyCount ?? 0
+        post.quoteCount = apiPost.quoteCount ?? 0
+        post.repostCount = apiPost.repostCount ?? 0
+        return post
+    }
+
+    private func updateEngagement(uri: String, from apiPost: ATProtoPost) {
+        var descriptor = FetchDescriptor<Post>(predicate: #Predicate { $0.uri == uri })
+        descriptor.fetchLimit = 1
+        guard let post = (try? context.fetch(descriptor))?.first else { return }
+        post.likeCount = apiPost.likeCount ?? post.likeCount
+        post.replyCount = apiPost.replyCount ?? post.replyCount
+        post.quoteCount = apiPost.quoteCount ?? post.quoteCount
+        post.repostCount = apiPost.repostCount ?? post.repostCount
+    }
+
+    private func fetchPendingRootPosts(limit: Int) throws -> [Post] {
+        // Fetch all root posts and filter in Swift — simpler than fighting #Predicate with enums.
+        // Why: SwiftData's #Predicate macro cannot compare enum cases directly;
+        // it only understands primitive types. We store ReplyTreeStatus as String (rawValue)
+        // via Codable, but the property type is ReplyTreeStatus, causing predicate issues.
+        let allRootPosts = try context.fetch(FetchDescriptor<Post>(
+            predicate: #Predicate<Post> { $0.isRootPost == true },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        ))
+        return allRootPosts
+            .filter { $0.replyTreeStatus == .pending || $0.replyTreeStatus == .inProgress }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func isDuplicate(uri: String) -> Bool {
+        var descriptor = FetchDescriptor<Post>(predicate: #Predicate { $0.uri == uri })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor).first) != nil
+    }
+}

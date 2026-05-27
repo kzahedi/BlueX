@@ -1,0 +1,173 @@
+import Foundation
+import SwiftData
+import Observation
+
+enum CoordinatorPhase: String, Equatable {
+    case idle, preparing, feed, thread, annotating
+}
+
+// Why: @Observable is the modern replacement for ObservableObject (macOS 14+).
+// It tracks exactly which properties each SwiftUI View reads and only re-renders
+// those views when those specific properties change. No @Published needed.
+@Observable
+final class ScrapeCoordinator {
+    // UI-facing state — SwiftUI views observe these directly
+    var phase: CoordinatorPhase = .idle
+    var currentAccountHandle: String = ""
+    var progress: Double = 0.0
+    var lastError: BlueskyError? = nil
+    var totalPostsThisRun: Int = 0
+
+    private let api: BlueskyAPIClient
+    private let modelContainer: ModelContainer
+    private let rescrapingPolicy = RescrapingPolicy()
+
+    // Rate limiting: Bluesky public API ≈ 3,000 requests/hour
+    private var requestCount = 0
+    private var windowStart = Date()
+    private let maxRequestsPerWindow = 2800  // conservative buffer
+
+    // Cancellation flag — checked between accounts
+    private var isCancelled = false
+
+    init(api: BlueskyAPIClient, modelContainer: ModelContainer) {
+        self.api = api
+        self.modelContainer = modelContainer
+    }
+
+    // MARK: - Public interface (called from UI)
+
+    /// Starts a full scrape cycle: feed → thread → NLTagger annotation.
+    func startScrape() {
+        // Why: Task { } creates a new async task that runs concurrently.
+        // We can't make this method async because SwiftUI buttons call it synchronously.
+        Task { await runScrape() }
+    }
+
+    /// Cancels the current scrape after the current account finishes.
+    func cancel() {
+        isCancelled = true
+    }
+
+    // MARK: - State machine
+
+    @MainActor
+    private func runScrape() async {
+        guard phase == .idle else { return }
+
+        isCancelled = false
+        totalPostsThisRun = 0
+        lastError = nil
+        phase = .preparing
+
+        // Acquire Bluesky token
+        guard let creds = KeychainCredentials.load() else {
+            lastError = .authFailed
+            phase = .idle
+            return
+        }
+
+        let authResult = await api.createSession(handle: creds.handle, password: creds.password)
+        guard case .success(let session) = authResult else {
+            if case .failure(let error) = authResult { lastError = error }
+            phase = .idle
+            return
+        }
+        let token = session.accessJwt
+
+        let context = ModelContext(modelContainer)
+
+        // Fetch active accounts
+        let accounts: [TrackedAccount]
+        do {
+            accounts = try context.fetch(FetchDescriptor<TrackedAccount>(
+                predicate: #Predicate { $0.isActive == true }
+            ))
+        } catch {
+            lastError = .networkError(underlying: error.localizedDescription)
+            phase = .idle
+            return
+        }
+
+        // --- Phase: feed scraping ---
+        phase = .feed
+        let feedScraper = FeedScraper(api: api, context: context)
+
+        for (index, account) in accounts.enumerated() {
+            guard !isCancelled else { break }
+            currentAccountHandle = account.handle
+            progress = Double(index) / Double(max(accounts.count, 1))
+
+            do {
+                let newPosts = try await feedScraper.scrape(account: account, token: token)
+                totalPostsThisRun += newPosts
+            } catch let error as BlueskyError {
+                if case .rateLimited(let retryAfter) = error {
+                    // Why: Task.sleep takes nanoseconds. We multiply seconds by 1_000_000_000.
+                    try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+                } else {
+                    lastError = error
+                }
+            } catch {
+                lastError = .networkError(underlying: error.localizedDescription)
+            }
+
+            await checkAndEnforceRateLimit()
+        }
+
+        // --- Phase: thread scraping ---
+        phase = .thread
+        let threadScraper = ThreadScraper(api: api, context: context)
+        do {
+            let replies = try await threadScraper.scrapeNextBatch(token: token, batchSize: 20)
+            totalPostsThisRun += replies
+        } catch let error as BlueskyError {
+            lastError = error
+        } catch {}
+
+        // Persist final state
+        persistPhase(.idle, context: context)
+        phase = .idle
+        currentAccountHandle = ""
+        progress = 1.0
+    }
+
+    // MARK: - Rate limiting
+
+    private func checkAndEnforceRateLimit() async {
+        requestCount += 1
+        let elapsed = Date().timeIntervalSince(windowStart)
+
+        if elapsed < 3600 && requestCount >= maxRequestsPerWindow {
+            let waitTime = 3600 - elapsed
+            try? await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
+            requestCount = 0
+            windowStart = Date()
+        } else if elapsed >= 3600 {
+            requestCount = 0
+            windowStart = Date()
+        }
+    }
+
+    // MARK: - State persistence (for resume on restart)
+
+    private func persistPhase(_ phase: CoordinatorPhase, context: ModelContext,
+                              accountDID: String? = nil, postURI: String? = nil) {
+        let states = (try? context.fetch(FetchDescriptor<CoordinatorState>())) ?? []
+        let state = states.first ?? CoordinatorState()
+        if states.isEmpty { context.insert(state) }
+        state.phase = phase.rawValue
+        state.currentAccountDID = accountDID
+        state.currentPostURI = postURI
+        state.updatedAt = Date()
+        try? context.save()
+    }
+
+    /// Returns true if the app was previously interrupted mid-scrape.
+    func checkForInterruptedScrape(context: ModelContext) -> Bool {
+        guard let state = (try? context.fetch(FetchDescriptor<CoordinatorState>()))?.first else {
+            return false
+        }
+        return state.phase != CoordinatorPhase.idle.rawValue
+    }
+}
