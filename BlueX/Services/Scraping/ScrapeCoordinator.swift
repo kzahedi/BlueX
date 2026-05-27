@@ -171,9 +171,8 @@ final class ScrapeCoordinator {
             await checkAndEnforceRateLimit()
         }
 
-        // --- Phase: annotation (NLTagger baseline pass) ---
-        await MainActor.run { phase = .annotating }
-        try? await runNLTaggerAnnotation()
+        // Annotation (Apple sentiment / LLM) is a separate step, triggered independently
+        // from the Annotation Queue — scraping no longer runs it automatically.
 
         // Persist final state
         persistPhase(.idle, context: context)
@@ -186,9 +185,11 @@ final class ScrapeCoordinator {
 
     // MARK: - Annotation
 
-    /// Runs NLTagger on all unannotated posts. Called automatically after each scrape.
+    /// Runs Apple's NLTagger sentiment pass on all posts lacking one. Triggered
+    /// independently from the Annotation Queue (not as part of scraping).
     func runNLTaggerAnnotation() async throws {
         phase = .annotating
+        defer { phase = .idle }
         let service = AnnotationService(modelContainer: modelContainer)
         try await service.runNLTaggerPass()
     }

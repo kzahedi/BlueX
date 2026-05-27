@@ -17,7 +17,7 @@ struct QueueView: View {
                     Text("Annotation Queue")
                         .font(.headline)
                         .foregroundStyle(Color.primaryText)
-                    Text("\(viewModel.totalQueued) posts pending LLM annotation")
+                    Text("\(viewModel.sentimentPending) pending sentiment · \(viewModel.totalQueued) pending LLM")
                         .font(.caption)
                         .foregroundStyle(Color.secondaryText)
                 }
@@ -62,6 +62,19 @@ struct QueueView: View {
 
     private var controlButtons: some View {
         HStack(spacing: 8) {
+            // Apple sentiment pass — fast, runs independently of any LLM
+            Button("Run Sentiment") {
+                startSentiment()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.selectedBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .disabled(viewModel.isRunning || viewModel.sentimentPending == 0)
+
             // Batch size picker
             Menu("Batch: \(viewModel.batchSize)") {
                 ForEach([5, 10, 25, 50, 100], id: \.self) { size in
@@ -197,6 +210,22 @@ struct QueueView: View {
     }
 
     // MARK: - Actions
+
+    private func startSentiment() {
+        viewModel.isRunning = true
+        viewModel.lastError = nil
+        Task {
+            do {
+                try await coordinator.runNLTaggerAnnotation()
+            } catch {
+                await MainActor.run { viewModel.lastError = error.localizedDescription }
+            }
+            await MainActor.run {
+                viewModel.isRunning = false
+                viewModel.loadQueue(from: modelContext)
+            }
+        }
+    }
 
     private func startAnnotation() {
         viewModel.isRunning = true

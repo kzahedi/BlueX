@@ -6,7 +6,7 @@ import SwiftData
 final class ScrapeCoordinatorAnnotationTests: XCTestCase {
 
     @MainActor
-    func testAnnotationRunsAfterScrapePhaseCompletes() async throws {
+    func testNLTaggerAnnotationCreatesSentimentAnnotation() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: Post.self, Annotation.self, TrackedAccount.self, AccountGroup.self,

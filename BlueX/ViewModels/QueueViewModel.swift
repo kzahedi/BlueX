@@ -13,9 +13,13 @@ final class QueueViewModel {
     var progress: Double = 0.0
 
     var pendingPosts: [Post] = []
+    var sentimentPending: Int = 0   // posts lacking an Apple-sentiment (nltagger) annotation
 
     func loadQueue(from context: ModelContext) {
         do {
+            sentimentPending = try context.fetch(FetchDescriptor<Post>())
+                .filter { !$0.hasNLTaggerAnnotation }
+                .count
             let all = try context.fetch(
                 FetchDescriptor<Post>(
                     predicate: #Predicate<Post> { $0.needsReAnnotation == true },
