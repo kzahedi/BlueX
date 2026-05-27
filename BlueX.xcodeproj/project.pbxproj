@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0196BEE87FF3890527D0B2EA /* OpenAICompatibleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */; };
+		AA1B2C3D4E5F6A7B8C9D0E1F /* LLMResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C3D4E5F6A7B8C9D0E1F2A /* LLMResponseParser.swift */; };
 		0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */; };
 		05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60B1BC949BB1C979F616110 /* AccountGroup.swift */; };
 		097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54438D73CFDAD7E265FCB6F3 /* RescrapingPolicyTests.swift */; };
@@ -70,6 +71,7 @@
 		10286721EB5230015A2ABC69 /* BlueskyStructs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyStructs.swift; sourceTree = "<group>"; };
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		12CA30A1A6E40070FE91F365 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
+		BB2C3D4E5F6A7B8C9D0E1F2A /* LLMResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMResponseParser.swift; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
 		22A32BE361802D4B8EE09320 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
 		34D266795CDA4976FE6A23BC /* FeedScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraper.swift; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 			children = (
 				A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */,
 				504C627B537AE3AAB0582050 /* LocalModelClient.swift */,
+				BB2C3D4E5F6A7B8C9D0E1F2A /* LLMResponseParser.swift */,
 				04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */,
 				A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */,
 				12CA30A1A6E40070FE91F365 /* OllamaClient.swift */,
@@ -411,6 +414,7 @@
 				33148F63136CDABF6CBCEAAD /* FeedScraper.swift in Sources */,
 				5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */,
 				2A2446CCC27027CEBB6D03B8 /* LocalModelClient.swift in Sources */,
+				AA1B2C3D4E5F6A7B8C9D0E1F /* LLMResponseParser.swift in Sources */,
 				85817958A8720EAA402F0AD2 /* MLXClient.swift in Sources */,
 				CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */,
 				2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */,

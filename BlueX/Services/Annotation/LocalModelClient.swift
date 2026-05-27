@@ -4,6 +4,7 @@ import Foundation
 protocol LocalModelClient {
     var modelName: String { get }
     var modelVersion: String { get }
+    var promptHash: String { get }
     func classify(text: String, language: String) async throws -> LLMAnnotation
 }
 

@@ -9,6 +9,8 @@ final class AnnotationService {
     var queueSize: Int = 0
     var processedCount: Int = 0
     var currentPostText: String = ""
+    var errorCount: Int = 0
+    var lastLLMError: String? = nil
 
     private let modelContainer: ModelContainer
     private let nlTagger = NLTaggerAnalyser()
@@ -37,62 +39,47 @@ final class AnnotationService {
         try context.save()
     }
 
+    @MainActor
     func runLLMPass(batchSize: Int = 10) async throws {
         guard let client = activeClient else { return }
 
         isRunning = true
         defer { isRunning = false }
 
-        let context = ModelContext(modelContainer)
+        let context = modelContainer.mainContext
         let posts = try fetchPostsWithoutLLMAnnotation(context: context, limit: batchSize)
         queueSize = posts.count
 
         for post in posts {
             currentPostText = String(post.text.prefix(60))
-
-            let language = post.annotations
-                .first(where: { $0.stage == "nltagger" })?
-                .detectedLanguage ?? "other"
-
+            let language = post.annotations.first(where: { $0.stage == "nltagger" })?.detectedLanguage ?? "other"
             do {
                 let llmResult = try await client.classify(text: post.text, language: language)
-                let baselineSentiment = post.annotations
-                    .first(where: { $0.stage == "nltagger" })?.sentimentScore ?? 0.0
-
-                let promptHashValue: String
-                if let ollamaClient = client as? OllamaClient {
-                    promptHashValue = ollamaClient.promptHash
-                } else if let mlxClient = client as? MLXClient {
-                    promptHashValue = mlxClient.promptHash
-                } else {
-                    promptHashValue = ""
-                }
-
+                let baselineSentiment = post.annotations.first(where: { $0.stage == "nltagger" })?.sentimentScore ?? 0.0
                 let annotation = Annotation(
                     speechClass: llmResult.speechClass,
                     sentimentScore: baselineSentiment,
                     detectedLanguage: language,
                     modelName: client.modelName,
                     modelVersion: client.modelVersion,
-                    promptHash: promptHashValue,
+                    promptHash: client.promptHash,
                     rawResponse: llmResult.rawResponse,
                     stage: "llm",
                     severity: llmResult.severity,
                     confidence: llmResult.confidence,
                     reasoning: llmResult.reasoning
                 )
-                context.insert(annotation)
                 annotation.post = post
+                context.insert(annotation)
                 post.needsReAnnotation = false
                 processedCount += 1
-
             } catch {
+                errorCount += 1
+                lastLLMError = error.localizedDescription
                 print("[AnnotationService] Failed to annotate post \(post.uri): \(error)")
             }
-
             try context.save()
         }
-
         currentPostText = ""
     }
 

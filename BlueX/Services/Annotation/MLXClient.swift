@@ -70,6 +70,6 @@ struct MLXClient: LocalModelClient {
             throw BlueskyError.decodingError(underlying: "Empty choices in MLX response")
         }
 
-        return try OllamaClient(modelName: modelName).parseLLMResponse(content)
+        return try LLMResponseParser.parse(content)
     }
 }
