@@ -64,7 +64,7 @@ struct OllamaClient: LocalModelClient {
               let jsonEnd = raw.range(of: "}", options: .backwards) else {
             throw BlueskyError.decodingError(underlying: "No JSON object found in: \(raw)")
         }
-        let jsonString = String(raw[jsonStart.lowerBound...jsonEnd.upperBound])
+        let jsonString = String(raw[jsonStart.lowerBound...jsonEnd.lowerBound])
 
         struct LLMResponse: Codable {
             let `class`: String
