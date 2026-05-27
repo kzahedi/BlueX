@@ -37,8 +37,12 @@ struct AccountChartsView: View {
                 summaryRow
                     .padding(.horizontal, 16)
 
-                // Stacked area chart
+                // Stacked area chart — root posts
                 stackedAreaChart
+                    .padding(.horizontal, 16)
+
+                // Stacked area chart — replies
+                repliesPerWeekChart
                     .padding(.horizontal, 16)
 
                 // Hate ratio chart
@@ -73,10 +77,16 @@ struct AccountChartsView: View {
                 color: .counterBorder
             )
             summaryChip(
-                label: "Total",
+                label: "Posts",
                 value: "\(viewModel.totalPosts)",
                 sub: "\(viewModel.visibleBuckets.count) weeks",
                 color: .neutralBorder
+            )
+            summaryChip(
+                label: "Replies",
+                value: "\(viewModel.totalReplies)",
+                sub: String(format: "%.0f%% hate", viewModel.totalReplies > 0 ? Double(viewModel.totalReplyHate) / Double(viewModel.totalReplies) * 100 : 0),
+                color: .secondaryText
             )
             if abs(viewModel.hateTrend) > 0.01 {
                 summaryChip(
@@ -160,6 +170,87 @@ struct AccountChartsView: View {
         .padding(12)
         .background(Color.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Replies per Week Chart
+
+    private var repliesPerWeekChart: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Replies by week")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.secondaryText)
+                Spacer()
+                Text("Responses to tracked posts")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+            }
+
+            if viewModel.visibleBuckets.isEmpty || viewModel.visibleBuckets.allSatisfy({ $0.replyTotal == 0 }) {
+                noDataPlaceholder(height: 180)
+            } else {
+                Chart {
+                    ForEach(viewModel.visibleBuckets) { bucket in
+                        // Stacked: neutral (bottom) → counter → hate (top)
+                        AreaMark(
+                            x: .value("Week", bucket.weekStart),
+                            y: .value("Neutral", bucket.replyNeutralCount)
+                        )
+                        .foregroundStyle(Color.neutralBackground)
+                        .interpolationMethod(.catmullRom)
+
+                        AreaMark(
+                            x: .value("Week", bucket.weekStart),
+                            y: .value("Counter", bucket.replyCounterCount + bucket.replyNeutralCount)
+                        )
+                        .foregroundStyle(Color.counterBackground)
+                        .interpolationMethod(.catmullRom)
+
+                        AreaMark(
+                            x: .value("Week", bucket.weekStart),
+                            y: .value("Hate", bucket.replyHateCount + bucket.replyCounterCount + bucket.replyNeutralCount)
+                        )
+                        .foregroundStyle(Color.hateBackground)
+                        .interpolationMethod(.catmullRom)
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            .foregroundStyle(Color.mutedText)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel().foregroundStyle(Color.mutedText)
+                    }
+                }
+                .frame(height: 180)
+
+                // Shared legend
+                HStack(spacing: 12) {
+                    legendDot(color: .hateBackground, label: "Hate")
+                    legendDot(color: .counterBackground, label: "Counter")
+                    legendDot(color: .neutralBackground, label: "Neutral")
+                    Spacer()
+                    Text("pending replies not shown")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color.mutedText)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).font(.system(size: 10)).foregroundStyle(Color.secondaryText)
+        }
     }
 
     // MARK: - Hate Ratio Chart
