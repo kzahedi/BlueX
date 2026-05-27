@@ -18,6 +18,8 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: BlueX
+        excludes:
+          - "**/*.md"
     info:
       path: BlueX/Info.plist
       properties:
