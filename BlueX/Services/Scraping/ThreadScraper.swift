@@ -36,6 +36,14 @@ final class ThreadScraper {
         return totalReplies
     }
 
+    /// Scrapes one post's full reply tree if the rescraping policy says it's due.
+    /// - Returns: number of reply posts stored (0 if not due).
+    func scrapeThreadIfDue(_ post: Post, token: String,
+                           window: TimeInterval = RescrapingPolicy.defaultWindow) async throws -> Int {
+        guard rescrapingPolicy.needsRescrape(post, window: window) else { return 0 }
+        return try await scrapeThread(rootPost: post, token: token)
+    }
+
     private func scrapeThread(rootPost: Post, token: String) async throws -> Int {
         rootPost.replyTreeStatus = .inProgress
         try context.save()

@@ -107,6 +107,28 @@ final class FeedScraperTests: XCTestCase {
         XCTAssertEqual(logs[0].postCount, 1)
     }
 
+    func testScrapeCallsOnNewRootPostOncePerNewPost() async throws {
+        let did = "did:plc:testaccount"
+        mockSession.mockData = try makeFeedJSON(did: did, count: 3)
+
+        let account = TrackedAccount(did: did, handle: "test.de", displayName: "Test",
+                                     startAt: Date(timeIntervalSince1970: 0))
+        context.insert(account)
+        try context.save()
+
+        let client = BlueskyAPIClient(session: mockSession)
+        let scraper = FeedScraper(api: client, context: context)
+
+        var callbackURIs: [String] = []
+        let newCount = try await scraper.scrape(account: account, token: "tok") { post in
+            callbackURIs.append(post.uri)
+        }
+
+        XCTAssertEqual(newCount, 3)
+        XCTAssertEqual(callbackURIs.count, 3, "callback should fire once per new post (depth-first hook)")
+        XCTAssertEqual(Set(callbackURIs).count, 3, "each new post delivered exactly once")
+    }
+
     func testScrapeFiltersPostsByStartDate() async throws {
         let did = "did:plc:testaccount"
         // Feed has 1 post at 2024-06-01, account starts at 2025-01-01 → should be filtered

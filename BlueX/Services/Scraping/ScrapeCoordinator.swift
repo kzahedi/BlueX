@@ -114,10 +114,9 @@ final class ScrapeCoordinator {
         }
 
         // --- Phase: depth-first scraping ---
-        // For each account we scrape the feed, then immediately scrape the full reply
-        // tree for every one of that account's root posts, before moving to the next
-        // account. So each account is fully scraped (posts + complete reply trees) in
-        // one pass rather than threads being a separate, batch-limited phase.
+        // Depth-first per post: for each account we first refresh the reply trees of
+        // previously-stored posts still inside the rescrape window, then feed-scrape new
+        // posts — scraping each new post's full reply tree before moving to the next post.
         await MainActor.run {
             phase = .feed
             for account in accounts { accountStatuses[account.did] = .queued }
@@ -138,13 +137,21 @@ final class ScrapeCoordinator {
             }
 
             do {
-                let newPosts = try await feedScraper.scrape(account: account, token: token)
-                await MainActor.run { totalPostsThisRun += newPosts }
+                // Refresh reply trees of already-stored posts that are still due. These are
+                // disjoint from the new posts the feed scrape finds below, so no post's tree
+                // is scraped twice in one run.
+                let refreshed = try await threadScraper.scrapeAllThreads(for: account, token: token, window: rescrapeWindow)
 
-                // Depth-first: full reply tree for each of this account's root posts.
-                let replies = try await threadScraper.scrapeAllThreads(for: account, token: token, window: rescrapeWindow)
+                // Feed scrape new posts; depth-first — each new post's full reply tree is
+                // scraped in the callback before the next post is fetched.
+                let newPosts = try await feedScraper.scrape(account: account, token: token) { [self] post in
+                    let replies = try await threadScraper.scrapeThreadIfDue(post, token: token, window: rescrapeWindow)
+                    if replies > 0 {
+                        await MainActor.run { totalPostsThisRun += replies }
+                    }
+                }
                 await MainActor.run {
-                    totalPostsThisRun += replies
+                    totalPostsThisRun += newPosts + refreshed
                     accountStatuses[account.did] = .done
                 }
             } catch let error as BlueskyError {

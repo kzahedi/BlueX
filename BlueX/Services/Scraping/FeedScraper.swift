@@ -13,9 +13,13 @@ final class FeedScraper {
     }
 
     /// Scrapes root posts for one account.
+    /// - Parameter onNewRootPost: called for each newly-stored root post, right after it
+    ///   is saved. Used for depth-first scraping — the coordinator scrapes the post's full
+    ///   reply tree here, before the next post is fetched.
     /// - Returns: number of new posts stored
     /// - Throws: BlueskyError on API failure
-    func scrape(account: TrackedAccount, token: String) async throws -> Int {
+    func scrape(account: TrackedAccount, token: String,
+                onNewRootPost: ((Post) async throws -> Void)? = nil) async throws -> Int {
         var newPostCount = 0
         var cursor: String? = nil
 
@@ -45,6 +49,10 @@ final class FeedScraper {
                         let post = mapToPost(feedPost.post, account: account)
                         context.insert(post)
                         newPostCount += 1
+                        // Save immediately so the post (and the replies the callback is
+                        // about to attach) persist and show up in the UI right away.
+                        try context.save()
+                        try await onNewRootPost?(post)
                     }
                 }
 
