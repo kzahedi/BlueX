@@ -1,0 +1,66 @@
+name: BlueX
+options:
+  bundleIdPrefix: net.pulsschlag
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  BlueX:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: BlueX
+    info:
+      path: BlueX/Info.plist
+      properties:
+        CFBundleName: BlueX
+        CFBundleDisplayName: BlueX
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.1.0"
+        NSPrincipalClass: NSApplication
+        NSHighResolutionCapable: true
+        LSMinimumSystemVersion: "14.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.pulsschlag.BlueX
+        PRODUCT_NAME: BlueX
+        SWIFT_VERSION: "5.9"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: BlueX/BlueX.entitlements
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    entitlements:
+      path: BlueX/BlueX.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)net.pulsschlag.BlueX
+    dependencies:
+      - sdk: SwiftData.framework
+
+  BlueXTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: BlueXTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.pulsschlag.BlueXTests
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    dependencies:
+      - target: BlueX
