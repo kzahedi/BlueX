@@ -6,6 +6,14 @@ enum CoordinatorPhase: String, Equatable {
     case idle, preparing, feed, thread, annotating
 }
 
+// Per-account progress through a scrape run, surfaced as a status dot in the sidebar.
+enum AccountScrapeStatus: String, Equatable {
+    case queued     // selected for this run, not started
+    case scraping   // feed + reply trees in progress
+    case done       // finished successfully
+    case failed     // errored out this run
+}
+
 // Why: @Observable is the modern replacement for ObservableObject (macOS 14+).
 // It tracks exactly which properties each SwiftUI View reads and only re-renders
 // those views when those specific properties change. No @Published needed.
@@ -17,10 +25,11 @@ final class ScrapeCoordinator {
     var progress: Double = 0.0
     var lastError: BlueskyError? = nil
     var totalPostsThisRun: Int = 0
+    // Per-account status for this run, keyed by DID. Drives the sidebar status dots.
+    var accountStatuses: [String: AccountScrapeStatus] = [:]
 
     private let api: BlueskyAPIClient
     private let modelContainer: ModelContainer
-    private let rescrapingPolicy = RescrapingPolicy()
 
     // Rate limiting: Bluesky public API ≈ 3,000 requests/hour
     private var requestCount = 0
@@ -68,6 +77,7 @@ final class ScrapeCoordinator {
             isCancelled = false
             totalPostsThisRun = 0
             lastError = nil
+            accountStatuses = [:]
             phase = .preparing
         }
 
@@ -103,42 +113,56 @@ final class ScrapeCoordinator {
             return
         }
 
-        // --- Phase: feed scraping ---
-        await MainActor.run { phase = .feed }
+        // --- Phase: depth-first scraping ---
+        // For each account we scrape the feed, then immediately scrape the full reply
+        // tree for every one of that account's root posts, before moving to the next
+        // account. So each account is fully scraped (posts + complete reply trees) in
+        // one pass rather than threads being a separate, batch-limited phase.
+        await MainActor.run {
+            phase = .feed
+            for account in accounts { accountStatuses[account.did] = .queued }
+        }
         let feedScraper = FeedScraper(api: api, context: context)
+        let threadScraper = ThreadScraper(api: api, context: context)
+
+        // Reply-tree refresh window (global setting, days). Defaults to 14 days.
+        let windowDays = UserDefaults.standard.object(forKey: "scraping.maxRescrapeWindowDays") as? Int ?? 14
+        let rescrapeWindow = TimeInterval(windowDays) * 86400
 
         for (index, account) in accounts.enumerated() {
             guard !isCancelled else { break }
             await MainActor.run {
                 currentAccountHandle = account.handle
                 progress = Double(index) / Double(max(accounts.count, 1))
+                accountStatuses[account.did] = .scraping
             }
 
             do {
                 let newPosts = try await feedScraper.scrape(account: account, token: token)
                 await MainActor.run { totalPostsThisRun += newPosts }
+
+                // Depth-first: full reply tree for each of this account's root posts.
+                let replies = try await threadScraper.scrapeAllThreads(for: account, token: token, window: rescrapeWindow)
+                await MainActor.run {
+                    totalPostsThisRun += replies
+                    accountStatuses[account.did] = .done
+                }
             } catch let error as BlueskyError {
                 if case .rateLimited(let retryAfter) = error {
+                    await MainActor.run { accountStatuses[account.did] = .failed }
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                 } else {
-                    await MainActor.run { lastError = error }
+                    await MainActor.run { lastError = error; accountStatuses[account.did] = .failed }
                 }
             } catch {
-                await MainActor.run { lastError = .networkError(underlying: error.localizedDescription) }
+                await MainActor.run {
+                    lastError = .networkError(underlying: error.localizedDescription)
+                    accountStatuses[account.did] = .failed
+                }
             }
 
             await checkAndEnforceRateLimit()
         }
-
-        // --- Phase: thread scraping ---
-        await MainActor.run { phase = .thread }
-        let threadScraper = ThreadScraper(api: api, context: context)
-        do {
-            let replies = try await threadScraper.scrapeNextBatch(token: token, batchSize: 20)
-            await MainActor.run { totalPostsThisRun += replies }
-        } catch let error as BlueskyError {
-            await MainActor.run { lastError = error }
-        } catch {}
 
         // --- Phase: annotation (NLTagger baseline pass) ---
         await MainActor.run { phase = .annotating }

@@ -108,22 +108,29 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func accountRow(for account: TrackedAccount) -> some View {
-        let isScraping = viewModel.scrapePhase != .idle
-            && viewModel.activeScrapeHandle == account.handle
+        let status = viewModel.accountStatuses[account.did]
         HStack(spacing: 6) {
             Circle()
-                .fill(isScraping ? Color.counterBorder : Color.mutedText)
+                .fill(statusColor(status))
                 .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(account.handle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.primaryText)
-                if isScraping {
-                    ProgressView(value: viewModel.scrapeProgress)
-                        .tint(Color.counterBorder)
-                        .scaleEffect(y: 0.5)
-                }
+            Text(account.handle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.primaryText)
+            Spacer(minLength: 4)
+            if status == .scraping {
+                ProgressView()
+                    .scaleEffect(0.45)
+                    .frame(width: 12, height: 12)
             }
+        }
+    }
+
+    private func statusColor(_ status: AccountScrapeStatus?) -> Color {
+        switch status {
+        case .scraping, .done: return .counterBorder
+        case .failed:          return .hateBorder
+        case .queued:          return .neutralBorder
+        case .none:            return .mutedText
         }
     }
 

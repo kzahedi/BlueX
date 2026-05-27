@@ -9,4 +9,5 @@ final class SidebarViewModel {
     var scrapeProgress: Double = 0.0
     var activeScrapeHandle: String? = nil   // MUST be Optional
     var lastError: BlueskyError? = nil
+    var accountStatuses: [String: AccountScrapeStatus] = [:]
 }

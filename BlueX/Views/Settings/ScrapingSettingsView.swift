@@ -6,6 +6,7 @@ struct ScrapingSettingsView: View {
     @AppStorage("scraping.batchSize") private var batchSize: Int = 50
     @AppStorage("scraping.maxDepth") private var maxDepth: Int = 3
     @AppStorage("scraping.maxRepliesPerPost") private var maxRepliesPerPost: Int = 100
+    @AppStorage("scraping.maxRescrapeWindowDays") private var maxRescrapeWindowDays: Int = 14
     @AppStorage("scraping.autoStartAfterScrape") private var autoStartAnnotation: Bool = true
     @AppStorage("scraping.skipAlreadyAnnotated") private var skipAlreadyAnnotated: Bool = true
     @AppStorage("scraping.rateLimitBuffer") private var rateLimitBuffer: Int = 200
@@ -40,6 +41,9 @@ struct ScrapingSettingsView: View {
                 }
                 stepper(label: "Max replies per post", value: $maxRepliesPerPost, range: 10...500, step: 10) {
                     "Stop after \(maxRepliesPerPost) replies per thread"
+                }
+                stepper(label: "Reply-tree refresh window (days)", value: $maxRescrapeWindowDays, range: 1...90, step: 1) {
+                    "Keep refreshing a post's replies for \(maxRescrapeWindowDays) days after it was posted, then freeze"
                 }
             }
 
@@ -78,6 +82,7 @@ struct ScrapingSettingsView: View {
                 batchSize = 50
                 maxDepth = 3
                 maxRepliesPerPost = 100
+                maxRescrapeWindowDays = 14
                 autoStartAnnotation = true
                 skipAlreadyAnnotated = true
                 rateLimitBuffer = 200

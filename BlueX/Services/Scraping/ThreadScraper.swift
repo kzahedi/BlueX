@@ -4,6 +4,7 @@ import SwiftData
 final class ThreadScraper {
     private let api: BlueskyAPIClient
     private let context: ModelContext
+    private let rescrapingPolicy = RescrapingPolicy()
 
     init(api: BlueskyAPIClient, context: ModelContext) {
         self.api = api
@@ -16,6 +17,20 @@ final class ThreadScraper {
         let pendingPosts = try fetchPendingRootPosts(limit: batchSize)
         var totalReplies = 0
         for post in pendingPosts {
+            totalReplies += try await scrapeThread(rootPost: post, token: token)
+        }
+        return totalReplies
+    }
+
+    /// Depth-first: scrapes the full reply tree for every of `account`'s root posts that
+    /// the rescraping policy still wants refreshed (within `window` of the post's creation,
+    /// or never scraped yet). Used by the coordinator so each account is fully scraped
+    /// (posts + complete reply trees) in a single pass before moving on.
+    /// - Returns: total number of reply posts stored
+    func scrapeAllThreads(for account: TrackedAccount, token: String,
+                          window: TimeInterval = RescrapingPolicy.defaultWindow) async throws -> Int {
+        var totalReplies = 0
+        for post in try fetchRescrapableRootPosts(for: account, window: window) {
             totalReplies += try await scrapeThread(rootPost: post, token: token)
         }
         return totalReplies
@@ -105,6 +120,15 @@ final class ThreadScraper {
         post.replyCount = apiPost.replyCount ?? post.replyCount
         post.quoteCount = apiPost.quoteCount ?? post.quoteCount
         post.repostCount = apiPost.repostCount ?? post.repostCount
+    }
+
+    private func fetchRescrapableRootPosts(for account: TrackedAccount, window: TimeInterval) throws -> [Post] {
+        let did = account.did
+        let roots = try context.fetch(FetchDescriptor<Post>(
+            predicate: #Predicate<Post> { $0.isRootPost == true && $0.account?.did == did },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        ))
+        return roots.filter { rescrapingPolicy.needsRescrape($0, window: window) }
     }
 
     private func fetchPendingRootPosts(limit: Int) throws -> [Post] {

@@ -52,6 +52,9 @@ struct RootView: View {
         .onChange(of: coordinator?.lastError) { _, newError in
             sidebarVM.lastError = newError ?? nil
         }
+        .onChange(of: coordinator?.accountStatuses) { _, newStatuses in
+            sidebarVM.accountStatuses = newStatuses ?? [:]
+        }
     }
 
     @ViewBuilder
