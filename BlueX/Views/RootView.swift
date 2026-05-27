@@ -37,8 +37,8 @@ struct RootView: View {
             if coordinator == nil {
                 coordinator = ScrapeCoordinator(api: BlueskyAPIClient(), modelContainer: modelContext.container)
             }
-            // Seed data on first launch
-            try? AccountSeeder.seed(into: modelContext)
+            // Seed / prune accounts to match the current seed set
+            try? AccountSeeder.resetToSeedSet(in: modelContext)
         }
         .onChange(of: coordinator?.phase) { _, newPhase in
             sidebarVM.scrapePhase = newPhase ?? .idle

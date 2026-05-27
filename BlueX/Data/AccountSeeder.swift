@@ -13,29 +13,37 @@ struct AccountSeeder {
 
     static let seeds: [Seed] = [
         // German Media
-        Seed(did: "did:plc:6xofcnvvojjnmggqx43zghwh", handle: "spiegel.de",        displayName: "DER SPIEGEL",         groupName: "German Media"),
-        Seed(did: "did:plc:42pjb4dy3p3ubiekmwpkthen", handle: "zeit.de",            displayName: "ZEIT",                groupName: "German Media"),
-        Seed(did: "",                                  handle: "sueddeutsche.de",    displayName: "Süddeutsche Zeitung", groupName: "German Media"),
-        Seed(did: "",                                  handle: "faz.net",            displayName: "FAZ",                 groupName: "German Media"),
-        Seed(did: "",                                  handle: "taz.social",         displayName: "taz",                 groupName: "German Media"),
-        Seed(did: "",                                  handle: "tagesspiegel.de",    displayName: "Tagesspiegel",        groupName: "German Media"),
-        Seed(did: "",                                  handle: "welt.de",            displayName: "Die Welt",            groupName: "German Media"),
-        Seed(did: "",                                  handle: "stern.de",           displayName: "Stern",               groupName: "German Media"),
-        Seed(did: "",                                  handle: "dw.com",             displayName: "Deutsche Welle",      groupName: "German Media"),
-        Seed(did: "",                                  handle: "tagesschau.de",      displayName: "Tagesschau",          groupName: "German Media"),
-        Seed(did: "",                                  handle: "zdf.de",             displayName: "ZDF",                 groupName: "German Media"),
-        // US Media
-        Seed(did: "did:plc:eclio37ymobqex2ncko63h4r", handle: "nytimes.com",        displayName: "The New York Times",  groupName: "US Media"),
-        Seed(did: "",                                  handle: "washingtonpost.com", displayName: "The Washington Post", groupName: "US Media"),
-        Seed(did: "",                                  handle: "theguardian.com",    displayName: "The Guardian",        groupName: "US Media"),
-        Seed(did: "",                                  handle: "npr.org",            displayName: "NPR",                 groupName: "US Media"),
-        Seed(did: "",                                  handle: "cnn.com",            displayName: "CNN",                 groupName: "US Media"),
-        Seed(did: "",                                  handle: "theatlantic.com",    displayName: "The Atlantic",        groupName: "US Media"),
-        Seed(did: "",                                  handle: "politico.com",       displayName: "Politico",            groupName: "US Media"),
-        Seed(did: "",                                  handle: "reuters.com",        displayName: "Reuters",             groupName: "US Media"),
-        Seed(did: "",                                  handle: "apnews.com",         displayName: "Associated Press",    groupName: "US Media"),
-        Seed(did: "",                                  handle: "propublica.org",     displayName: "ProPublica",          groupName: "US Media"),
+        Seed(did: "did:plc:6xofcnvvojjnmggqx43zghwh",  handle: "spiegel.de",           displayName: "DER SPIEGEL",        groupName: "German Media"),
+        Seed(did: "did:plc:42pjb4dy3p3ubiekmwpkthen",  handle: "zeit.de",               displayName: "ZEIT",               groupName: "German Media"),
+        Seed(did: "did:plc:vk2mooi24pafrjmhpg4ymrv3",  handle: "tagesschau.bsky.social",displayName: "Tagesschau",         groupName: "German Media"),
+        // International Media
+        Seed(did: "did:plc:eclio37ymobqex2ncko63h4r",  handle: "nytimes.com",           displayName: "The New York Times", groupName: "International Media"),
+        Seed(did: "did:plc:vovinwhtulbsx4mwfw26r5ni",  handle: "theguardian.com",       displayName: "The Guardian",       groupName: "International Media"),
+        Seed(did: "did:plc:ixvke777actf2fcveqlkdbp5",  handle: "bbcnews.bsky.social",   displayName: "BBC News",           groupName: "International Media"),
     ]
+
+    /// Removes every account/group/post/annotation not in `seeds`, then seeds missing entries.
+    /// Safe to call at any time — won't touch accounts already in the seed list.
+    static func resetToSeedSet(in context: ModelContext) throws {
+        let keepDIDs = Set(seeds.map { $0.did })
+
+        // Delete accounts (and cascade: posts, annotations via deleteRule)
+        let allAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in allAccounts where !keepDIDs.contains(account.did) {
+            context.delete(account)
+        }
+
+        // Delete groups that no longer have members
+        let allGroups = try context.fetch(FetchDescriptor<AccountGroup>())
+        for group in allGroups where group.accounts.isEmpty {
+            context.delete(group)
+        }
+
+        try context.save()
+
+        // Now seed any missing accounts
+        try seed(into: context)
+    }
 
     static func seed(into context: ModelContext) throws {
         let existingAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())

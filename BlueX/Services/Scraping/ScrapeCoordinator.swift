@@ -57,89 +57,100 @@ final class ScrapeCoordinator {
 
     // MARK: - State machine
 
-    @MainActor
+    // Why: NOT @MainActor — the heavy work (network, DB) runs on a background thread.
+    // All mutations to @Observable properties are dispatched explicitly via MainActor.run { }
+    // so SwiftUI can re-render freely between awaits without the main thread being blocked.
     private func runScrape() async {
-        guard phase == .idle else { return }
+        let isIdle = await MainActor.run { phase == .idle }
+        guard isIdle else { return }
 
-        isCancelled = false
-        totalPostsThisRun = 0
-        lastError = nil
-        phase = .preparing
+        await MainActor.run {
+            isCancelled = false
+            totalPostsThisRun = 0
+            lastError = nil
+            phase = .preparing
+        }
 
-        // Acquire Bluesky token
+        // Acquire Bluesky token (runs on background thread)
         guard let creds = KeychainCredentials.load() else {
-            lastError = .authFailed
-            phase = .idle
+            await MainActor.run { lastError = .authFailed; phase = .idle }
             return
         }
 
         let authResult = await api.createSession(handle: creds.handle, password: creds.password)
         guard case .success(let session) = authResult else {
-            if case .failure(let error) = authResult { lastError = error }
-            phase = .idle
+            await MainActor.run {
+                if case .failure(let error) = authResult { lastError = error }
+                phase = .idle
+            }
             return
         }
         let token = session.accessJwt
 
+        // ModelContext lives on this background task for its entire lifetime
         let context = ModelContext(modelContainer)
 
-        // Fetch active accounts
         let accounts: [TrackedAccount]
         do {
             accounts = try context.fetch(FetchDescriptor<TrackedAccount>(
                 predicate: #Predicate { $0.isActive == true }
             ))
         } catch {
-            lastError = .networkError(underlying: error.localizedDescription)
-            phase = .idle
+            await MainActor.run {
+                lastError = .networkError(underlying: error.localizedDescription)
+                phase = .idle
+            }
             return
         }
 
         // --- Phase: feed scraping ---
-        phase = .feed
+        await MainActor.run { phase = .feed }
         let feedScraper = FeedScraper(api: api, context: context)
 
         for (index, account) in accounts.enumerated() {
             guard !isCancelled else { break }
-            currentAccountHandle = account.handle
-            progress = Double(index) / Double(max(accounts.count, 1))
+            await MainActor.run {
+                currentAccountHandle = account.handle
+                progress = Double(index) / Double(max(accounts.count, 1))
+            }
 
             do {
                 let newPosts = try await feedScraper.scrape(account: account, token: token)
-                totalPostsThisRun += newPosts
+                await MainActor.run { totalPostsThisRun += newPosts }
             } catch let error as BlueskyError {
                 if case .rateLimited(let retryAfter) = error {
-                    // Why: Task.sleep takes nanoseconds. We multiply seconds by 1_000_000_000.
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                 } else {
-                    lastError = error
+                    await MainActor.run { lastError = error }
                 }
             } catch {
-                lastError = .networkError(underlying: error.localizedDescription)
+                await MainActor.run { lastError = .networkError(underlying: error.localizedDescription) }
             }
 
             await checkAndEnforceRateLimit()
         }
 
         // --- Phase: thread scraping ---
-        phase = .thread
+        await MainActor.run { phase = .thread }
         let threadScraper = ThreadScraper(api: api, context: context)
         do {
             let replies = try await threadScraper.scrapeNextBatch(token: token, batchSize: 20)
-            totalPostsThisRun += replies
+            await MainActor.run { totalPostsThisRun += replies }
         } catch let error as BlueskyError {
-            lastError = error
+            await MainActor.run { lastError = error }
         } catch {}
 
         // --- Phase: annotation (NLTagger baseline pass) ---
-        phase = .annotating
+        await MainActor.run { phase = .annotating }
         try? await runNLTaggerAnnotation()
 
         // Persist final state
         persistPhase(.idle, context: context)
-        phase = .idle
-        currentAccountHandle = ""
-        progress = 1.0
+        await MainActor.run {
+            phase = .idle
+            currentAccountHandle = ""
+            progress = 1.0
+        }
     }
 
     // MARK: - Annotation
