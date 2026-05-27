@@ -22,15 +22,16 @@ final class AnnotationService {
         self.activeClient = client
     }
 
+    @MainActor
     func runNLTaggerPass() async throws {
-        let context = ModelContext(modelContainer)
+        let context = modelContainer.mainContext
         let posts = try fetchPostsWithoutNLTaggerAnnotation(context: context)
         queueSize = posts.count
 
         for post in posts {
             let annotation = nlTagger.analyse(text: post.text)
-            annotation.post = post
             context.insert(annotation)
+            annotation.post = post
             processedCount += 1
         }
         try context.save()
@@ -80,8 +81,8 @@ final class AnnotationService {
                     confidence: llmResult.confidence,
                     reasoning: llmResult.reasoning
                 )
-                annotation.post = post
                 context.insert(annotation)
+                annotation.post = post
                 post.needsReAnnotation = false
                 processedCount += 1
 

@@ -5,6 +5,7 @@ import SwiftData
 
 final class ScrapeCoordinatorAnnotationTests: XCTestCase {
 
+    @MainActor
     func testAnnotationRunsAfterScrapePhaseCompletes() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
@@ -12,7 +13,10 @@ final class ScrapeCoordinatorAnnotationTests: XCTestCase {
             ScrapeLog.self, CoordinatorState.self, AccountSnapshot.self, ModelConfig.self,
             configurations: config
         )
-        let context = ModelContext(container)
+        // Why: use mainContext to share context with AnnotationService.runNLTaggerPass,
+        // which is @MainActor and uses modelContainer.mainContext. Using ModelContext(container)
+        // would create a separate context where post.annotations wouldn't reflect new annotations.
+        let context = container.mainContext
 
         let account = TrackedAccount(did: "did:test", handle: "test.bsky.social",
                                      displayName: "Test", startAt: Date())

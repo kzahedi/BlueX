@@ -6,18 +6,23 @@ final class AnnotationServiceTests: XCTestCase {
     var container: ModelContainer!
     var context: ModelContext!
 
+    @MainActor
     override func setUpWithError() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         container = try ModelContainer(
             for: Post.self, Annotation.self, TrackedAccount.self, AccountGroup.self,
             configurations: config
         )
-        context = ModelContext(container)
+        // Why: use mainContext so test objects and service objects share the same context.
+        // AnnotationService.runNLTaggerPass() is @MainActor and uses mainContext.
+        // Using a separate ModelContext(container) would cause cross-context relationship
+        // visibility issues where post.annotations would not reflect service-added annotations.
+        context = container.mainContext
     }
 
     override func tearDownWithError() throws {
-        context = nil
         container = nil
+        context = nil
     }
 
     func testNLTaggerPassCreatesAnnotations() async throws {
