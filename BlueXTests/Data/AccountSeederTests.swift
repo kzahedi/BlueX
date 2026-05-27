@@ -13,12 +13,12 @@ final class AccountSeederTests: XCTestCase {
         )
     }
 
-    func testSeedCreates21Accounts() throws {
+    func testSeedCreatesOneAccountPerSeed() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         try AccountSeeder.seed(into: context)
         let accounts = try context.fetch(FetchDescriptor<TrackedAccount>())
-        XCTAssertEqual(accounts.count, 21)
+        XCTAssertEqual(accounts.count, AccountSeeder.seeds.count)
     }
 
     func testSeedIsIdempotent() throws {
@@ -27,17 +27,17 @@ final class AccountSeederTests: XCTestCase {
         try AccountSeeder.seed(into: context)
         try AccountSeeder.seed(into: context)  // second call should be a no-op
         let accounts = try context.fetch(FetchDescriptor<TrackedAccount>())
-        XCTAssertEqual(accounts.count, 21)
+        XCTAssertEqual(accounts.count, AccountSeeder.seeds.count)
     }
 
-    func testSeedCreatesGermanAndUSGroups() throws {
+    func testSeedCreatesExpectedGroups() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         try AccountSeeder.seed(into: context)
         let groups = try context.fetch(FetchDescriptor<AccountGroup>())
         let groupNames = Set(groups.map { $0.name })
         XCTAssertTrue(groupNames.contains("German Media"))
-        XCTAssertTrue(groupNames.contains("US Media"))
+        XCTAssertTrue(groupNames.contains("International Media"))
         XCTAssertTrue(groupNames.contains("All Media"))
     }
 

@@ -49,7 +49,7 @@ struct AccountSeeder {
         let existingAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())
         guard existingAccounts.isEmpty else { return }
 
-        let startAt = ISO8601DateFormatter().date(from: "2024-01-01T00:00:00Z") ?? Date()
+        let startAt = ATProtoDate.parse("2024-01-01T00:00:00Z") ?? Date()
         var groups: [String: AccountGroup] = [:]
 
         for seed in seeds {

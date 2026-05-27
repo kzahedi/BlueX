@@ -54,6 +54,7 @@
 		804A1FB217259224F689E5A1 /* CredentialsSettingsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476B047962647678ADFE5376 /* CredentialsSettingsViewTests.swift */; };
 		857DDAB5828645BEBE1937A5 /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
 		85817958A8720EAA402F0AD2 /* MLXClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */; };
+		94C630D4041F13AC122ACF03 /* ATProtoDateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D631B79D81CCB5A44EE040AB /* ATProtoDateTests.swift */; };
 		9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
 		A2C07491173265049ACCDB26 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
 		A617A22A18144517AEBD9C85 /* RescrapingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC3A679106600F922A9AEFB /* RescrapingPolicy.swift */; };
@@ -72,6 +73,7 @@
 		EAA99000519D18F63216A1D4 /* BlueskyStructs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10286721EB5230015A2ABC69 /* BlueskyStructs.swift */; };
 		ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */; };
 		EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */; };
+		F155F074A16F2287F7D065F2 /* ATProtoDate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */; };
 		F5F9FB11974BC2F7777C1417 /* AccountContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03190618A41BC1BAE95560C /* AccountContentView.swift */; };
 		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
@@ -96,6 +98,7 @@
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		12CA30A1A6E40070FE91F365 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
+		1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATProtoDate.swift; sourceTree = "<group>"; };
 		1D15873FD2D25D996790502C /* ThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadView.swift; sourceTree = "<group>"; };
 		1D2F936DA2B17E29AC501ADC /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		1DAF14F9783E11604DF39941 /* CredentialsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsSettingsView.swift; sourceTree = "<group>"; };
@@ -154,6 +157,7 @@
 		D17BD7F5B327BFA1F0C892C6 /* ScrapingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapingSettingsView.swift; sourceTree = "<group>"; };
 		D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedAccountTests.swift; sourceTree = "<group>"; };
 		D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSnapshot.swift; sourceTree = "<group>"; };
+		D631B79D81CCB5A44EE040AB /* ATProtoDateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATProtoDateTests.swift; sourceTree = "<group>"; };
 		D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTests.swift; sourceTree = "<group>"; };
 		D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyserTests.swift; sourceTree = "<group>"; };
 		DAFA0B786ADDCE34214193F6 /* ThreadViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewModel.swift; sourceTree = "<group>"; };
@@ -382,6 +386,7 @@
 		D6499275C303C9C8279B4304 /* API */ = {
 			isa = PBXGroup;
 			children = (
+				1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */,
 				A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */,
 				75E97E85CBCB11DCB104D467 /* BlueskyError.swift */,
 				10286721EB5230015A2ABC69 /* BlueskyStructs.swift */,
@@ -412,6 +417,7 @@
 			isa = PBXGroup;
 			children = (
 				B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */,
+				D631B79D81CCB5A44EE040AB /* ATProtoDateTests.swift */,
 				8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */,
 				C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */,
 				6993F528F5075C15036ED449 /* MLXClientTests.swift */,
@@ -509,6 +515,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				94C630D4041F13AC122ACF03 /* ATProtoDateTests.swift in Sources */,
 				74A81D98336D962BC66B5100 /* AccountSeederTests.swift in Sources */,
 				0EF2E61C34C035AAB144C754 /* AnnotationBadgeTests.swift in Sources */,
 				C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */,
@@ -538,6 +545,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F155F074A16F2287F7D065F2 /* ATProtoDate.swift in Sources */,
 				C246AAF6863DB1C3C50809CD /* AccountChartsView.swift in Sources */,
 				F5F9FB11974BC2F7777C1417 /* AccountContentView.swift in Sources */,
 				05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */,

@@ -29,13 +29,6 @@ final class FeedScraper {
         log.account = account
         context.insert(log)
 
-        // Why: Bluesky timestamps include fractional seconds ("2024-06-01T10:00:00.000Z").
-        // The default ISO8601DateFormatter does not parse fractional seconds — we must
-        // enable .withFractionalSeconds explicitly, otherwise date parsing returns nil
-        // and all posts get filtered out.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
         scrapeLoop: while true {
             let result = await api.getAuthorFeed(did: account.did, token: token, cursor: cursor)
 
@@ -45,7 +38,7 @@ final class FeedScraper {
                     // Only store posts authored by the tracked account (skip reblogs/reposts)
                     guard feedPost.post.author.did == account.did else { continue }
                     // Only store posts within our date range
-                    guard let postDate = formatter.date(from: feedPost.post.record.createdAt),
+                    guard let postDate = ATProtoDate.parse(feedPost.post.record.createdAt),
                           postDate >= account.startAt else { continue }
 
                     if !isDuplicate(uri: feedPost.post.uri) {
@@ -105,9 +98,7 @@ final class FeedScraper {
     }
 
     private func mapToPost(_ apiPost: ATProtoPost, account: TrackedAccount) -> Post {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let createdAt = formatter.date(from: apiPost.record.createdAt) ?? Date()
+        let createdAt = ATProtoDate.parse(apiPost.record.createdAt) ?? Date()
 
         let post = Post(
             uri: apiPost.uri,

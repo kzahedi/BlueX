@@ -78,9 +78,7 @@ final class ThreadScraper {
     }
 
     private func mapToPost(_ apiPost: ATProtoPost, parentURI: String?, rootURI: String, depth: Int) -> Post {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let createdAt = formatter.date(from: apiPost.record.createdAt) ?? Date()
+        let createdAt = ATProtoDate.parse(apiPost.record.createdAt) ?? Date()
         let post = Post(
             uri: apiPost.uri,
             text: apiPost.record.text,
