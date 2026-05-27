@@ -37,6 +37,7 @@
 		9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
 		A2C07491173265049ACCDB26 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
 		A617A22A18144517AEBD9C85 /* RescrapingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC3A679106600F922A9AEFB /* RescrapingPolicy.swift */; };
+		C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */; };
 		CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */; };
 		CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */; };
 		D8EB54D9DABA054F76D4245A /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
@@ -46,6 +47,7 @@
 		EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */; };
 		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
+		FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,10 +87,12 @@
 		95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClientTests.swift; sourceTree = "<group>"; };
 		9FE94B097F9D303D433A9A83 /* BlueXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXTests.swift; sourceTree = "<group>"; };
 		A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyser.swift; sourceTree = "<group>"; };
+		A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationService.swift; sourceTree = "<group>"; };
 		A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClient.swift; sourceTree = "<group>"; };
 		A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeCoordinator.swift; sourceTree = "<group>"; };
 		AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLog.swift; sourceTree = "<group>"; };
 		B60B1BC949BB1C979F616110 /* AccountGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountGroup.swift; sourceTree = "<group>"; };
+		B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationServiceTests.swift; sourceTree = "<group>"; };
 		BA67E988CC70CC382795EBFF /* BlueX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlueX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD700ECA1E2DB6FE0F772794 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyErrorTests.swift; sourceTree = "<group>"; };
@@ -119,6 +123,7 @@
 		1183AA51519641E2E2B19ABE /* Annotation */ = {
 			isa = PBXGroup;
 			children = (
+				A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */,
 				504C627B537AE3AAB0582050 /* LocalModelClient.swift */,
 				04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */,
 				A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */,
@@ -259,6 +264,7 @@
 		F5A4442339D00335E71354CD /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */,
 				8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */,
 				C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */,
 				6993F528F5075C15036ED449 /* MLXClientTests.swift */,
@@ -359,6 +365,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */,
 				54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */,
 				0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */,
 				76251AA5DB29B65FD817AC42 /* BlueskyAPIClientTests.swift in Sources */,
@@ -383,6 +390,7 @@
 				05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */,
 				46777548FF9CB9D36C1BB73B /* AccountSnapshot.swift in Sources */,
 				308FC4520E206C808F070817 /* Annotation.swift in Sources */,
+				FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */,
 				5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */,
 				857DDAB5828645BEBE1937A5 /* BlueskyAPIClient.swift in Sources */,
 				5E9148D2273C438AFB76CEB5 /* BlueskyError.swift in Sources */,
