@@ -5,6 +5,8 @@ import SwiftData
 struct SidebarView: View {
     var viewModel: SidebarViewModel
     @Binding var selection: SidebarItem?
+    var onStartScrape: (() -> Void)? = nil
+    var onCancelScrape: (() -> Void)? = nil
 
     @Query(sort: \AccountGroup.name) private var groups: [AccountGroup]
     @Query(sort: \TrackedAccount.displayName) private var accounts: [TrackedAccount]
@@ -42,9 +44,66 @@ struct SidebarView: View {
             if let error = viewModel.lastError {
                 errorBanner(error: error)
             }
+            scrapeBar
         }
         .frame(minWidth: 220)
         .background(Color.appBackground)
+    }
+
+    // MARK: - Scrape bar (bottom of sidebar)
+
+    private var scrapeBar: some View {
+        let isRunning = viewModel.scrapePhase != .idle
+        return VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                if isRunning {
+                    // Spinning indicator + phase label
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 16, height: 16)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(phaseLabel)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.primaryText)
+                        if let handle = viewModel.activeScrapeHandle {
+                            Text(handle)
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.mutedText)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Button("Stop") { onCancelScrape?() }
+                        .font(.system(size: 11))
+                        .buttonStyle(.bordered)
+                        .tint(Color.hateBorder)
+                } else {
+                    Spacer()
+                    Button {
+                        onStartScrape?()
+                    } label: {
+                        Label("Scrape All", systemImage: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.selectedBackground)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.panelBackground)
+        }
+    }
+
+    private var phaseLabel: String {
+        switch viewModel.scrapePhase {
+        case .idle:        return "Idle"
+        case .preparing:   return "Authenticating…"
+        case .feed:        return "Scraping feeds…"
+        case .thread:      return "Scraping threads…"
+        case .annotating:  return "Annotating…"
+        }
     }
 
     @ViewBuilder

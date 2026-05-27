@@ -20,7 +20,12 @@ struct RootView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
-            SidebarView(viewModel: sidebarVM, selection: $selectedItem)
+            SidebarView(
+                viewModel: sidebarVM,
+                selection: $selectedItem,
+                onStartScrape: { coordinator?.startScrape() },
+                onCancelScrape: { coordinator?.cancel() }
+            )
         } content: {
             contentColumn
         } detail: {
