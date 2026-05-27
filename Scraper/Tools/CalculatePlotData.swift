@@ -58,13 +58,8 @@ struct CalculatePlotData {
             let repliesPerDay = Double(getAllRepliesByDate(day:day, month:month, year:year, account:account))
             let postPerDay = Double(getNumberOfPosts(day:day, month:month, year:year, account:account))
             let postSentiments = getAllSentimentsToPostOn(day:day, month:month, year:year, account:account)
-            //            let replySentimentsPerPost = []
-//            let replySentimentsPerDay = []
-            
-            var (sum, max, mean, stdDev) = calculateStatistics(values: repliesToPost)
-            addPlotData(account: account, day: day, month: month, year: year,
-                        sum: sum, mean: mean, stdDev: stdDev, max: max,
-                        type: .RepliesPerPost)
+            let replySentimentsPerPost = getAllReplySentimentsToPostOn(day:day, month:month, year:year, account:account)
+            let replySentimentsPerDay = getAllRepliesSentimentsByDate(day:day, month:month, year:year, account:account)
            
             addPlotData(account: account, day: day, month: month, year: year,
                         sum: repliesPerDay,
@@ -74,15 +69,31 @@ struct CalculatePlotData {
                         sum: postPerDay,
                         type: .PostsPerDay)
             
+            var (sum, max, mean, stdDev) = calculateStatistics(values: repliesToPost)
+            addPlotData(account: account, day: day, month: month, year: year,
+                        sum: sum, mean: mean, stdDev: stdDev, max: max,
+                        type: .RepliesPerPost)
+
             (sum, max, mean, stdDev) = calculateStatistics(values: postSentiments)
             addPlotData(account: account, day: day, month: month, year: year,
-                        sum: postPerDay,
+                        sum: sum,
                         type: .SentimentPerPost)
             
-
+            (sum, max, mean, stdDev) = calculateStatistics(values: replySentimentsPerPost)
+            addPlotData(account: account, day: day, month: month, year: year,
+                        sum: sum,
+                        type: .ReplySentimentsPerPost)
+            
+            (sum, max, mean, stdDev) = calculateStatistics(values: replySentimentsPerDay)
+            addPlotData(account: account, day: day, month: month, year: year,
+                        sum: sum,
+                        type: .ReplySentimentsPerDay)
+            
             bar.next()
         }
         print("done")
+        
+        account.timestampPlotData = Date()
  
         try? context.save()
         print("Completed the calculation of plot data.")
@@ -142,11 +153,34 @@ struct CalculatePlotData {
     }
         
         
+    private func getAllRepliesSentimentsByDate(day:Int, month:Int, year:Int, account:Account) -> [Double] {
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        let predicate = NSPredicate(format:"day == %@ AND month == %@ AND year == %@ AND rootURI != nil",
+                                    NSNumber(value:day),
+                                    NSNumber(value:month),
+                                    NSNumber(value:year))
+        fetchRequest.predicate = predicate
+        
+       
+        guard let posts = try? context.fetch(fetchRequest) else {
+            return []
+        }
+
+        
+        // Extract sentiments from posts
+        let sentiments = posts.compactMap { $0.sentiments }.flatMap { $0 }
+        
+        // Filter sentiments with the desired tool and extract scores
+        let filteredScores = sentiments.compactMap { sentiment in
+            (sentiment as AnyObject).tool == SentimentAnalysisTool.NLTagger.stringValue ? (sentiment as AnyObject).score!: nil
+        }
+        
+        return filteredScores
+    }
     
     private func getAllRepliesByDate(day:Int, month:Int, year:Int, account:Account) -> Int {
         let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
-        let predicate = NSPredicate(format:"day == %@ AND month == %@ AND year == %@",
-//                                    account,
+        let predicate = NSPredicate(format:"day == %@ AND month == %@ AND year == %@ and rootURI != nil",
                                     NSNumber(value:day),
                                     NSNumber(value:month),
                                     NSNumber(value:year))
@@ -180,6 +214,39 @@ struct CalculatePlotData {
                 .map{Int($0)}
         }
         return []
+    }
+    
+    private func getAllReplySentimentsToPostOn(day:Int, month:Int, year:Int, account:Account) -> [Double] {
+        let predicate = NSPredicate(format:"account == %@ AND day == %@ AND month == %@ AND year == %@",
+                                    account,
+                                    NSNumber(value:day),
+                                    NSNumber(value:month),
+                                    NSNumber(value:year))
+        let fetchRequest: NSFetchRequest<Post> = Post.fetchRequest()
+        fetchRequest.predicate = predicate
+        
+        guard let posts = try? context.fetch(fetchRequest) else {
+            return []
+        }
+        
+        var r : [Double] = []
+        for post in posts {
+            r += getSentimentsRecursively(post:post)
+        }
+        
+        return r
+    }
+    
+    private func getSentimentsRecursively(post:Post) -> [Double] {
+        let sentiments = post.sentiments?.allObjects as? [Sentiment] ?? []
+        var r : [Double] = sentiments.map{$0.score}
+        
+        if let replies = post.replies as? Set<Post> {
+            for reply in replies {
+                r += getSentimentsRecursively(post: reply)
+            }
+        }
+        return r
     }
     
     private func getAllSentimentsToPostOn(day:Int, month:Int, year:Int, account:Account) -> [Double] {

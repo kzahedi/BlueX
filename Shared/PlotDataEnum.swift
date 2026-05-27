@@ -12,16 +12,16 @@ public enum PlotDataEnum {
     case RepliesPerPost
     case PostsPerDay
     case SentimentPerPost
-    case SentimentPerDay
-    case SentimentPerReply
+    case ReplySentimentsPerPost
+    case ReplySentimentsPerDay
  
     enum CodingKeys : String, CodingKey {
         case RepliesPerPost = "Replies per post"
         case RepliesPerDay = "Replies per day"
         case PostsPerDay = "Posts per day"
         case SentimentPerPost = "Sentiment per day (posts)"
-        case SentimentPerDay = "Sentiment per post replies"
-        case SentimentPerReply = "Sentiment per day (replies)"
+        case ReplySentimentsPerPost = "Sentiment per post replies"
+        case ReplySentimentsPerDay = "Sentiment per day (replies)"
     }
     
     // Computed property to get the string value
@@ -35,12 +35,10 @@ public enum PlotDataEnum {
                 return CodingKeys.PostsPerDay.rawValue
             case .SentimentPerPost:
                 return CodingKeys.SentimentPerPost.rawValue
-            case .SentimentPerDay:
-                return CodingKeys.SentimentPerDay.rawValue
-            case .SentimentPerReply:
-                return CodingKeys.SentimentPerReply.rawValue
-
+            case .ReplySentimentsPerPost:
+                return CodingKeys.ReplySentimentsPerPost.rawValue
+            case .ReplySentimentsPerDay:
+                return CodingKeys.ReplySentimentsPerDay.rawValue
         }
     }
-   
 }

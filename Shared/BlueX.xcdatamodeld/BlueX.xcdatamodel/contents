@@ -15,6 +15,7 @@
         <attribute name="postsCount" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="startAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampFeed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="timestampPlotData" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampReplyTrees" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampSentiment" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="timestampStatistics" optional="YES" attributeType="Date" usesScalarValueType="NO"/>

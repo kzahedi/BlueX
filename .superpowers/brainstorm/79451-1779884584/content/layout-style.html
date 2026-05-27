@@ -1,0 +1,220 @@
+<h2>Overall App Layout & Style</h2>
+<p class="subtitle">Two directions for the BlueX v2 research dashboard — same three-column structure, different visual density. Click to select your preference.</p>
+
+<div class="cards">
+
+  <!-- Option A: Dense Research Tool -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a1a2e;padding:12px;border-radius:6px;font-family:monospace">
+      <div style="display:flex;height:280px;gap:6px">
+
+        <!-- Sidebar -->
+        <div style="width:130px;background:#16213e;border-radius:4px;padding:8px;font-size:9px;color:#8892a4">
+          <div style="color:#e2e8f0;font-size:9px;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">GROUPS</div>
+          <div style="background:#0f3460;color:#60a5fa;padding:3px 6px;border-radius:3px;margin-bottom:2px;font-size:9px">▾ German Media</div>
+          <div style="padding:2px 6px;color:#94a3b8;font-size:8px;margin-bottom:1px">  • Spiegel</div>
+          <div style="padding:2px 6px;color:#94a3b8;font-size:8px;margin-bottom:1px">  • ZEIT</div>
+          <div style="padding:2px 6px;color:#94a3b8;font-size:8px;margin-bottom:4px">  • SZ</div>
+          <div style="padding:3px 6px;color:#94a3b8;font-size:9px;margin-bottom:2px">▸ US Media</div>
+          <div style="padding:3px 6px;color:#94a3b8;font-size:9px;margin-bottom:8px">▸ All Media</div>
+          <div style="color:#e2e8f0;font-size:9px;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">ACCOUNTS</div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 6px;background:#0f3460;border-radius:3px;margin-bottom:2px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#60a5fa"></div>
+            <span style="color:#e2e8f0;font-size:8px">spiegel.de</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 6px;margin-bottom:2px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#4ade80"></div>
+            <span style="color:#94a3b8;font-size:8px">zeit.de</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 6px;margin-bottom:2px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#4ade80"></div>
+            <span style="color:#94a3b8;font-size:8px">nytimes.com</span>
+          </div>
+          <div style="margin-top:auto;padding-top:60px;border-top:1px solid #0f3460">
+            <div style="color:#64748b;font-size:8px;padding:2px 6px">⚙ Settings</div>
+            <div style="color:#64748b;font-size:8px;padding:2px 6px">📋 Queue (42)</div>
+          </div>
+        </div>
+
+        <!-- Content: Post List -->
+        <div style="width:160px;background:#16213e;border-radius:4px;padding:8px;font-size:8px;color:#8892a4">
+          <div style="color:#e2e8f0;font-size:9px;font-weight:600;margin-bottom:6px">spiegel.de — Posts</div>
+          <div style="background:#0f3460;border-radius:3px;padding:5px;margin-bottom:3px;border-left:2px solid #60a5fa">
+            <div style="color:#e2e8f0;font-size:8px;margin-bottom:2px">EU-Gipfel: Diskussion über...</div>
+            <div style="display:flex;gap:4px;color:#64748b;font-size:7px">
+              <span>2h ago</span>
+              <span style="color:#f87171">██ 18% hate</span>
+              <span style="color:#4ade80">█ 9% counter</span>
+            </div>
+          </div>
+          <div style="background:#16213e;border-radius:3px;padding:5px;margin-bottom:3px;border-left:2px solid #475569">
+            <div style="color:#94a3b8;font-size:8px;margin-bottom:2px">Migration: Neue Zahlen zeig...</div>
+            <div style="display:flex;gap:4px;color:#64748b;font-size:7px">
+              <span>5h ago</span>
+              <span style="color:#f87171">██ 24% hate</span>
+              <span style="color:#4ade80">█ 6% counter</span>
+            </div>
+          </div>
+          <div style="background:#16213e;border-radius:3px;padding:5px;margin-bottom:3px;border-left:2px solid #475569">
+            <div style="color:#94a3b8;font-size:8px;margin-bottom:2px">Bundesliga Ergebnisse vom...</div>
+            <div style="display:flex;gap:4px;color:#64748b;font-size:7px">
+              <span>8h ago</span>
+              <span style="color:#64748b">2% hate</span>
+            </div>
+          </div>
+          <div style="background:#16213e;border-radius:3px;padding:5px;border-left:2px solid #475569">
+            <div style="color:#94a3b8;font-size:8px;margin-bottom:2px">Klimakonferenz: Deutsch...</div>
+            <div style="display:flex;gap:4px;color:#64748b;font-size:7px">
+              <span>12h ago</span>
+              <span style="color:#f87171">█ 11% hate</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail: Thread -->
+        <div style="flex:1;background:#16213e;border-radius:4px;padding:8px;font-size:8px;color:#8892a4;overflow:hidden">
+          <div style="color:#e2e8f0;font-size:9px;font-weight:600;margin-bottom:2px">EU-Gipfel: Diskussion über Asylrecht</div>
+          <div style="color:#64748b;font-size:7px;margin-bottom:6px">spiegel.de · 247 replies · 18% hate · 9% counter</div>
+          <!-- Root post -->
+          <div style="background:#0f3460;border-radius:3px;padding:5px;margin-bottom:3px">
+            <div style="color:#60a5fa;font-size:7px;margin-bottom:2px">spiegel.de ✓</div>
+            <div style="color:#e2e8f0;font-size:8px">EU-Länder einigen sich auf neuen Asylpakt...</div>
+          </div>
+          <!-- Reply 1 - hate -->
+          <div style="background:#16213e;border-radius:3px;padding:4px;margin-bottom:2px;border-left:2px solid #f87171;margin-left:10px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#94a3b8;font-size:7px">@user123.bsky.social</span>
+              <span style="background:#7f1d1d;color:#fca5a5;font-size:6px;padding:1px 4px;border-radius:2px">hate · moderate</span>
+            </div>
+            <div style="color:#cbd5e1;font-size:8px;margin-top:2px">Das ist doch alles Lüge! Die wollen uns...</div>
+          </div>
+          <!-- Reply 2 - counter -->
+          <div style="background:#16213e;border-radius:3px;padding:4px;margin-bottom:2px;border-left:2px solid #4ade80;margin-left:20px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#94a3b8;font-size:7px">@responder.bsky.social</span>
+              <span style="background:#14532d;color:#86efac;font-size:6px;padding:1px 4px;border-radius:2px">counter</span>
+            </div>
+            <div style="color:#cbd5e1;font-size:8px;margin-top:2px">Bitte lies den Artikel bevor du kommentierst...</div>
+          </div>
+          <!-- Reply 3 - neutral -->
+          <div style="background:#16213e;border-radius:3px;padding:4px;margin-bottom:2px;border-left:2px solid #475569;margin-left:10px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#94a3b8;font-size:7px">@journalist.bsky.social</span>
+              <span style="background:#1e293b;color:#94a3b8;font-size:6px;padding:1px 4px;border-radius:2px">neutral</span>
+            </div>
+            <div style="color:#cbd5e1;font-size:8px;margin-top:2px">Interessant, der Pakt gilt ab 2026...</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Dark / Dense Research Tool</h3>
+      <p>Dark theme, compact layout, data always visible. Inline hate/counter badges on posts. Feels like a professional analysis tool. Best when you're spending long sessions in it.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Light / Clean -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;border-radius:6px;border:1px solid #e2e8f0">
+      <div style="display:flex;height:280px;gap:6px">
+
+        <!-- Sidebar -->
+        <div style="width:130px;background:white;border-radius:4px;padding:8px;font-size:9px;color:#64748b;border:1px solid #e2e8f0">
+          <div style="color:#94a3b8;font-size:8px;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Groups</div>
+          <div style="background:#eff6ff;color:#3b82f6;padding:3px 8px;border-radius:4px;margin-bottom:2px;font-size:9px;font-weight:500">▾ German Media</div>
+          <div style="padding:2px 12px;color:#94a3b8;font-size:8px;margin-bottom:1px">Spiegel</div>
+          <div style="padding:2px 12px;color:#94a3b8;font-size:8px;margin-bottom:1px">ZEIT</div>
+          <div style="padding:2px 12px;color:#94a3b8;font-size:8px;margin-bottom:4px">SZ</div>
+          <div style="padding:3px 8px;color:#94a3b8;font-size:9px;margin-bottom:2px">▸ US Media</div>
+          <div style="padding:3px 8px;color:#94a3b8;font-size:9px;margin-bottom:8px">▸ All Media</div>
+          <div style="color:#94a3b8;font-size:8px;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Accounts</div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:#eff6ff;border-radius:4px;margin-bottom:2px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#3b82f6"></div>
+            <span style="color:#1e40af;font-size:8px;font-weight:500">spiegel.de</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;margin-bottom:2px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#22c55e"></div>
+            <span style="color:#64748b;font-size:8px">zeit.de</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;padding:3px 8px">
+            <div style="width:5px;height:5px;border-radius:50%;background:#22c55e"></div>
+            <span style="color:#64748b;font-size:8px">nytimes.com</span>
+          </div>
+          <div style="margin-top:auto;padding-top:50px;border-top:1px solid #f1f5f9">
+            <div style="color:#94a3b8;font-size:8px;padding:2px 8px">⚙ Settings</div>
+            <div style="color:#94a3b8;font-size:8px;padding:2px 8px">📋 Queue (42)</div>
+          </div>
+        </div>
+
+        <!-- Content: Post List -->
+        <div style="width:160px;background:white;border-radius:4px;padding:8px;font-size:8px;color:#64748b;border:1px solid #e2e8f0">
+          <div style="color:#1e293b;font-size:9px;font-weight:600;margin-bottom:6px">spiegel.de</div>
+          <div style="border:1px solid #e2e8f0;border-radius:6px;padding:6px;margin-bottom:4px;background:#fafafa">
+            <div style="color:#1e293b;font-size:8px;margin-bottom:3px;font-weight:500">EU-Gipfel: Diskussion über...</div>
+            <div style="color:#94a3b8;font-size:7px;margin-bottom:3px">2h ago · 247 replies</div>
+            <div style="display:flex;gap:3px">
+              <span style="background:#fee2e2;color:#dc2626;font-size:6px;padding:1px 4px;border-radius:2px">18% hate</span>
+              <span style="background:#dcfce7;color:#16a34a;font-size:6px;padding:1px 4px;border-radius:2px">9% counter</span>
+            </div>
+          </div>
+          <div style="border:1px solid #e2e8f0;border-radius:6px;padding:6px;margin-bottom:4px">
+            <div style="color:#1e293b;font-size:8px;margin-bottom:3px">Migration: Neue Zahlen zeig...</div>
+            <div style="color:#94a3b8;font-size:7px;margin-bottom:3px">5h ago · 189 replies</div>
+            <div style="display:flex;gap:3px">
+              <span style="background:#fee2e2;color:#dc2626;font-size:6px;padding:1px 4px;border-radius:2px">24% hate</span>
+            </div>
+          </div>
+          <div style="border:1px solid #e2e8f0;border-radius:6px;padding:6px">
+            <div style="color:#1e293b;font-size:8px;margin-bottom:3px">Bundesliga Ergebnisse vom...</div>
+            <div style="color:#94a3b8;font-size:7px;margin-bottom:3px">8h ago · 34 replies</div>
+            <span style="background:#f1f5f9;color:#94a3b8;font-size:6px;padding:1px 4px;border-radius:2px">mostly neutral</span>
+          </div>
+        </div>
+
+        <!-- Detail: Thread -->
+        <div style="flex:1;background:white;border-radius:4px;padding:8px;font-size:8px;color:#64748b;border:1px solid #e2e8f0;overflow:hidden">
+          <div style="color:#1e293b;font-size:9px;font-weight:600;margin-bottom:1px">EU-Gipfel: Diskussion über Asylrecht</div>
+          <div style="color:#94a3b8;font-size:7px;margin-bottom:6px">spiegel.de · 247 replies · 18% hate · 9% counter</div>
+          <!-- Root post -->
+          <div style="background:#eff6ff;border-radius:4px;padding:5px;margin-bottom:4px">
+            <div style="color:#3b82f6;font-size:7px;font-weight:600;margin-bottom:2px">spiegel.de ✓</div>
+            <div style="color:#1e293b;font-size:8px">EU-Länder einigen sich auf neuen Asylpakt...</div>
+          </div>
+          <!-- Reply 1 - hate -->
+          <div style="border:1px solid #fee2e2;background:#fff5f5;border-radius:4px;padding:4px;margin-bottom:3px;margin-left:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span style="color:#94a3b8;font-size:7px">@user123.bsky.social</span>
+              <span style="background:#fee2e2;color:#dc2626;font-size:6px;padding:1px 5px;border-radius:8px">hate · moderate</span>
+            </div>
+            <div style="color:#374151;font-size:8px">Das ist doch alles Lüge! Die wollen uns...</div>
+          </div>
+          <!-- Reply 2 - counter -->
+          <div style="border:1px solid #dcfce7;background:#f0fdf4;border-radius:4px;padding:4px;margin-bottom:3px;margin-left:24px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span style="color:#94a3b8;font-size:7px">@responder.bsky.social</span>
+              <span style="background:#dcfce7;color:#16a34a;font-size:6px;padding:1px 5px;border-radius:8px">counter</span>
+            </div>
+            <div style="color:#374151;font-size:8px">Bitte lies den Artikel bevor du kommentierst...</div>
+          </div>
+          <!-- Reply 3 - neutral -->
+          <div style="border:1px solid #e2e8f0;border-radius:4px;padding:4px;margin-left:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span style="color:#94a3b8;font-size:7px">@journalist.bsky.social</span>
+              <span style="background:#f1f5f9;color:#64748b;font-size:6px;padding:1px 5px;border-radius:8px">neutral</span>
+            </div>
+            <div style="color:#374151;font-size:8px">Interessant, der Pakt gilt ab 2026...</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Light / Clean Research Tool</h3>
+      <p>Light theme, more breathing room, card-based posts. Colour-coded badges for hate/counter/neutral. Feels like a modern macOS app. Easier on the eyes for long reading sessions.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">Both options show the same structure: sidebar (groups + accounts) → post list → thread detail with colour-coded annotation badges. The real posts and replies are in German — that's intentional.</p>

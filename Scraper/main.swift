@@ -70,9 +70,15 @@ struct Scraper: ParsableCommand {
                 if account.isActive {
                     print("Working on:")
                     print(account)
-                    if let token = getBlueSkyToken() {
-                        if feed       || all { feedScraper.scrape(account:account, token:token) }
-                        if thread     || all { threadScraper.scrape(account:account, token:token, batchSize:batchSize) }
+                    if feed || all {
+                        if let token = getBlueSkyToken() {
+                            feedScraper.scrape(account:account, token:token)
+                        }
+                    }
+                    if thread || all {
+                        if let token = getBlueSkyToken() {
+                            threadScraper.scrape(account:account, token:token, batchSize:batchSize)
+                        }
                     }
                     if Sentiment  || all { sentimentTask.calculateSentimentsFor(account:account, tool: .NLTagger, batchSize:batchSize) }
                     if statistics || all { statisticsTask.calculateFor(account:account, batchSize:batchSize) }

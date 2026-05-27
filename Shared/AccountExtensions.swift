@@ -16,24 +16,27 @@ extension Account {
         let lastReplyTreesUpdate = setDateString(date:self.timestampReplyTrees)
         let lastSentimentUpdate = setDateString(date:self.timestampSentiment)
         let lastStatisticsUpdate = setDateString(date:self.timestampStatistics)
-        
+        let lastPlotDataUpdate = setDateString(date:self.timestampPlotData)
+
         var r = ""
         r = r + "Account name: \(self.displayName ?? "No name")\n"
         r = r + "  Handle:                    \(self.handle ?? "No handle")\n"
         r = r + "  DID:                       \(self.did ?? "No DID")\n"
         r = r + "  Is active:                 \(self.isActive)\n"
         r = r + "  Scraping starts at         \(dateString)\n"
+        r = r + "\n"
         r = r + "  Followers Count:           \(self.followersCount)\n"
         r = r + "  Follows Count:             \(self.followsCount)\n"
         r = r + "  Number of posts:           \(self.postsCount)\n"
+        r = r + "\n"
         r = r + "  Force feed updates:        \(self.forceFeedUpdate)\n"
         r = r + "  Last feed update:          \(lastFeedUpdate)\n"
         r = r + "  Force reply tree updates:  \(self.forceReplyTreeUpdate)\n"
         r = r + "  Last reply trees update:   \(lastReplyTreesUpdate)\n"
-        r = r + "  Force sentiment updates:   \(self.forceSentimentUpdate)\n"
+        r = r + "\n"
         r = r + "  Last sentiment update:     \(lastSentimentUpdate)\n"
-        r = r + "  Force statistics updates:  \(self.forceStatistics)\n"
         r = r + "  Last statistics update:    \(lastStatisticsUpdate)\n"
+        r = r + "  Last plot data update:     \(lastPlotDataUpdate)\n"
         return r
     }
 }
