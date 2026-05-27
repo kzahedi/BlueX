@@ -52,10 +52,11 @@ final class AnnotationService {
 
         for post in posts {
             currentPostText = String(post.text.prefix(60))
-            let language = post.annotations.first(where: { $0.stage == "nltagger" })?.detectedLanguage ?? "other"
+            let baseline = post.nlTaggerAnnotation
+            let language = baseline?.detectedLanguage ?? "other"
             do {
                 let llmResult = try await client.classify(text: post.text, language: language)
-                let baselineSentiment = post.annotations.first(where: { $0.stage == "nltagger" })?.sentimentScore ?? 0.0
+                let baselineSentiment = baseline?.sentimentScore ?? 0.0
                 let annotation = Annotation(
                     speechClass: llmResult.speechClass,
                     sentimentScore: baselineSentiment,
@@ -85,9 +86,7 @@ final class AnnotationService {
 
     private func fetchPostsWithoutNLTaggerAnnotation(context: ModelContext) throws -> [Post] {
         let posts = try context.fetch(FetchDescriptor<Post>())
-        return posts.filter { post in
-            !post.annotations.contains { $0.stage == "nltagger" }
-        }
+        return posts.filter { !$0.hasNLTaggerAnnotation }
     }
 
     private func fetchPostsWithoutLLMAnnotation(context: ModelContext, limit: Int) throws -> [Post] {
@@ -97,7 +96,7 @@ final class AnnotationService {
         descriptor.fetchLimit = limit * 5
         let posts = try context.fetch(descriptor)
         return posts
-            .filter { !$0.annotations.contains { $0.stage == "llm" } }
+            .filter { !$0.hasLLMAnnotation }
             .prefix(limit)
             .map { $0 }
     }

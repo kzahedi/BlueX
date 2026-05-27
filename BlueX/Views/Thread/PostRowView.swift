@@ -7,7 +7,7 @@ struct PostRowView: View {
     let onSelect: () -> Void
 
     private var latestAnnotation: Annotation? {
-        post.annotations.last(where: { $0.stage == "llm" })
+        post.currentLLMAnnotation
     }
 
     var body: some View {

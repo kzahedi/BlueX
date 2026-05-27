@@ -27,9 +27,7 @@ final class QueueViewModel {
                 FetchDescriptor<Post>(
                     sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
                 )
-            ).filter { post in
-                post.annotations.first(where: { $0.stage == "llm" }) == nil
-            }
+            ).filter { !$0.hasLLMAnnotation }
 
             var combined = all
             for post in unannotated {

@@ -63,10 +63,10 @@ final class ChartsViewModel {
             let replies = weekPosts.filter { !$0.isRootPost }
 
             func classCount(_ pool: [Post], _ cls: String) -> Int {
-                pool.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == cls }.count
+                pool.filter { $0.currentSpeechClass == cls }.count
             }
             func pendingCount(_ pool: [Post]) -> Int {
-                pool.filter { $0.annotations.last(where: { $0.stage == "llm" }) == nil }.count
+                pool.filter { !$0.hasLLMAnnotation }.count
             }
 
             return WeekBucket(

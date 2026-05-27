@@ -54,6 +54,7 @@
 		804A1FB217259224F689E5A1 /* CredentialsSettingsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476B047962647678ADFE5376 /* CredentialsSettingsViewTests.swift */; };
 		857DDAB5828645BEBE1937A5 /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
 		85817958A8720EAA402F0AD2 /* MLXClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */; };
+		8D1B5DA496A889605A5EA973 /* PostAnnotationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */; };
 		94C630D4041F13AC122ACF03 /* ATProtoDateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D631B79D81CCB5A44EE040AB /* ATProtoDateTests.swift */; };
 		9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
 		A2C07491173265049ACCDB26 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
@@ -64,6 +65,7 @@
 		C246AAF6863DB1C3C50809CD /* AccountChartsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57335A54B79DED201CE8F20B /* AccountChartsView.swift */; };
 		C5F22B80DEF462B96690AA88 /* SidebarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF890C358D68F18FEF4165F6 /* SidebarViewModel.swift */; };
 		C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */; };
+		C77E9DE54FE81D243A87D9C7 /* Post+Annotations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */; };
 		C7DEE793920472CE21A7E545 /* ThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D15873FD2D25D996790502C /* ThreadView.swift */; };
 		CBF3636EDC3B9A06872A8E14 /* RootViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FC83FF004F2626D9D042FE2 /* RootViewTests.swift */; };
 		CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */; };
@@ -97,12 +99,14 @@
 		10286721EB5230015A2ABC69 /* BlueskyStructs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyStructs.swift; sourceTree = "<group>"; };
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		12CA30A1A6E40070FE91F365 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
+		147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostAnnotationsTests.swift; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
 		1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATProtoDate.swift; sourceTree = "<group>"; };
 		1D15873FD2D25D996790502C /* ThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadView.swift; sourceTree = "<group>"; };
 		1D2F936DA2B17E29AC501ADC /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		1DAF14F9783E11604DF39941 /* CredentialsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsSettingsView.swift; sourceTree = "<group>"; };
 		22A32BE361802D4B8EE09320 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
+		2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Post+Annotations.swift"; sourceTree = "<group>"; };
 		34D266795CDA4976FE6A23BC /* FeedScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraper.swift; sourceTree = "<group>"; };
 		35D4CB1A5F075F1A527CD589 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
 		35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLogTests.swift; sourceTree = "<group>"; };
@@ -278,6 +282,7 @@
 				C6A91D2D190D4CCA52CD8D80 /* AccountSeederTests.swift */,
 				D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */,
 				E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */,
+				147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */,
 				8B998F7FE00D8C6BCB779630 /* PostTests.swift */,
 				35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */,
 				D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */,
@@ -343,6 +348,7 @@
 				5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */,
 				81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */,
 				22A32BE361802D4B8EE09320 /* Post.swift */,
+				2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */,
 				AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */,
 				452120CDFD8713132697DFC0 /* TrackedAccount.swift */,
 			);
@@ -530,6 +536,7 @@
 				0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */,
 				ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */,
 				1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */,
+				8D1B5DA496A889605A5EA973 /* PostAnnotationsTests.swift in Sources */,
 				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
 				097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */,
 				CBF3636EDC3B9A06872A8E14 /* RootViewTests.swift in Sources */,
@@ -576,6 +583,7 @@
 				2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */,
 				180B6FD164B46E48EC8B78BF /* OllamaClient.swift in Sources */,
 				0196BEE87FF3890527D0B2EA /* OpenAICompatibleClient.swift in Sources */,
+				C77E9DE54FE81D243A87D9C7 /* Post+Annotations.swift in Sources */,
 				9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */,
 				053DDBEA2F61F0034E3F39AC /* PostRowView.swift in Sources */,
 				406D32DEAF9B11AF2FD57EDD /* QueueView.swift in Sources */,

@@ -33,10 +33,10 @@ final class GroupViewModel {
         var stats: [String: AccountStats] = [:]
         for account in accounts {
             let posts = account.posts
-            let hate = posts.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == "hate" }.count
-            let counter = posts.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == "counter" }.count
-            let neutral = posts.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == "neutral" }.count
-            let pending = posts.filter { $0.annotations.last(where: { $0.stage == "llm" }) == nil }.count
+            let hate = posts.filter { $0.currentSpeechClass == "hate" }.count
+            let counter = posts.filter { $0.currentSpeechClass == "counter" }.count
+            let neutral = posts.filter { $0.currentSpeechClass == "neutral" }.count
+            let pending = posts.filter { !$0.hasLLMAnnotation }.count
             stats[account.handle] = AccountStats(
                 handle: account.handle,
                 totalPosts: posts.count,

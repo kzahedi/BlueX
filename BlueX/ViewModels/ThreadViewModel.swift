@@ -25,8 +25,7 @@ final class ThreadViewModel {
         var result: [Post] = []
         func traverse(_ post: Post) {
             if let cls = filterClass {
-                let speechClass = post.annotations.last(where: { $0.stage == "llm" })?.speechClass
-                if speechClass == cls { result.append(post) }
+                if post.currentSpeechClass == cls { result.append(post) }
             } else {
                 result.append(post)
             }
@@ -39,14 +38,14 @@ final class ThreadViewModel {
     }
 
     func hateCount(in posts: [Post]) -> Int {
-        posts.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == "hate" }.count
+        posts.filter { $0.currentSpeechClass == "hate" }.count
     }
 
     func counterCount(in posts: [Post]) -> Int {
-        posts.filter { $0.annotations.last(where: { $0.stage == "llm" })?.speechClass == "counter" }.count
+        posts.filter { $0.currentSpeechClass == "counter" }.count
     }
 
     func pendingCount(in posts: [Post]) -> Int {
-        posts.filter { $0.annotations.last(where: { $0.stage == "llm" }) == nil }.count
+        posts.filter { !$0.hasLLMAnnotation }.count
     }
 }

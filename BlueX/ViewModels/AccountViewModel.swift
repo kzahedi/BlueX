@@ -30,9 +30,7 @@ final class AccountViewModel {
 
         // Class filter
         if let cls = filterClass {
-            result = result.filter { post in
-                post.annotations.last(where: { $0.stage == "llm" })?.speechClass == cls
-            }
+            result = result.filter { $0.currentSpeechClass == cls }
         }
 
         // Sort
@@ -47,17 +45,9 @@ final class AccountViewModel {
 
     func updateCounts(from posts: [Post]) {
         totalPosts = posts.count
-        hateCount = posts.filter { post in
-            post.annotations.last(where: { $0.stage == "llm" })?.speechClass == "hate"
-        }.count
-        counterCount = posts.filter { post in
-            post.annotations.last(where: { $0.stage == "llm" })?.speechClass == "counter"
-        }.count
-        neutralCount = posts.filter { post in
-            post.annotations.last(where: { $0.stage == "llm" })?.speechClass == "neutral"
-        }.count
-        pendingCount = posts.filter { post in
-            post.annotations.last(where: { $0.stage == "llm" }) == nil
-        }.count
+        hateCount = posts.filter { $0.currentSpeechClass == "hate" }.count
+        counterCount = posts.filter { $0.currentSpeechClass == "counter" }.count
+        neutralCount = posts.filter { $0.currentSpeechClass == "neutral" }.count
+        pendingCount = posts.filter { !$0.hasLLMAnnotation }.count
     }
 }
