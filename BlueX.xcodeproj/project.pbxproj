@@ -9,6 +9,11 @@
 /* Begin PBXBuildFile section */
 		0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */; };
 		05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60B1BC949BB1C979F616110 /* AccountGroup.swift */; };
+		AA11BB22CC33DD44EE55FF66 /* BlueskyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF01 /* BlueskyError.swift */; };
+		AA11BB22CC33DD44EE55FF67 /* BlueskyStructs.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF02 /* BlueskyStructs.swift */; };
+		AA11BB22CC33DD44EE55FF68 /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF03 /* BlueskyAPIClient.swift */; };
+		AA11BB22CC33DD44EE55FF69 /* BlueskyErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF04 /* BlueskyErrorTests.swift */; };
+		AA11BB22CC33DD44EE55FF6A /* BlueskyAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF05 /* BlueskyAPIClientTests.swift */; };
 		0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE94B097F9D303D433A9A83 /* BlueXTests.swift */; };
 		308FC4520E206C808F070817 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
 		3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B998F7FE00D8C6BCB779630 /* PostTests.swift */; };
@@ -39,6 +44,11 @@
 
 /* Begin PBXFileReference section */
 		01794834EE49B3AE7992881F /* BlueX.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BlueX.entitlements; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF01 /* BlueskyError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyError.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF02 /* BlueskyStructs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyStructs.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF03 /* BlueskyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClient.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF04 /* BlueskyErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyErrorTests.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF05 /* BlueskyAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientTests.swift; sourceTree = "<group>"; };
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
 		22A32BE361802D4B8EE09320 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
@@ -96,8 +106,18 @@
 			children = (
 				9FE94B097F9D303D433A9A83 /* BlueXTests.swift */,
 				893E618760DF92BB7AB8C6B8 /* Data */,
+				AA11BB22CC33DD44EE55FF10 /* Services */,
 			);
 			path = BlueXTests;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF10 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF04 /* BlueskyErrorTests.swift */,
+				AA11BB22CC33DD44EE55FF05 /* BlueskyAPIClientTests.swift */,
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 		893E618760DF92BB7AB8C6B8 /* Data */ = {
@@ -162,8 +182,19 @@
 		F150D27639E7EB4800C2BDA2 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				AA11BB22CC33DD44EE55FF20 /* API */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF20 /* API */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF01 /* BlueskyError.swift */,
+				AA11BB22CC33DD44EE55FF02 /* BlueskyStructs.swift */,
+				AA11BB22CC33DD44EE55FF03 /* BlueskyAPIClient.swift */,
+			);
+			path = API;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -262,6 +293,8 @@
 				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
 				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
 				68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */,
+				AA11BB22CC33DD44EE55FF69 /* BlueskyErrorTests.swift in Sources */,
+				AA11BB22CC33DD44EE55FF6A /* BlueskyAPIClientTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +312,9 @@
 				6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */,
 				48C386296947768DF225AB3B /* ScrapeLog.swift in Sources */,
 				FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */,
+				AA11BB22CC33DD44EE55FF66 /* BlueskyError.swift in Sources */,
+				AA11BB22CC33DD44EE55FF67 /* BlueskyStructs.swift in Sources */,
+				AA11BB22CC33DD44EE55FF68 /* BlueskyAPIClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
