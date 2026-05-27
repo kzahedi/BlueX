@@ -13,6 +13,7 @@
 		0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE94B097F9D303D433A9A83 /* BlueXTests.swift */; };
 		110059F2FBD068015F522851 /* ScrapeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */; };
 		252B8DFD3874E68FF2E72EB6 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
+		2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */; };
 		308FC4520E206C808F070817 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
 		33148F63136CDABF6CBCEAAD /* FeedScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34D266795CDA4976FE6A23BC /* FeedScraper.swift */; };
 		3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B998F7FE00D8C6BCB779630 /* PostTests.swift */; };
@@ -35,6 +36,7 @@
 		D8EB54D9DABA054F76D4245A /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
 		E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */; };
 		EAA99000519D18F63216A1D4 /* BlueskyStructs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10286721EB5230015A2ABC69 /* BlueskyStructs.swift */; };
+		ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */; };
 		EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */; };
 		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
@@ -71,6 +73,7 @@
 		918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraperTests.swift; sourceTree = "<group>"; };
 		9234364D503F866937BBE86C /* ThreadScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraper.swift; sourceTree = "<group>"; };
 		9FE94B097F9D303D433A9A83 /* BlueXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXTests.swift; sourceTree = "<group>"; };
+		A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyser.swift; sourceTree = "<group>"; };
 		A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClient.swift; sourceTree = "<group>"; };
 		A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeCoordinator.swift; sourceTree = "<group>"; };
 		AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLog.swift; sourceTree = "<group>"; };
@@ -83,6 +86,7 @@
 		D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedAccountTests.swift; sourceTree = "<group>"; };
 		D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSnapshot.swift; sourceTree = "<group>"; };
 		D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTests.swift; sourceTree = "<group>"; };
+		D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyserTests.swift; sourceTree = "<group>"; };
 		E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigTests.swift; sourceTree = "<group>"; };
 		EC29C79B0EF209A2D41DFBD9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraperTests.swift; sourceTree = "<group>"; };
@@ -100,6 +104,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1183AA51519641E2E2B19ABE /* Annotation */ = {
+			isa = PBXGroup;
+			children = (
+				A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */,
+			);
+			path = Annotation;
+			sourceTree = "<group>";
+		};
 		3A19D92FCFC5B0E4EC912AA7 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -221,6 +233,7 @@
 		F150D27639E7EB4800C2BDA2 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				1183AA51519641E2E2B19ABE /* Annotation */,
 				D6499275C303C9C8279B4304 /* API */,
 				BB3805C4910857AC44D58AE0 /* Scraping */,
 			);
@@ -232,6 +245,7 @@
 			children = (
 				8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */,
 				C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */,
+				D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */,
 				AA8A862F4B967B4D007D401C /* Scraping */,
 			);
 			path = Services;
@@ -333,6 +347,7 @@
 				4A811F85A1D94045E7A3F491 /* BlueskyErrorTests.swift in Sources */,
 				EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */,
 				0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */,
+				ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */,
 				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
 				097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */,
 				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
@@ -356,6 +371,7 @@
 				33148F63136CDABF6CBCEAAD /* FeedScraper.swift in Sources */,
 				5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */,
 				CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */,
+				2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */,
 				9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */,
 				A617A22A18144517AEBD9C85 /* RescrapingPolicy.swift in Sources */,
 				6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */,
