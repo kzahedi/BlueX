@@ -35,6 +35,12 @@ final class ScrapeCoordinator {
         self.modelContainer = modelContainer
     }
 
+    // Internal for testing — runNLTaggerAnnotation doesn't need the api client
+    init(modelContainer: ModelContainer) {
+        self.api = BlueskyAPIClient()
+        self.modelContainer = modelContainer
+    }
+
     // MARK: - Public interface (called from UI)
 
     /// Starts a full scrape cycle: feed → thread → NLTagger annotation.
@@ -125,11 +131,37 @@ final class ScrapeCoordinator {
             lastError = error
         } catch {}
 
+        // --- Phase: annotation (NLTagger baseline pass) ---
+        phase = .annotating
+        try? await runNLTaggerAnnotation()
+
         // Persist final state
         persistPhase(.idle, context: context)
         phase = .idle
         currentAccountHandle = ""
         progress = 1.0
+    }
+
+    // MARK: - Annotation
+
+    /// Runs NLTagger on all unannotated posts. Called automatically after each scrape.
+    func runNLTaggerAnnotation() async throws {
+        phase = .annotating
+        let service = AnnotationService(modelContainer: modelContainer)
+        try await service.runNLTaggerPass()
+    }
+
+    /// Runs LLM annotation on demand from the UI (e.g. QueueView's "Start" button).
+    func runLLMAnnotation(using client: any LocalModelClient, batchSize: Int = 10) async {
+        phase = .annotating
+        let service = AnnotationService(modelContainer: modelContainer)
+        service.setActiveClient(client)
+        do {
+            try await service.runLLMPass(batchSize: batchSize)
+        } catch {
+            lastError = .networkError(underlying: error.localizedDescription)
+        }
+        phase = .idle
     }
 
     // MARK: - Rate limiting

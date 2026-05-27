@@ -13,6 +13,7 @@
 		097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54438D73CFDAD7E265FCB6F3 /* RescrapingPolicyTests.swift */; };
 		0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE94B097F9D303D433A9A83 /* BlueXTests.swift */; };
 		110059F2FBD068015F522851 /* ScrapeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */; };
+		1575A78AFADAC2A6729123EF /* ScrapeCoordinatorAnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B78F2EBD896FF53789BAF05 /* ScrapeCoordinatorAnnotationTests.swift */; };
 		180B6FD164B46E48EC8B78BF /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA30A1A6E40070FE91F365 /* OllamaClient.swift */; };
 		1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */; };
 		252B8DFD3874E68FF2E72EB6 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
@@ -85,6 +86,7 @@
 		918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraperTests.swift; sourceTree = "<group>"; };
 		9234364D503F866937BBE86C /* ThreadScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraper.swift; sourceTree = "<group>"; };
 		95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClientTests.swift; sourceTree = "<group>"; };
+		9B78F2EBD896FF53789BAF05 /* ScrapeCoordinatorAnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeCoordinatorAnnotationTests.swift; sourceTree = "<group>"; };
 		9FE94B097F9D303D433A9A83 /* BlueXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXTests.swift; sourceTree = "<group>"; };
 		A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyser.swift; sourceTree = "<group>"; };
 		A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationService.swift; sourceTree = "<group>"; };
@@ -270,6 +272,7 @@
 				6993F528F5075C15036ED449 /* MLXClientTests.swift */,
 				D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */,
 				95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */,
+				9B78F2EBD896FF53789BAF05 /* ScrapeCoordinatorAnnotationTests.swift */,
 				AA8A862F4B967B4D007D401C /* Scraping */,
 			);
 			path = Services;
@@ -377,6 +380,7 @@
 				1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */,
 				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
 				097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */,
+				1575A78AFADAC2A6729123EF /* ScrapeCoordinatorAnnotationTests.swift in Sources */,
 				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
 				E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */,
 				68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */,
