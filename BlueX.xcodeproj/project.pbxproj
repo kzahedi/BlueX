@@ -7,10 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */; };
+		05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60B1BC949BB1C979F616110 /* AccountGroup.swift */; };
 		0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE94B097F9D303D433A9A83 /* BlueXTests.swift */; };
+		308FC4520E206C808F070817 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
+		3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B998F7FE00D8C6BCB779630 /* PostTests.swift */; };
+		46777548FF9CB9D36C1BB73B /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
+		48C386296947768DF225AB3B /* ScrapeLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */; };
+		54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */; };
 		5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */; };
+		68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */; };
 		6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC29C79B0EF209A2D41DFBD9 /* RootView.swift */; };
+		9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
+		A2C07491173265049ACCDB26 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
+		CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */; };
+		CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */; };
 		D8EB54D9DABA054F76D4245A /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
+		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
 /* End PBXBuildFile section */
 
@@ -28,11 +41,24 @@
 		01794834EE49B3AE7992881F /* BlueX.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BlueX.entitlements; sourceTree = "<group>"; };
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
+		22A32BE361802D4B8EE09320 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
+		35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLogTests.swift; sourceTree = "<group>"; };
 		373748C488370D4C293C019C /* BlueXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlueXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		452120CDFD8713132697DFC0 /* TrackedAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedAccount.swift; sourceTree = "<group>"; };
+		5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorState.swift; sourceTree = "<group>"; };
 		7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXApp.swift; sourceTree = "<group>"; };
+		81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
+		8B998F7FE00D8C6BCB779630 /* PostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTests.swift; sourceTree = "<group>"; };
 		9FE94B097F9D303D433A9A83 /* BlueXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXTests.swift; sourceTree = "<group>"; };
+		AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLog.swift; sourceTree = "<group>"; };
+		B60B1BC949BB1C979F616110 /* AccountGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountGroup.swift; sourceTree = "<group>"; };
 		BA67E988CC70CC382795EBFF /* BlueX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlueX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD700ECA1E2DB6FE0F772794 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		D065BBF7B70CB527B88931A2 /* Annotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Annotation.swift; sourceTree = "<group>"; };
+		D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedAccountTests.swift; sourceTree = "<group>"; };
+		D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSnapshot.swift; sourceTree = "<group>"; };
+		D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTests.swift; sourceTree = "<group>"; };
+		E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigTests.swift; sourceTree = "<group>"; };
 		EC29C79B0EF209A2D41DFBD9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,8 +95,21 @@
 			isa = PBXGroup;
 			children = (
 				9FE94B097F9D303D433A9A83 /* BlueXTests.swift */,
+				893E618760DF92BB7AB8C6B8 /* Data */,
 			);
 			path = BlueXTests;
+			sourceTree = "<group>";
+		};
+		893E618760DF92BB7AB8C6B8 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */,
+				E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */,
+				8B998F7FE00D8C6BCB779630 /* PostTests.swift */,
+				35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */,
+				D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */,
+			);
+			path = Data;
 			sourceTree = "<group>";
 		};
 		96AE22FBB0DECAC203189554 = {
@@ -94,7 +133,15 @@
 		AC9503D6EEBB0E17B8F48A43 /* Data */ = {
 			isa = PBXGroup;
 			children = (
+				B60B1BC949BB1C979F616110 /* AccountGroup.swift */,
+				D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */,
+				D065BBF7B70CB527B88931A2 /* Annotation.swift */,
+				5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */,
+				81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */,
+				22A32BE361802D4B8EE09320 /* Post.swift */,
 				BD700ECA1E2DB6FE0F772794 /* README.md */,
+				AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */,
+				452120CDFD8713132697DFC0 /* TrackedAccount.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -209,7 +256,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */,
 				0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */,
+				0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */,
+				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
+				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
+				68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -217,8 +269,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				05934C7F21C1B2E09D5A0DBC /* AccountGroup.swift in Sources */,
+				46777548FF9CB9D36C1BB73B /* AccountSnapshot.swift in Sources */,
+				308FC4520E206C808F070817 /* Annotation.swift in Sources */,
 				5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */,
+				A2C07491173265049ACCDB26 /* CoordinatorState.swift in Sources */,
+				CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */,
+				9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */,
 				6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */,
+				48C386296947768DF225AB3B /* ScrapeLog.swift in Sources */,
+				FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
