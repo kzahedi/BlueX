@@ -9,11 +9,7 @@ struct OllamaClient: LocalModelClient {
     let promptTemplate: String
     private let session: URLSessionProtocol
 
-    var promptHash: String {
-        let data = Data(promptTemplate.utf8)
-        let hash = SHA256.hash(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
+    var promptHash: String { ModelConfig.promptHash(of: promptTemplate) }
 
     init(
         modelName: String,

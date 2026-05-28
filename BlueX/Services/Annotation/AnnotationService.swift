@@ -141,13 +141,21 @@ final class AnnotationService {
                 do {
                     let context = ModelContext(container)
 
-                    // Build the pending set once. Fetching by URI-membership avoids the
-                    // bug where over-fetching newest-N could be entirely covered by
-                    // already-annotated posts and the run would exit immediately.
-                    let llmAnnotations = try context.fetch(FetchDescriptor<Annotation>(
-                        predicate: #Predicate { $0.stage == "llm" }
+                    // Build the pending set once, scoped to THIS run's (model, prompt).
+                    // A post is only "done" for this configuration — annotations from
+                    // other models or earlier prompt revisions stay untouched on the
+                    // post, so multi-model runs all keep their scores side-by-side for
+                    // later comparison.
+                    let currentModelName = client.modelName
+                    let currentPromptHash = client.promptHash
+                    let matchingAnnotations = try context.fetch(FetchDescriptor<Annotation>(
+                        predicate: #Predicate {
+                            $0.stage == "llm"
+                            && $0.modelName == currentModelName
+                            && $0.promptHash == currentPromptHash
+                        }
                     ))
-                    let alreadyClassifiedURIs = Set(llmAnnotations.compactMap { $0.post?.uri })
+                    let alreadyClassifiedURIs = Set(matchingAnnotations.compactMap { $0.post?.uri })
 
                     // Prefetch annotations so per-post baseline lookups don't trigger
                     // a relationship fault per post inside the loop.

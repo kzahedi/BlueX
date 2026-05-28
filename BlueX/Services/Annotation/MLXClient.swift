@@ -9,10 +9,7 @@ struct MLXClient: LocalModelClient {
     let promptTemplate: String
     private let session: URLSessionProtocol
 
-    var promptHash: String {
-        let data = Data(promptTemplate.utf8)
-        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
-    }
+    var promptHash: String { ModelConfig.promptHash(of: promptTemplate) }
 
     init(
         modelName: String,

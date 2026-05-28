@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import CryptoKit
 
 @Model
 final class ModelConfig {
@@ -19,6 +20,17 @@ final class ModelConfig {
         self.isDefault = isDefault
         self.createdAt = Date()
     }
+
+    /// SHA-256 of the prompt template. Used as the annotation's `promptHash` so the
+    /// same model with two different prompts produces two distinct annotation lineages.
+    static func promptHash(of template: String) -> String {
+        let data = Data(template.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Convenience for this config's own prompt hash.
+    var promptHash: String { Self.promptHash(of: promptTemplate) }
 
     // Research-grade prompt — tightened with concrete criteria and explicit
     // non-examples after qwen2.5:7b kept flagging mere political anger as "hate".
