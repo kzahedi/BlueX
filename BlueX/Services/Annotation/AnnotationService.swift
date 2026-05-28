@@ -73,7 +73,7 @@ final class AnnotationService {
                         }
                         try context.save()
                         processed = upper
-                        let eta = etaFromRunningAverage(start: runStart, processed: processed, total: total)
+                        let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
                         continuation.yield((processed, total, eta))
                     }
                     continuation.finish()
