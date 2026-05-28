@@ -10,6 +10,39 @@ struct ThreadGraphView: View {
     let rootPost: Post
     @Query private var allPosts: [Post]
     @State private var selectedURI: String?
+    @State private var colorSource: ColorSource = .sentiment
+
+    /// What drives the node colors: Apple's NLTagger sentiment score (continuous
+    /// red→gray→green), or a specific LLM lineage identified by (modelName, promptHash).
+    enum ColorSource: Hashable, Identifiable {
+        case sentiment
+        case llm(modelName: String, promptHash: String)
+
+        var id: String {
+            switch self {
+            case .sentiment: return "sentiment"
+            case .llm(let m, let h): return "llm::\(m)::\(h)"
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .sentiment: return "Apple sentiment"
+            case .llm(let m, let h): return "\(m) · \(String(h.prefix(6)))"
+            }
+        }
+    }
+
+    private struct LLMKey: Hashable { let modelName: String; let promptHash: String }
+
+    /// Every distinct (model, prompt) LLM lineage that appears anywhere in the thread.
+    private var availableLLMs: [LLMKey] {
+        let keys = allPosts
+            .flatMap { $0.annotations }
+            .filter { $0.stage == "llm" }
+            .map { LLMKey(modelName: $0.modelName, promptHash: $0.promptHash) }
+        return Array(Set(keys)).sorted { $0.modelName == $1.modelName ? $0.promptHash < $1.promptHash : $0.modelName < $1.modelName }
+    }
 
     init(rootPost: Post) {
         self.rootPost = rootPost
@@ -117,9 +150,6 @@ struct ThreadGraphView: View {
             }
             .background(Color.appBackground)
 
-            if let selected = selectedURI, let post = nodes.first(where: { $0.post.uri == selected })?.post {
-                selectedFooter(post: post)
-            }
         }
         .background(Color.appBackground)
     }
@@ -135,15 +165,49 @@ struct ThreadGraphView: View {
                 .font(.caption)
                 .foregroundStyle(Color.secondaryText)
             Spacer()
+            colorSourcePicker
+            legend
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+    }
+
+    private var colorSourcePicker: some View {
+        Menu(colorSource.displayName) {
+            Button("Apple sentiment") { colorSource = .sentiment }
+            if !availableLLMs.isEmpty {
+                Divider()
+                ForEach(availableLLMs, id: \.self) { key in
+                    Button("\(key.modelName) · \(String(key.promptHash.prefix(6)))") {
+                        colorSource = .llm(modelName: key.modelName, promptHash: key.promptHash)
+                    }
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .font(.system(size: 11))
+        .foregroundStyle(Color.secondaryText)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var legend: some View {
+        switch colorSource {
+        case .sentiment:
             HStack(spacing: 10) {
                 legendDot(color: sentimentColor(-1.0), label: "−1")
                 legendDot(color: sentimentColor( 0.0), label: "0")
                 legendDot(color: sentimentColor( 1.0), label: "+1")
                 legendDot(color: Color.pendingBackground, label: "no score")
             }
+        case .llm:
+            HStack(spacing: 10) {
+                legendDot(color: .hateBorder, label: "Hate")
+                legendDot(color: .counterBorder, label: "Counter")
+                legendDot(color: .neutralBorder, label: "Neutral")
+                legendDot(color: Color.pendingBackground, label: "no annotation")
+            }
         }
-        .padding(12)
-        .background(Color.panelBackground)
     }
 
     private func legendDot(color: Color, label: String) -> some View {
@@ -189,43 +253,55 @@ struct ThreadGraphView: View {
                 .onTapGesture {
                     selectedURI = (selectedURI == node.post.uri) ? nil : node.post.uri
                 }
-                .help("@\(node.post.authorHandle)")
+                .help(tooltipText(for: node.post))
+                .popover(
+                    isPresented: Binding(
+                        get: { selectedURI == node.post.uri },
+                        set: { if !$0 { selectedURI = nil } }
+                    ),
+                    arrowEdge: .trailing
+                ) {
+                    PostInspectorView(post: node.post)
+                }
         }
     }
 
-    private func selectedFooter(post: Post) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("@\(post.authorHandle)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.secondaryText)
-                if let score = post.nlTaggerAnnotation?.sentimentScore {
-                    SentimentIndicator(score: score)
-                }
-                Spacer()
-                Text(post.createdAt, style: .relative)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.mutedText)
-            }
-            Text(post.text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.primaryText)
-                .lineLimit(4)
+    /// Compact one-line summary shown as the macOS hover tooltip.
+    private func tooltipText(for post: Post) -> String {
+        var parts: [String] = ["@\(post.authorHandle)"]
+        if let score = post.nlTaggerAnnotation?.sentimentScore {
+            parts.append(String(format: "sentiment %+.2f", score))
         }
-        .padding(12)
-        .background(Color.panelBackground)
+        if case .llm(let modelName, let promptHash) = colorSource,
+           let ann = post.annotations.first(where: {
+               $0.stage == "llm" && $0.modelName == modelName && $0.promptHash == promptHash
+           }) {
+            parts.append("\(ann.speechClass) (conf \(String(format: "%.2f", ann.confidence)))")
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Color
 
-    /// Node color encodes Apple's sentiment score: smooth gradient from hateBorder
-    /// (red, score −1) through mutedText (gray, score 0) to counterBorder (green, +1).
-    /// Falls back to the muted pending color when the post hasn't been NLTagger-analysed.
+    /// Node color resolution. Sentiment mode produces a smooth red→gray→green gradient
+    /// from the NLTagger score; LLM mode uses the classification color from the chosen
+    /// (model, prompt) lineage. Falls back to the muted pending color when the post has
+    /// no annotation for the current source.
     private func color(for post: Post) -> Color {
-        guard let score = post.nlTaggerAnnotation?.sentimentScore else {
-            return Color.pendingBackground
+        switch colorSource {
+        case .sentiment:
+            guard let score = post.nlTaggerAnnotation?.sentimentScore else {
+                return Color.pendingBackground
+            }
+            return sentimentColor(score)
+        case .llm(let modelName, let promptHash):
+            guard let ann = post.annotations.first(where: {
+                $0.stage == "llm"
+                && $0.modelName == modelName
+                && $0.promptHash == promptHash
+            }) else { return Color.pendingBackground }
+            return Color.speechClassBorder(ann.speechClass)
         }
-        return sentimentColor(score)
     }
 
     private func sentimentColor(_ score: Double) -> Color {

@@ -41,6 +41,7 @@
 		5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */; };
 		5E9148D2273C438AFB76CEB5 /* BlueskyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75E97E85CBCB11DCB104D467 /* BlueskyError.swift */; };
 		5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034EEB655022F234033B17A8 /* KeychainCredentials.swift */; };
+		60B84B462FD2AAB2CB7C2FDD /* PostInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */; };
 		61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB06109F203B7416AB7B334 /* BlueXColorsTests.swift */; };
 		68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */; };
 		6C79ED4BE08A0CE29AF9F681 /* LLMResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12A6162BC4C739F203659BC /* LLMResponseParser.swift */; };
@@ -174,6 +175,7 @@
 		E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleClient.swift; sourceTree = "<group>"; };
 		E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigTests.swift; sourceTree = "<group>"; };
 		EC29C79B0EF209A2D41DFBD9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostInspectorView.swift; sourceTree = "<group>"; };
 		F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraperTests.swift; sourceTree = "<group>"; };
 		F422C831A27835592CF479D0 /* AccountSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSeeder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -264,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				75F739E896313A5440C43C4C /* AnnotationBadge.swift */,
+				F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */,
 				A0CAE27D5A14FA6762D7F7B4 /* PostRowView.swift */,
 				B8C1D02287847969F4D8975D /* SentimentIndicator.swift */,
 				A32A21281BBCB50285F99B6C /* ThreadGraphView.swift */,
@@ -606,6 +609,7 @@
 				0196BEE87FF3890527D0B2EA /* OpenAICompatibleClient.swift in Sources */,
 				C77E9DE54FE81D243A87D9C7 /* Post+Annotations.swift in Sources */,
 				9B217BF81D3E3E5E2143DFC5 /* Post.swift in Sources */,
+				60B84B462FD2AAB2CB7C2FDD /* PostInspectorView.swift in Sources */,
 				053DDBEA2F61F0034E3F39AC /* PostRowView.swift in Sources */,
 				406D32DEAF9B11AF2FD57EDD /* QueueView.swift in Sources */,
 				14986C31428ABE8F9AC9A8B2 /* QueueViewModel.swift in Sources */,

@@ -74,13 +74,23 @@ struct ThreadView: View {
                     LazyVStack(spacing: 2) {
                         ForEach(ordered, id: \.uri) { post in
                             PostRowView(post: post, depth: post.depth) {
-                                viewModel.selectedPostURI = post.uri
+                                viewModel.selectedPostURI =
+                                    (viewModel.selectedPostURI == post.uri) ? nil : post.uri
                             }
                             .background(
                                 viewModel.selectedPostURI == post.uri
                                     ? Color.selectedBackground
                                     : Color.clear
                             )
+                            .popover(
+                                isPresented: Binding(
+                                    get: { viewModel.selectedPostURI == post.uri },
+                                    set: { if !$0 { viewModel.selectedPostURI = nil } }
+                                ),
+                                arrowEdge: .leading
+                            ) {
+                                PostInspectorView(post: post)
+                            }
                         }
                     }
                     .padding(4)
