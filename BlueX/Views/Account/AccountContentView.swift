@@ -26,29 +26,33 @@ struct AccountContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account.displayName)
                             .font(.headline)
                             .foregroundStyle(Color.primaryText)
+                            .lineLimit(1)
                         Text("@\(account.handle)")
                             .font(.caption)
                             .foregroundStyle(Color.secondaryText)
+                            .lineLimit(1)
                     }
-                    Spacer()
+                    Spacer(minLength: 8)
                     if let onScrapeAccount {
                         Button {
                             onScrapeAccount(account)
                         } label: {
                             Label("Scrape", systemImage: "arrow.clockwise")
                                 .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                                .fixedSize()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .tint(Color.selectedBackground)
                     }
-                    statsRow
                 }
+                statsRow
                 filterBar
             }
             .padding(12)
@@ -95,7 +99,7 @@ struct AccountContentView: View {
     }
 
     private func statBadge(label: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Circle().fill(color).frame(width: 6, height: 6)
             Text("\(count)")
                 .font(.system(size: 11, weight: .medium))
@@ -104,8 +108,10 @@ struct AccountContentView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(Color.secondaryText)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(Color.appBackground)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
