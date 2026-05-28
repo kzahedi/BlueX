@@ -7,6 +7,7 @@ struct SidebarView: View {
     @Binding var selection: SidebarItem?
     var onStartScrape: (() -> Void)? = nil
     var onCancelScrape: (() -> Void)? = nil
+    var onScrapeAccount: ((TrackedAccount) -> Void)? = nil
 
     @Query(sort: \AccountGroup.name) private var groups: [AccountGroup]
     @Query(sort: \TrackedAccount.displayName) private var accounts: [TrackedAccount]
@@ -26,6 +27,14 @@ struct SidebarView: View {
                     ForEach(accounts) { account in
                         NavigationLink(value: SidebarItem.account(account)) {
                             accountRow(for: account)
+                        }
+                        .contextMenu {
+                            Button {
+                                onScrapeAccount?(account)
+                            } label: {
+                                Label("Scrape \(account.handle)", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(onScrapeAccount == nil)
                         }
                     }
                 }

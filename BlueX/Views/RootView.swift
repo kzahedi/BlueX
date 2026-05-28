@@ -24,7 +24,8 @@ struct RootView: View {
                 viewModel: sidebarVM,
                 selection: $selectedItem,
                 onStartScrape: { coordinator?.startScrape() },
-                onCancelScrape: { coordinator?.cancel() }
+                onCancelScrape: { coordinator?.cancel() },
+                onScrapeAccount: { account in coordinator?.startScrape(accountDID: account.did) }
             )
         } content: {
             contentColumn
@@ -63,7 +64,11 @@ struct RootView: View {
         case .group(let group):
             GroupContentView(group: group, selection: $selectedItem)
         case .account(let account):
-            AccountContentView(account: account, selection: $selectedItem)
+            AccountContentView(
+                account: account,
+                selection: $selectedItem,
+                onScrapeAccount: { acct in coordinator?.startScrape(accountDID: acct.did) }
+            )
         case .post, .queue, .settings, nil:
             Color.appBackground
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

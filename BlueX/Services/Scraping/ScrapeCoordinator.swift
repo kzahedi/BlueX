@@ -52,11 +52,17 @@ final class ScrapeCoordinator {
 
     // MARK: - Public interface (called from UI)
 
-    /// Starts a full scrape cycle: feed → thread → NLTagger annotation.
+    /// Starts a scrape of every active tracked account (feed + reply trees).
     func startScrape() {
         // Why: Task { } creates a new async task that runs concurrently.
         // We can't make this method async because SwiftUI buttons call it synchronously.
         Task { await runScrape() }
+    }
+
+    /// Starts a scrape limited to a single account, identified by DID.
+    /// Same flow as startScrape() but with the account list restricted.
+    func startScrape(accountDID: String) {
+        Task { await runScrape(restrictTo: [accountDID]) }
     }
 
     /// Cancels the current scrape after the current account finishes.
@@ -69,7 +75,9 @@ final class ScrapeCoordinator {
     // Why: NOT @MainActor — the heavy work (network, DB) runs on a background thread.
     // All mutations to @Observable properties are dispatched explicitly via MainActor.run { }
     // so SwiftUI can re-render freely between awaits without the main thread being blocked.
-    private func runScrape() async {
+    /// Runs the scrape pipeline. If `restrictTo` is non-nil, only accounts with those
+    /// DIDs are scraped; otherwise all active accounts are scraped.
+    private func runScrape(restrictTo: [String]? = nil) async {
         let isIdle = await MainActor.run { phase == .idle }
         guard isIdle else { return }
 
@@ -102,9 +110,15 @@ final class ScrapeCoordinator {
 
         let accounts: [TrackedAccount]
         do {
-            accounts = try context.fetch(FetchDescriptor<TrackedAccount>(
+            let allActive = try context.fetch(FetchDescriptor<TrackedAccount>(
                 predicate: #Predicate { $0.isActive == true }
             ))
+            if let restrictTo {
+                let keep = Set(restrictTo)
+                accounts = allActive.filter { keep.contains($0.did) }
+            } else {
+                accounts = allActive
+            }
         } catch {
             await MainActor.run {
                 lastError = .networkError(underlying: error.localizedDescription)

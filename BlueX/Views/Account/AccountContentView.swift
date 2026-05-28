@@ -5,13 +5,16 @@ import SwiftData
 struct AccountContentView: View {
     let account: TrackedAccount
     @Binding var selection: SidebarItem?
+    var onScrapeAccount: ((TrackedAccount) -> Void)? = nil
 
     @State private var viewModel = AccountViewModel()
     @Query private var allPosts: [Post]
 
-    init(account: TrackedAccount, selection: Binding<SidebarItem?>) {
+    init(account: TrackedAccount, selection: Binding<SidebarItem?>,
+         onScrapeAccount: ((TrackedAccount) -> Void)? = nil) {
         self.account = account
         self._selection = selection
+        self.onScrapeAccount = onScrapeAccount
         let did = account.did
         self._allPosts = Query(
             filter: #Predicate<Post> { $0.account?.did == did },
@@ -34,6 +37,16 @@ struct AccountContentView: View {
                             .foregroundStyle(Color.secondaryText)
                     }
                     Spacer()
+                    if let onScrapeAccount {
+                        Button {
+                            onScrapeAccount(account)
+                        } label: {
+                            Label("Scrape", systemImage: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.selectedBackground)
+                    }
                     statsRow
                 }
                 filterBar
