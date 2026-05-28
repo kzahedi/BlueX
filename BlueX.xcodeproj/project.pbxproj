@@ -37,6 +37,7 @@
 		4BCBFFE074DF675C640E6DB2 /* GroupContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8F1353B230B5CF0586520C /* GroupContentView.swift */; };
 		53E2BE82278AF14C2759CA42 /* GroupViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3767034503F048488CB75ED8 /* GroupViewModel.swift */; };
 		54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */; };
+		583B3B2EA10AB93588DB82E4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1408722055769BE4B8D2B4CB /* Assets.xcassets */; };
 		5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */; };
 		5E9148D2273C438AFB76CEB5 /* BlueskyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75E97E85CBCB11DCB104D467 /* BlueskyError.swift */; };
 		5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034EEB655022F234033B17A8 /* KeychainCredentials.swift */; };
@@ -101,6 +102,7 @@
 		10286721EB5230015A2ABC69 /* BlueskyStructs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyStructs.swift; sourceTree = "<group>"; };
 		12A17BA01420E26CF15D8B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		12CA30A1A6E40070FE91F365 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
+		1408722055769BE4B8D2B4CB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostAnnotationsTests.swift; sourceTree = "<group>"; };
 		17175E6418BC7FF45872CF2C /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
 		1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATProtoDate.swift; sourceTree = "<group>"; };
@@ -384,6 +386,7 @@
 		C9411037084E69943013FDB1 /* BlueX */ = {
 			isa = PBXGroup;
 			children = (
+				1408722055769BE4B8D2B4CB /* Assets.xcassets */,
 				01794834EE49B3AE7992881F /* BlueX.entitlements */,
 				7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */,
 				12A17BA01420E26CF15D8B7E /* Info.plist */,
@@ -457,6 +460,7 @@
 			buildConfigurationList = 99F503B093AFC5ACFD65AE3E /* Build configuration list for PBXNativeTarget "BlueX" */;
 			buildPhases = (
 				748F2C243478C04041661E62 /* Sources */,
+				79F3AE8C2BF58399BEDDA23F /* Resources */,
 				93DDC596B77B31C20FAEAE00 /* Frameworks */,
 			);
 			buildRules = (
@@ -521,6 +525,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		79F3AE8C2BF58399BEDDA23F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				583B3B2EA10AB93588DB82E4 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0722DAEC5BF65A4DAE01A9F2 /* Sources */ = {

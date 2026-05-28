@@ -36,6 +36,7 @@ targets:
         PRODUCT_NAME: BlueX
         SWIFT_VERSION: "5.9"
         ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: BlueX/BlueX.entitlements
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_IDENTITY: "-"
