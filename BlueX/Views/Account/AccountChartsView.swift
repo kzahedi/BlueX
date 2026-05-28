@@ -68,6 +68,10 @@ struct AccountChartsView: View {
                 repliesPerWeekChart
                     .padding(.horizontal, 16)
 
+                // Apple sentiment trend
+                sentimentChart
+                    .padding(.horizontal, 16)
+
                 // Hate ratio chart
                 hateRatioChart
                     .padding(.horizontal, 16)
@@ -289,6 +293,72 @@ struct AccountChartsView: View {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(label).font(.system(size: 10)).foregroundStyle(Color.secondaryText)
         }
+    }
+
+    // MARK: - Sentiment Chart (Apple NLTagger)
+
+    private var sentimentChart: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Sentiment per week")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.secondaryText)
+                Spacer()
+                Text("Apple NLTagger · −1 to +1")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+            }
+
+            if viewModel.visibleBuckets.allSatisfy({ $0.sentimentSampleCount == 0 }) {
+                noDataPlaceholder(height: 120)
+            } else {
+                Chart {
+                    ForEach(viewModel.visibleBuckets) { bucket in
+                        if bucket.sentimentSampleCount > 0 {
+                            AreaMark(
+                                x: .value("Week", bucket.weekStart),
+                                y: .value("Sentiment", bucket.avgSentiment)
+                            )
+                            .foregroundStyle(
+                                Gradient(colors: [
+                                    Color.counterBackground.opacity(0.55),
+                                    Color.hateBackground.opacity(0.55),
+                                ])
+                            )
+                            .interpolationMethod(.catmullRom)
+
+                            LineMark(
+                                x: .value("Week", bucket.weekStart),
+                                y: .value("Sentiment", bucket.avgSentiment)
+                            )
+                            .foregroundStyle(Color.primaryText.opacity(0.85))
+                            .interpolationMethod(.catmullRom)
+                        }
+                    }
+                    RuleMark(y: .value("Zero", 0))
+                        .foregroundStyle(Color.mutedText.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                }
+                .chartYScale(domain: -1...1)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            .foregroundStyle(Color.mutedText)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel().foregroundStyle(Color.mutedText)
+                    }
+                }
+                .frame(height: 120)
+            }
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Hate Ratio Chart

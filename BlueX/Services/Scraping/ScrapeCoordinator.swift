@@ -30,6 +30,8 @@ final class ScrapeCoordinator {
 
     private let api: BlueskyAPIClient
     private let modelContainer: ModelContainer
+    // One service for the app's lifetime so the Queue view can observe live progress.
+    let annotationService: AnnotationService
 
     // Rate limiting: Bluesky public API ≈ 3,000 requests/hour
     private var requestCount = 0
@@ -42,12 +44,14 @@ final class ScrapeCoordinator {
     init(api: BlueskyAPIClient, modelContainer: ModelContainer) {
         self.api = api
         self.modelContainer = modelContainer
+        self.annotationService = AnnotationService(modelContainer: modelContainer)
     }
 
     // Internal for testing — runNLTaggerAnnotation doesn't need the api client
     init(modelContainer: ModelContainer) {
         self.api = BlueskyAPIClient()
         self.modelContainer = modelContainer
+        self.annotationService = AnnotationService(modelContainer: modelContainer)
     }
 
     // MARK: - Public interface (called from UI)
@@ -200,21 +204,21 @@ final class ScrapeCoordinator {
     // MARK: - Annotation
 
     /// Runs Apple's NLTagger sentiment pass on all posts lacking one. Triggered
-    /// independently from the Annotation Queue (not as part of scraping).
+    /// independently from the Annotation Queue (not as part of scraping). Heavy work
+    /// runs on a background ModelContext with batched saves; progress is observable
+    /// on `annotationService`.
     func runNLTaggerAnnotation() async throws {
         phase = .annotating
         defer { phase = .idle }
-        let service = AnnotationService(modelContainer: modelContainer)
-        try await service.runNLTaggerPass()
+        try await annotationService.runNLTaggerPass()
     }
 
     /// Runs LLM annotation on demand from the UI (e.g. QueueView's "Start" button).
     func runLLMAnnotation(using client: any LocalModelClient, batchSize: Int = 10) async {
         phase = .annotating
-        let service = AnnotationService(modelContainer: modelContainer)
-        service.setActiveClient(client)
+        annotationService.setActiveClient(client)
         do {
-            try await service.runLLMPass(batchSize: batchSize)
+            try await annotationService.runLLMPass(batchSize: batchSize)
         } catch {
             lastError = .networkError(underlying: error.localizedDescription)
         }

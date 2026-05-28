@@ -43,6 +43,7 @@
 		61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB06109F203B7416AB7B334 /* BlueXColorsTests.swift */; };
 		68FCDEE8DB79F4DD8859B740 /* TrackedAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */; };
 		6C79ED4BE08A0CE29AF9F681 /* LLMResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12A6162BC4C739F203659BC /* LLMResponseParser.swift */; };
+		6DCFF3995904B7BA06647C7B /* SentimentIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C1D02287847969F4D8975D /* SentimentIndicator.swift */; };
 		6DF6621063019868636707AE /* AnnotationBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F739E896313A5440C43C4C /* AnnotationBadge.swift */; };
 		6EC68B55386273B5DA0D3BE6 /* ChartsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9A17BA1B0564E23F22F868F /* ChartsViewModel.swift */; };
 		6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC29C79B0EF209A2D41DFBD9 /* RootView.swift */; };
@@ -151,6 +152,7 @@
 		B196EB48B113AFB1FFB67B81 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B60B1BC949BB1C979F616110 /* AccountGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountGroup.swift; sourceTree = "<group>"; };
 		B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationServiceTests.swift; sourceTree = "<group>"; };
+		B8C1D02287847969F4D8975D /* SentimentIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentimentIndicator.swift; sourceTree = "<group>"; };
 		B9A17BA1B0564E23F22F868F /* ChartsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartsViewModel.swift; sourceTree = "<group>"; };
 		BA67E988CC70CC382795EBFF /* BlueX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlueX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyErrorTests.swift; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 			children = (
 				75F739E896313A5440C43C4C /* AnnotationBadge.swift */,
 				A0CAE27D5A14FA6762D7F7B4 /* PostRowView.swift */,
+				B8C1D02287847969F4D8975D /* SentimentIndicator.swift */,
 				A32A21281BBCB50285F99B6C /* ThreadGraphView.swift */,
 				1D15873FD2D25D996790502C /* ThreadView.swift */,
 			);
@@ -596,6 +599,7 @@
 				110059F2FBD068015F522851 /* ScrapeCoordinator.swift in Sources */,
 				48C386296947768DF225AB3B /* ScrapeLog.swift in Sources */,
 				76D90D15568F87D55C6F9850 /* ScrapingSettingsView.swift in Sources */,
+				6DCFF3995904B7BA06647C7B /* SentimentIndicator.swift in Sources */,
 				0AF7210CF1F7B7EEA4BF5EF5 /* SettingsView.swift in Sources */,
 				7E54D60EA393803A2B7EB11D /* SidebarView.swift in Sources */,
 				C5F22B80DEF462B96690AA88 /* SidebarViewModel.swift in Sources */,

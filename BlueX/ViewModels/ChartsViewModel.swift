@@ -19,6 +19,11 @@ struct WeekBucket: Identifiable {
     let replyNeutralCount: Int
     let replyPendingCount: Int
 
+    // Apple NLTagger sentiment, averaged across every post in the week that has a
+    // score (root + replies). `sentimentSampleCount == 0` means no posts were scored.
+    let avgSentiment: Double
+    let sentimentSampleCount: Int
+
     var totalAnnotated: Int { hateCount + counterCount + neutralCount }
     var total: Int { totalAnnotated + pendingCount }
 
@@ -69,6 +74,9 @@ final class ChartsViewModel {
                 pool.filter { !$0.hasLLMAnnotation }.count
             }
 
+            let scores = weekPosts.compactMap { $0.nlTaggerAnnotation?.sentimentScore }
+            let avg = scores.isEmpty ? 0 : scores.reduce(0, +) / Double(scores.count)
+
             return WeekBucket(
                 id: weekStart,
                 weekStart: weekStart,
@@ -79,7 +87,9 @@ final class ChartsViewModel {
                 replyHateCount:    classCount(replies, "hate"),
                 replyCounterCount: classCount(replies, "counter"),
                 replyNeutralCount: classCount(replies, "neutral"),
-                replyPendingCount: pendingCount(replies)
+                replyPendingCount: pendingCount(replies),
+                avgSentiment: avg,
+                sentimentSampleCount: scores.count
             )
         }
     }

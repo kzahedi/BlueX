@@ -24,19 +24,57 @@ final class AnnotationService {
         self.activeClient = client
     }
 
+    /// Runs Apple's NLTagger sentiment + language pass on every post lacking an
+    /// nltagger annotation. The heavy work runs on a detached Task with its own
+    /// background ModelContext; progress (current, total) is streamed back here and
+    /// published on @Observable properties on the main actor. Saves in batches of
+    /// `batchSize` so the SQLite write stays bounded and the UI stays responsive.
     @MainActor
-    func runNLTaggerPass() async throws {
-        let context = modelContainer.mainContext
-        let posts = try fetchPostsWithoutNLTaggerAnnotation(context: context)
-        queueSize = posts.count
+    func runNLTaggerPass(batchSize: Int = 200) async throws {
+        isRunning = true
+        queueSize = 0
+        processedCount = 0
+        defer { isRunning = false }
 
-        for post in posts {
-            let annotation = nlTagger.analyse(text: post.text)
-            context.insert(annotation)
-            annotation.post = post
-            processedCount += 1
+        // Capture only Sendable values for the detached task — @Model instances are
+        // confined to the context where they were fetched and must not escape.
+        let container = modelContainer
+        let tagger = nlTagger
+
+        let stream = AsyncThrowingStream<(Int, Int), Error> { continuation in
+            Task.detached(priority: .userInitiated) {
+                do {
+                    let context = ModelContext(container)
+                    let pending = try context.fetch(FetchDescriptor<Post>())
+                        .filter { !$0.hasNLTaggerAnnotation }
+                    let total = pending.count
+                    continuation.yield((0, total))
+
+                    var processed = 0
+                    while processed < total {
+                        try Task.checkCancellation()
+                        let upper = min(processed + batchSize, total)
+                        for i in processed..<upper {
+                            let post = pending[i]
+                            let annotation = tagger.analyse(text: post.text)
+                            context.insert(annotation)
+                            annotation.post = post
+                        }
+                        try context.save()
+                        processed = upper
+                        continuation.yield((processed, total))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
-        try context.save()
+
+        for try await (processed, total) in stream {
+            queueSize = total
+            processedCount = processed
+        }
     }
 
     @MainActor

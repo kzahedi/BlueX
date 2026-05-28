@@ -22,6 +22,7 @@ struct PostRowView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(Color.secondaryText)
                     Spacer()
+                    SentimentIndicator(score: post.nlTaggerAnnotation?.sentimentScore)
                     if let annotation = latestAnnotation {
                         AnnotationBadge(annotation: annotation)
                     } else {

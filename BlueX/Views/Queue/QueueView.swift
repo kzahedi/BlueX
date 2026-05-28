@@ -29,8 +29,13 @@ struct QueueView: View {
 
             Divider().background(Color.neutralBorder)
 
-            // Progress
-            if viewModel.isRunning {
+            // Progress — sentiment pass (real, observed from shared service)
+            if coordinator.annotationService.isRunning {
+                sentimentProgressSection
+            }
+
+            // Progress — LLM pass
+            if viewModel.isRunning && !coordinator.annotationService.isRunning {
                 progressSection
             }
 
@@ -73,7 +78,7 @@ struct QueueView: View {
             .padding(.vertical, 4)
             .background(Color.selectedBackground)
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .disabled(viewModel.isRunning || viewModel.sentimentPending == 0)
+            .disabled(viewModel.isRunning || coordinator.annotationService.isRunning || viewModel.sentimentPending == 0)
 
             // Batch size picker
             Menu("Batch: \(viewModel.batchSize)") {
@@ -120,6 +125,26 @@ struct QueueView: View {
     }
 
     // MARK: - Progress Section
+
+    private var sentimentProgressSection: some View {
+        let svc = coordinator.annotationService
+        let progress = svc.queueSize > 0 ? Double(svc.processedCount) / Double(svc.queueSize) : 0
+        return VStack(spacing: 4) {
+            HStack {
+                Text("Sentiment (Apple NLTagger)…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.secondaryText)
+                Spacer()
+                Text("\(svc.processedCount) / \(svc.queueSize)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+            }
+            ProgressView(value: progress).tint(Color.counterBorder)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.panelBackground)
+    }
 
     private var progressSection: some View {
         VStack(spacing: 4) {
