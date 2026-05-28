@@ -7,7 +7,8 @@ struct AccountChartsView: View {
     let account: TrackedAccount
 
     @State private var viewModel = ChartsViewModel()
-    @Query private var posts: [Post]
+    @Query private var posts: [Post]      // account's authored root posts
+    @Query private var allReplies: [Post] // every reply in the store; we filter by rootURI below
 
     init(account: TrackedAccount) {
         self.account = account
@@ -16,6 +17,19 @@ struct AccountChartsView: View {
             filter: #Predicate<Post> { $0.account?.did == did },
             sort: \Post.createdAt
         )
+        // Replies are stored without an account (their author is the public), so we can't
+        // filter them by did. We pull all replies and intersect on rootURI in the body.
+        self._allReplies = Query(
+            filter: #Predicate<Post> { $0.isRootPost == false },
+            sort: \Post.createdAt
+        )
+    }
+
+    /// Root posts + the replies that belong to this account's threads.
+    private var combinedPosts: [Post] {
+        let rootURIs = Set(posts.map { $0.uri })
+        let relevantReplies = allReplies.filter { rootURIs.contains($0.rootURI) }
+        return posts + relevantReplies
     }
 
     var body: some View {
@@ -56,8 +70,9 @@ struct AccountChartsView: View {
             }
         }
         .background(Color.appBackground)
-        .onAppear { viewModel.computeBuckets(from: posts) }
-        .onChange(of: posts) { _, newPosts in viewModel.computeBuckets(from: newPosts) }
+        .onAppear { viewModel.computeBuckets(from: combinedPosts) }
+        .onChange(of: posts) { _, _ in viewModel.computeBuckets(from: combinedPosts) }
+        .onChange(of: allReplies) { _, _ in viewModel.computeBuckets(from: combinedPosts) }
     }
 
     // MARK: - Summary Row
