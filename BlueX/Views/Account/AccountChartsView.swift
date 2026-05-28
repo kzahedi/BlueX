@@ -7,8 +7,9 @@ struct AccountChartsView: View {
     let account: TrackedAccount
 
     @State private var viewModel = ChartsViewModel()
+    @State private var recomputeTask: Task<Void, Never>?
+    @Environment(\.modelContext) private var modelContext
     @Query private var posts: [Post]      // account's authored root posts
-    @Query private var allReplies: [Post] // every reply in the store; we filter by rootURI below
 
     init(account: TrackedAccount) {
         self.account = account
@@ -17,19 +18,27 @@ struct AccountChartsView: View {
             filter: #Predicate<Post> { $0.account?.did == did },
             sort: \Post.createdAt
         )
-        // Replies are stored without an account (their author is the public), so we can't
-        // filter them by did. We pull all replies and intersect on rootURI in the body.
-        self._allReplies = Query(
-            filter: #Predicate<Post> { $0.isRootPost == false },
-            sort: \Post.createdAt
-        )
     }
 
-    /// Root posts + the replies that belong to this account's threads.
-    private var combinedPosts: [Post] {
+    /// Recompute the chart's buckets. Fetches only the replies that belong to this
+    /// account's root posts (replies have no account relationship, so this is the only
+    /// way to scope them). Called via `scheduleRecompute()` which debounces rapid scrape
+    /// saves to keep the main thread responsive.
+    private func recompute() {
         let rootURIs = Set(posts.map { $0.uri })
-        let relevantReplies = allReplies.filter { rootURIs.contains($0.rootURI) }
-        return posts + relevantReplies
+        let replies = (try? modelContext.fetch(FetchDescriptor<Post>(
+            predicate: #Predicate<Post> { !$0.isRootPost && rootURIs.contains($0.rootURI) }
+        ))) ?? []
+        viewModel.computeBuckets(from: posts + replies)
+    }
+
+    private func scheduleRecompute() {
+        recomputeTask?.cancel()
+        recomputeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)  // 300 ms
+            guard !Task.isCancelled else { return }
+            recompute()
+        }
     }
 
     var body: some View {
@@ -70,9 +79,9 @@ struct AccountChartsView: View {
             }
         }
         .background(Color.appBackground)
-        .onAppear { viewModel.computeBuckets(from: combinedPosts) }
-        .onChange(of: posts) { _, _ in viewModel.computeBuckets(from: combinedPosts) }
-        .onChange(of: allReplies) { _, _ in viewModel.computeBuckets(from: combinedPosts) }
+        .onAppear { recompute() }
+        .onChange(of: posts) { _, _ in scheduleRecompute() }
+        .onDisappear { recomputeTask?.cancel() }
     }
 
     // MARK: - Summary Row
