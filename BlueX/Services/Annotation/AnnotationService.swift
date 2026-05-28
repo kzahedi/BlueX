@@ -122,32 +122,37 @@ final class AnnotationService {
                 do {
                     let context = ModelContext(container)
 
-                    // Estimate total. Approximation using Annotation count — fast and good
-                    // enough for a progress bar; the true denominator drifts as work runs.
-                    let totalPosts = try context.fetchCount(FetchDescriptor<Post>())
-                    let llmAnnotated = try context.fetchCount(FetchDescriptor<Annotation>(
+                    // Build the pending set once. Fetching by URI-membership avoids the
+                    // bug where over-fetching newest-N could be entirely covered by
+                    // already-annotated posts and the run would exit immediately.
+                    let llmAnnotations = try context.fetch(FetchDescriptor<Annotation>(
                         predicate: #Predicate { $0.stage == "llm" }
                     ))
-                    let initialPending = max(0, totalPosts - llmAnnotated)
-                    continuation.yield(.start(total: initialPending))
+                    let alreadyClassifiedURIs = Set(llmAnnotations.compactMap { $0.post?.uri })
+
+                    // Prefetch annotations so per-post baseline lookups don't trigger
+                    // a relationship fault per post inside the loop.
+                    var allDesc = FetchDescriptor<Post>(
+                        sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
+                    )
+                    allDesc.relationshipKeyPathsForPrefetching = [\.annotations]
+                    let allPosts = try context.fetch(allDesc)
+                    let pending = allPosts.filter { !alreadyClassifiedURIs.contains($0.uri) }
+
+                    let total = pending.count
+                    continuation.yield(.start(total: total))
+                    guard total > 0 else { continuation.finish(); return }
 
                     var processed = 0
                     var errors = 0
 
-                    classifyLoop: while true {
+                    var chunkStart = 0
+                    while chunkStart < total {
                         try Task.checkCancellation()
-
-                        // Fetch next batch (over-fetch then filter by hasLLMAnnotation)
-                        var desc = FetchDescriptor<Post>(
-                            sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
-                        )
-                        desc.fetchLimit = saveEvery * 4
-                        let candidates = try context.fetch(desc)
-                        let batch = candidates.filter { !$0.hasLLMAnnotation }.prefix(saveEvery)
-                        if batch.isEmpty { break classifyLoop }
-
-                        for post in batch {
+                        let chunkEnd = min(chunkStart + saveEvery, total)
+                        for i in chunkStart..<chunkEnd {
                             try Task.checkCancellation()
+                            let post = pending[i]
                             let baseline = post.nlTaggerAnnotation
                             let language = baseline?.detectedLanguage ?? "other"
                             let baselineSentiment = baseline?.sentimentScore ?? 0.0
@@ -182,6 +187,7 @@ final class AnnotationService {
                         }
                         try context.save()
                         continuation.yield(.tick(processed: processed, currentText: "", errors: errors))
+                        chunkStart = chunkEnd
                     }
                     continuation.finish()
                 } catch is CancellationError {
