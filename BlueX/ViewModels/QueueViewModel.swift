@@ -23,13 +23,12 @@ final class QueueViewModel {
     /// for the entire store just to get 100 visible rows.
     private static let queueFilterLimit = 1_000
 
-    /// Counts and visible list are scoped to the LLM configuration (`activeModelName`,
-    /// `activeModelPromptHash`) currently selected in the picker. Each (model, prompt)
-    /// pair is treated as its own annotation lineage, so a second model run sees the
-    /// full backlog again instead of "0 pending" once the first model is done.
+    /// Counts and visible list are scoped to the LLM model currently selected in the
+    /// picker. Each (post, modelName) is annotated at most once — prompt revisions on
+    /// the same model do NOT trigger re-runs, so a tightened prompt won't silently
+    /// double the existing queue.
     func loadQueue(from context: ModelContext,
-                   activeModelName: String? = nil,
-                   activeModelPromptHash: String? = nil) {
+                   activeModelName: String? = nil) {
         do {
             let totalPosts = try context.fetchCount(FetchDescriptor<Post>())
             let nlTaggerAnnotated = try context.fetchCount(FetchDescriptor<Annotation>(
@@ -37,12 +36,10 @@ final class QueueViewModel {
             ))
             sentimentPending = max(0, totalPosts - nlTaggerAnnotated)
 
-            if let modelName = activeModelName, let promptHash = activeModelPromptHash {
+            if let modelName = activeModelName {
                 let matchedCount = try context.fetchCount(FetchDescriptor<Annotation>(
                     predicate: #Predicate {
-                        $0.stage == "llm"
-                        && $0.modelName == modelName
-                        && $0.promptHash == promptHash
+                        $0.stage == "llm" && $0.modelName == modelName
                     }
                 ))
                 totalQueued = max(0, totalPosts - matchedCount)
@@ -51,7 +48,7 @@ final class QueueViewModel {
             }
 
             // Bounded fetch for the visible queue list. Newest first; filter to those
-            // the active model+prompt has not yet annotated, keep the first N.
+            // the active model has not yet annotated, keep the first N.
             var descriptor = FetchDescriptor<Post>(
                 sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
             )
@@ -61,13 +58,11 @@ final class QueueViewModel {
                 candidates
                     .lazy
                     .filter { post in
-                        guard let modelName = activeModelName, let promptHash = activeModelPromptHash else {
+                        guard let modelName = activeModelName else {
                             return !post.hasLLMAnnotation
                         }
                         return !post.annotations.contains {
-                            $0.stage == "llm"
-                            && $0.modelName == modelName
-                            && $0.promptHash == promptHash
+                            $0.stage == "llm" && $0.modelName == modelName
                         }
                     }
                     .prefix(Self.queueDisplayLimit)

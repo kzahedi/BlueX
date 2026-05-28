@@ -66,10 +66,10 @@ struct QueueView: View {
         }
         .background(Color.appBackground)
         .onAppear {
-            viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID, activeModelPromptHash: activeModel?.promptHash)
+            viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
         }
         .onChange(of: selectedModelID) { _, _ in
-            viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID, activeModelPromptHash: activeModel?.promptHash)
+            viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
         }
     }
 
@@ -136,7 +136,7 @@ struct QueueView: View {
             }
 
             Button("Refresh") {
-                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID, activeModelPromptHash: activeModel?.promptHash)
+                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
             }
             .buttonStyle(.plain)
             .font(.system(size: 12))
@@ -299,7 +299,7 @@ struct QueueView: View {
             }
             await MainActor.run {
                 viewModel.isRunning = false
-                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID, activeModelPromptHash: activeModel?.promptHash)
+                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
             }
         }
     }
@@ -322,7 +322,7 @@ struct QueueView: View {
             await coordinator.runLLMAnnotation(using: client)
             await MainActor.run {
                 viewModel.isRunning = false
-                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID, activeModelPromptHash: activeModel?.promptHash)
+                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
             }
         }
     }

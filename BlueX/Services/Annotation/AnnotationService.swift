@@ -141,18 +141,15 @@ final class AnnotationService {
                 do {
                     let context = ModelContext(container)
 
-                    // Build the pending set once, scoped to THIS run's (model, prompt).
-                    // A post is only "done" for this configuration — annotations from
-                    // other models or earlier prompt revisions stay untouched on the
-                    // post, so multi-model runs all keep their scores side-by-side for
-                    // later comparison.
+                    // Build the pending set once, scoped to THIS run's model. A post is
+                    // "done" once this model has any LLM annotation for it — we never
+                    // re-classify the same post with the same model, even if the prompt
+                    // template has been revised since. Annotations from OTHER models
+                    // are preserved untouched so cross-model comparison still works.
                     let currentModelName = client.modelName
-                    let currentPromptHash = client.promptHash
                     let matchingAnnotations = try context.fetch(FetchDescriptor<Annotation>(
                         predicate: #Predicate {
-                            $0.stage == "llm"
-                            && $0.modelName == currentModelName
-                            && $0.promptHash == currentPromptHash
+                            $0.stage == "llm" && $0.modelName == currentModelName
                         }
                     ))
                     let alreadyClassifiedURIs = Set(matchingAnnotations.compactMap { $0.post?.uri })
