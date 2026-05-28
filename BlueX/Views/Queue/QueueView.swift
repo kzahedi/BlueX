@@ -41,14 +41,9 @@ struct QueueView: View {
 
             Divider().background(Color.neutralBorder)
 
-            // Progress — sentiment pass (real, observed from shared service)
+            // Live progress for whichever pass is running (sentiment or LLM).
             if coordinator.annotationService.isRunning {
-                sentimentProgressSection
-            }
-
-            // Progress — LLM pass
-            if viewModel.isRunning && !coordinator.annotationService.isRunning {
-                progressSection
+                annotationProgressSection
             }
 
             // Error
@@ -112,19 +107,9 @@ struct QueueView: View {
             .foregroundStyle(Color.secondaryText)
             .disabled(viewModel.isRunning || coordinator.annotationService.isRunning)
 
-            // Batch size picker
-            Menu("Batch: \(viewModel.batchSize)") {
-                ForEach([5, 10, 25, 50, 100], id: \.self) { size in
-                    Button("\(size)") { viewModel.batchSize = size }
-                }
-            }
-            .menuStyle(.borderlessButton)
-            .font(.system(size: 12))
-            .foregroundStyle(Color.secondaryText)
-
-            if coordinator.phase == .annotating {
-                Button("Cancel") {
-                    coordinator.cancel()
+            if coordinator.annotationService.isRunning {
+                Button("Stop") {
+                    coordinator.cancelAnnotation()
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
@@ -144,7 +129,7 @@ struct QueueView: View {
                 .padding(.vertical, 4)
                 .background(Color.counterBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
-                .disabled(viewModel.pendingPosts.isEmpty)
+                .disabled(viewModel.totalQueued == 0 || activeModel == nil)
             }
 
             Button("Refresh") {
@@ -158,20 +143,28 @@ struct QueueView: View {
 
     // MARK: - Progress Section
 
-    private var sentimentProgressSection: some View {
+    private var annotationProgressSection: some View {
         let svc = coordinator.annotationService
-        let progress = svc.queueSize > 0 ? Double(svc.processedCount) / Double(svc.queueSize) : 0
+        let progress = svc.queueSize > 0
+            ? min(1.0, Double(svc.processedCount) / Double(svc.queueSize)) : 0
         return VStack(spacing: 4) {
             HStack {
-                Text("Sentiment (Apple NLTagger)…")
+                Text("\(svc.passLabel.isEmpty ? "Annotating" : svc.passLabel)…")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.secondaryText)
                 Spacer()
-                Text("\(svc.processedCount) / \(svc.queueSize)")
+                Text("\(svc.processedCount) / \(svc.queueSize)" +
+                     (svc.errorCount > 0 ? " · \(svc.errorCount) errors" : ""))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.primaryText)
             }
             ProgressView(value: progress).tint(Color.counterBorder)
+            if !svc.currentPostText.isEmpty {
+                Text(svc.currentPostText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+                    .lineLimit(1)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -299,7 +292,7 @@ struct QueueView: View {
                 endpoint: cfg.endpoint,
                 promptTemplate: cfg.promptTemplate
             )
-            await coordinator.runLLMAnnotation(using: client, batchSize: viewModel.batchSize)
+            await coordinator.runLLMAnnotation(using: client)
             await MainActor.run {
                 viewModel.isRunning = false
                 viewModel.loadQueue(from: modelContext)

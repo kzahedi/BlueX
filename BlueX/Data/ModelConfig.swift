@@ -20,26 +20,34 @@ final class ModelConfig {
         self.createdAt = Date()
     }
 
-    // The research-grade default prompt matching the founding paper's three-class schema
+    // Research-grade prompt — tightened with concrete criteria and explicit
+    // non-examples after qwen2.5:7b kept flagging mere political anger as "hate".
     static let defaultPromptTemplate = """
-    You are a research assistant classifying social media replies for a study on hate speech and counter speech.
+    You are classifying ONE Bluesky reply for a research study on hate speech vs. counter speech. Be precise and conservative.
+
+    Classify the reply into EXACTLY ONE of:
+    - "hate": contains slurs, dehumanizing language, explicit calls for violence or harassment, or pejorative attacks targeting a person or group BASED ON race, ethnicity, religion, gender, sexual orientation, disability, immigration status, or other protected attributes.
+    - "counter": directly responds to, challenges, refutes, or de-escalates hateful content — defends a targeted group, calls for civility, fact-checks hate, expresses solidarity with targets.
+    - "neutral": none of the above. This is the DEFAULT class when you are uncertain.
+
+    DO NOT classify as "hate":
+    - mere disagreement, frustration, or anger toward public figures, institutions, parties, or policies
+    - sarcasm, snark, or strong political opinion that does not target a protected group
+    - "they should be held accountable" / "this is terrible" / "disgusting" without identity-based targeting
+    - expressions of sadness, worry, moral concern, or exasperation
+
+    For "hate" only, also pick severity: "mild" / "moderate" / "severe".
+    For "counter" or "neutral", set severity to JSON null (literal null, NOT the string "null").
+
+    Confidence: a number 0.0–1.0. Reasoning: one short sentence.
 
     Reply language: {{language}}
-    Reply text: {{text}}
+    Reply text:
+    \"\"\"
+    {{text}}
+    \"\"\"
 
-    Classify this reply as exactly ONE of:
-    - hate: hateful rhetoric targeting groups, individuals, or identities
-    - counter: counter speech that responds to, challenges, or de-escalates hate
-    - neutral: neither hate nor counter speech
-
-    If hate, also rate severity: mild / moderate / severe
-
-    Respond in JSON only, no explanation outside the JSON:
-    {
-      "class": "hate | counter | neutral",
-      "severity": "mild | moderate | severe | null",
-      "confidence": 0.0-1.0,
-      "reasoning": "one sentence"
-    }
+    Output a SINGLE JSON object only, nothing before or after:
+    {"class": "hate" | "counter" | "neutral", "severity": "mild" | "moderate" | "severe" | null, "confidence": 0.0, "reasoning": "..."}
     """
 }

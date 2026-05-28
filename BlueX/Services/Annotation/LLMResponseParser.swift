@@ -34,9 +34,16 @@ enum LLMResponseParser {
             throw BlueskyError.decodingError(underlying: "Invalid class '\(decoded.class)'")
         }
 
+        // Some models emit the literal string "null" or empty string for severity
+        // when the post isn't hate. Normalise to nil.
+        let severity: String? = {
+            guard let s = decoded.severity else { return nil }
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return (trimmed.isEmpty || trimmed == "null") ? nil : s
+        }()
         return LLMAnnotation(
             speechClass: decoded.class,
-            severity: decoded.severity,
+            severity: severity,
             confidence: max(0.0, min(1.0, decoded.confidence)),
             reasoning: decoded.reasoning,
             rawResponse: raw

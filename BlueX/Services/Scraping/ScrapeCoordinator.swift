@@ -213,16 +213,23 @@ final class ScrapeCoordinator {
         try await annotationService.runNLTaggerPass()
     }
 
-    /// Runs LLM annotation on demand from the UI (e.g. QueueView's "Start" button).
-    func runLLMAnnotation(using client: any LocalModelClient, batchSize: Int = 10) async {
+    /// Runs LLM annotation on demand from the UI. Continuous — keeps classifying
+    /// until the queue is empty or `cancelAnnotation()` is called. `saveEvery` is
+    /// the transactional batch size, not a hard limit.
+    func runLLMAnnotation(using client: any LocalModelClient, saveEvery: Int = 20) async {
         phase = .annotating
         annotationService.setActiveClient(client)
         do {
-            try await annotationService.runLLMPass(batchSize: batchSize)
+            try await annotationService.runLLMPass(saveEvery: saveEvery)
         } catch {
             lastError = .networkError(underlying: error.localizedDescription)
         }
         phase = .idle
+    }
+
+    /// Cancels an in-flight LLM (or sentiment) annotation pass.
+    func cancelAnnotation() {
+        annotationService.cancel()
     }
 
     // MARK: - Rate limiting

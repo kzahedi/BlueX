@@ -117,6 +117,21 @@ struct AccountSeeder {
             )
             context.insert(cfg)
         }
+        // Re-sync prompt + display name on any of OUR preset configs to the latest
+        // defaults — picks up prompt revisions in code without wiping the user's data.
+        // User-added configs (modelIDs outside the preset list) are left alone.
+        let presetByID = Dictionary(uniqueKeysWithValues: modelPresets.map { ($0.modelID, $0) })
+        let afterInsert = try context.fetch(FetchDescriptor<ModelConfig>())
+        for cfg in afterInsert {
+            if let preset = presetByID[cfg.modelID] {
+                if cfg.promptTemplate != ModelConfig.defaultPromptTemplate {
+                    cfg.promptTemplate = ModelConfig.defaultPromptTemplate
+                }
+                if cfg.name != preset.name {
+                    cfg.name = preset.name
+                }
+            }
+        }
         try context.save()
 
         // Ensure exactly one isDefault — pick qwen2.5:7b if no current default applies.
