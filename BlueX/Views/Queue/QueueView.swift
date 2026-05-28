@@ -8,8 +8,13 @@ struct QueueView: View {
 
     @State private var viewModel = QueueViewModel()
     @State private var selectedModelID: String?       // ModelConfig.modelID; nil → fall back to isDefault
+    @AppStorage("llm.pace") private var paceRaw: String = LLMPace.steady.rawValue
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ModelConfig.name) private var modelConfigs: [ModelConfig]
+
+    private var pace: LLMPace {
+        LLMPace(rawValue: paceRaw) ?? .steady
+    }
 
     private var activeModel: ModelConfig? {
         if let id = selectedModelID, let m = modelConfigs.first(where: { $0.modelID == id }) {
@@ -110,6 +115,25 @@ struct QueueView: View {
             .foregroundStyle(Color.secondaryText)
             .disabled(viewModel.isRunning || coordinator.annotationService.isRunning)
 
+            // Pace — inter-request pause to keep the SoC from cooking on long runs.
+            Menu("Pace: \(pace.label)") {
+                ForEach(LLMPace.allCases) { p in
+                    Button {
+                        paceRaw = p.rawValue
+                    } label: {
+                        if p == pace {
+                            Label(p.label, systemImage: "checkmark")
+                        } else {
+                            Text(p.label)
+                        }
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .font(.system(size: 12))
+            .foregroundStyle(Color.secondaryText)
+            .disabled(coordinator.annotationService.isRunning)
+
             if coordinator.annotationService.isRunning {
                 Button("Stop") {
                     coordinator.cancelAnnotation()
@@ -155,6 +179,7 @@ struct QueueView: View {
                 Text("\(svc.passLabel.isEmpty ? "Annotating" : svc.passLabel)…")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.secondaryText)
+                Self.thermalBadge(state: svc.thermalState)
                 Spacer()
                 Text("\(svc.processedCount) / \(svc.queueSize)" +
                      (svc.errorCount > 0 ? " · \(svc.errorCount) errors" : ""))
@@ -181,6 +206,33 @@ struct QueueView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.panelBackground)
+    }
+
+    /// Small badge that's hidden while the SoC is nominal/fair and lights up when
+    /// the system starts throttling — so a long overnight run gives visible feedback
+    /// that the cool-down back-off has kicked in.
+    @ViewBuilder
+    private static func thermalBadge(state: ProcessInfo.ThermalState) -> some View {
+        switch state {
+        case .nominal, .fair:
+            EmptyView()
+        case .serious:
+            Label("warm — cooling", systemImage: "thermometer.medium")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.yellow)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.yellow.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        case .critical:
+            Label("hot — long cool-down", systemImage: "thermometer.high")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.hateBorder)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.hateBackground.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        @unknown default:
+            EmptyView()
+        }
     }
 
     private static func formatETA(_ seconds: Double) -> String {
@@ -319,7 +371,7 @@ struct QueueView: View {
                 endpoint: cfg.endpoint,
                 promptTemplate: cfg.promptTemplate
             )
-            await coordinator.runLLMAnnotation(using: client)
+            await coordinator.runLLMAnnotation(using: client, pace: pace)
             await MainActor.run {
                 viewModel.isRunning = false
                 viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)

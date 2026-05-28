@@ -15,6 +15,9 @@ final class AnnotationService {
     /// Estimated seconds remaining, computed from the per-post running average since
     /// the current pass started. nil before the first post completes.
     var etaSeconds: Double? = nil
+    /// Latest sampled thermal state during the current pass; drives the cool-down
+    /// back-off and a UI badge when the system is hot.
+    var thermalState: ProcessInfo.ThermalState = .nominal
 
     private let modelContainer: ModelContainer
     private let nlTagger = NLTaggerAnalyser()
@@ -115,7 +118,7 @@ final class AnnotationService {
     /// LLM call is one post; the save just bounds the in-memory annotation list and
     /// the SQLite transaction.
     @MainActor
-    func runLLMPass(saveEvery: Int = 20) async throws {
+    func runLLMPass(saveEvery: Int = 20, pace: LLMPace = .steady) async throws {
         guard let client = activeClient else { return }
 
         isRunning = true
@@ -126,11 +129,13 @@ final class AnnotationService {
         lastLLMError = nil
         currentPostText = ""
         etaSeconds = nil
+        thermalState = .nominal
         defer {
             isRunning = false
             passLabel = ""
             currentPostText = ""
             etaSeconds = nil
+            thermalState = .nominal
             runningTask = nil
         }
 
@@ -183,7 +188,8 @@ final class AnnotationService {
                             let baselineSentiment = baseline?.sentimentScore ?? 0.0
                             let preview = String(post.text.prefix(60))
                             let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
-                            continuation.yield(.tick(processed: processed, currentText: preview, errors: errors, etaSeconds: eta))
+                            let thermal = ProcessInfo.processInfo.thermalState
+                            continuation.yield(.tick(processed: processed, currentText: preview, errors: errors, etaSeconds: eta, thermal: thermal))
 
                             do {
                                 let llmResult = try await client.classify(text: post.text, language: language)
@@ -210,10 +216,19 @@ final class AnnotationService {
                                 errors += 1
                                 continuation.yield(.error(message: error.localizedDescription))
                             }
+
+                            // Pace + thermal back-off between posts. Sleep is
+                            // interruptible by Task.cancel(), so Stop stays snappy.
+                            let thermal = ProcessInfo.processInfo.thermalState
+                            let total = pace.baseDelayNanoseconds + ThermalBackoff.extraDelayNanoseconds(for: thermal)
+                            if total > 0 {
+                                try await Task.sleep(nanoseconds: total)
+                            }
                         }
                         try context.save()
                         let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
-                        continuation.yield(.tick(processed: processed, currentText: "", errors: errors, etaSeconds: eta))
+                        let thermal = ProcessInfo.processInfo.thermalState
+                        continuation.yield(.tick(processed: processed, currentText: "", errors: errors, etaSeconds: eta, thermal: thermal))
                         chunkStart = chunkEnd
                     }
                     continuation.finish()
@@ -235,10 +250,11 @@ final class AnnotationService {
                     switch event {
                     case .start(let total):
                         queueSize = total
-                    case .tick(let p, let text, let e, let eta):
+                    case .tick(let p, let text, let e, let eta, let thermal):
                         processedCount = p
                         errorCount = e
                         etaSeconds = eta
+                        thermalState = thermal
                         if !text.isEmpty { currentPostText = text }
                     case .error(let msg):
                         lastLLMError = msg
@@ -251,7 +267,7 @@ final class AnnotationService {
 
     private enum LLMPassEvent: Sendable {
         case start(total: Int)
-        case tick(processed: Int, currentText: String, errors: Int, etaSeconds: Double?)
+        case tick(processed: Int, currentText: String, errors: Int, etaSeconds: Double?, thermal: ProcessInfo.ThermalState)
         case error(message: String)
     }
 
