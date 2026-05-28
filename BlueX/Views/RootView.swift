@@ -42,6 +42,10 @@ struct RootView: View {
             try? AccountSeeder.resetToSeedSet(in: modelContext)
             // Keep the installed-model presets in sync (replaces stale llama3.2 etc.)
             try? AccountSeeder.ensureModelConfigs(in: modelContext)
+            // Clean up any (post, model) duplicates left over from earlier prompt-
+            // revision runs; keeps the newest per (post, model). Safe to run every
+            // launch — does nothing once the store is clean.
+            try? AnnotationDedup.dedupLLM(in: modelContext)
         }
         .onChange(of: coordinator?.phase) { _, newPhase in
             sidebarVM.scrapePhase = newPhase ?? .idle
