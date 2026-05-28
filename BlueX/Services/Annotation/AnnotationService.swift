@@ -219,10 +219,10 @@ final class AnnotationService {
 
                             // Pace + thermal back-off between posts. Sleep is
                             // interruptible by Task.cancel(), so Stop stays snappy.
-                            let thermal = ProcessInfo.processInfo.thermalState
-                            let total = pace.baseDelayNanoseconds + ThermalBackoff.extraDelayNanoseconds(for: thermal)
-                            if total > 0 {
-                                try await Task.sleep(nanoseconds: total)
+                            let cooldownThermal = ProcessInfo.processInfo.thermalState
+                            let cooldownNs = pace.baseDelayNanoseconds + ThermalBackoff.extraDelayNanoseconds(for: cooldownThermal)
+                            if cooldownNs > 0 {
+                                try await Task.sleep(nanoseconds: cooldownNs)
                             }
                         }
                         try context.save()
