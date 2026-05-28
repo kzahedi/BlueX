@@ -15,32 +15,43 @@ final class QueueViewModel {
     var pendingPosts: [Post] = []
     var sentimentPending: Int = 0   // posts lacking an Apple-sentiment (nltagger) annotation
 
+    /// Reasonable upper bound for posts shown in the queue list. Walking the full set
+    /// (tens of thousands) hangs the main thread when each post's annotations
+    /// relationship is faulted in.
+    static let queueDisplayLimit = 100
+    /// We also cap the candidate fetch we filter through, to avoid faulting relationships
+    /// for the entire store just to get 100 visible rows.
+    private static let queueFilterLimit = 1_000
+
     func loadQueue(from context: ModelContext) {
         do {
-            sentimentPending = try context.fetch(FetchDescriptor<Post>())
-                .filter { !$0.hasNLTaggerAnnotation }
-                .count
-            let all = try context.fetch(
-                FetchDescriptor<Post>(
-                    predicate: #Predicate<Post> { $0.needsReAnnotation == true },
-                    sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
-                )
-            )
-            // Also include posts with no LLM annotation
-            let unannotated = try context.fetch(
-                FetchDescriptor<Post>(
-                    sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
-                )
-            ).filter { !$0.hasLLMAnnotation }
+            // Counts via fetchCount — no post objects loaded. We approximate
+            // "posts with an X annotation" as "X-stage annotations": a post can in
+            // principle have multiple X annotations after re-annotation, but in
+            // practice it has one, so this is accurate within ±1 per re-annotated post.
+            let totalPosts = try context.fetchCount(FetchDescriptor<Post>())
+            let nlTaggerAnnotated = try context.fetchCount(FetchDescriptor<Annotation>(
+                predicate: #Predicate { $0.stage == "nltagger" }
+            ))
+            let llmAnnotated = try context.fetchCount(FetchDescriptor<Annotation>(
+                predicate: #Predicate { $0.stage == "llm" }
+            ))
+            sentimentPending = max(0, totalPosts - nlTaggerAnnotated)
+            totalQueued = max(0, totalPosts - llmAnnotated)
 
-            var combined = all
-            for post in unannotated {
-                if !combined.contains(where: { $0.uri == post.uri }) {
-                    combined.append(post)
-                }
-            }
-            pendingPosts = combined
-            totalQueued = combined.count
+            // Bounded fetch for the visible queue list. Newest first; filter to those
+            // still needing LLM annotation, keep the first N.
+            var descriptor = FetchDescriptor<Post>(
+                sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)]
+            )
+            descriptor.fetchLimit = Self.queueFilterLimit
+            let candidates = try context.fetch(descriptor)
+            pendingPosts = Array(
+                candidates
+                    .lazy
+                    .filter { $0.needsReAnnotation || !$0.hasLLMAnnotation }
+                    .prefix(Self.queueDisplayLimit)
+            )
         } catch {
             lastError = error.localizedDescription
         }

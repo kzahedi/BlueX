@@ -17,7 +17,10 @@ struct QueueView: View {
                     Text("Annotation Queue")
                         .font(.headline)
                         .foregroundStyle(Color.primaryText)
-                    Text("\(viewModel.sentimentPending) pending sentiment · \(viewModel.totalQueued) pending LLM")
+                    Text("\(viewModel.sentimentPending) pending sentiment · \(viewModel.totalQueued) pending LLM" +
+                         (viewModel.totalQueued > QueueViewModel.queueDisplayLimit
+                            ? " · showing \(QueueViewModel.queueDisplayLimit) newest"
+                            : ""))
                         .font(.caption)
                         .foregroundStyle(Color.secondaryText)
                 }
