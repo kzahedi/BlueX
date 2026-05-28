@@ -153,35 +153,35 @@ struct AccountChartsView: View {
             } else {
                 Chart {
                     ForEach(viewModel.visibleBuckets) { bucket in
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Pending", bucket.pendingCount)
-                        )
-                        .foregroundStyle(Color.pendingBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Neutral", bucket.pendingCount + bucket.neutralCount)
-                        )
-                        .foregroundStyle(Color.neutralBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Counter", bucket.pendingCount + bucket.neutralCount + bucket.counterCount)
-                        )
-                        .foregroundStyle(Color.counterBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Hate", bucket.pendingCount + bucket.neutralCount + bucket.counterCount + bucket.hateCount)
-                        )
-                        .foregroundStyle(Color.hateBackground)
-                        .interpolationMethod(.catmullRom)
+                        // Charts auto-stacks AreaMarks sharing the same y-label when
+                        // they're distinguished by .foregroundStyle(by:); each stage
+                        // is then a continuous series across the weeks, not 10 disconnected
+                        // shapes — which is what produced the sawtooth before.
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.pendingCount))
+                            .foregroundStyle(by: .value("Stage", "Pending"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.neutralCount))
+                            .foregroundStyle(by: .value("Stage", "Neutral"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.counterCount))
+                            .foregroundStyle(by: .value("Stage", "Counter"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.hateCount))
+                            .foregroundStyle(by: .value("Stage", "Hate"))
+                            .interpolationMethod(.catmullRom)
                     }
                 }
+                .chartForegroundStyleScale([
+                    "Pending": Color.pendingBackground,
+                    "Neutral": Color.neutralBackground,
+                    "Counter": Color.counterBackground,
+                    "Hate":    Color.hateBackground,
+                ])
+                .chartLegend(.hidden)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
@@ -230,36 +230,31 @@ struct AccountChartsView: View {
             } else {
                 Chart {
                     ForEach(viewModel.visibleBuckets) { bucket in
-                        // Stacked bottom → top: pending → neutral → counter → hate.
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Pending", bucket.replyPendingCount)
-                        )
-                        .foregroundStyle(Color.pendingBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Neutral", bucket.replyPendingCount + bucket.replyNeutralCount)
-                        )
-                        .foregroundStyle(Color.neutralBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Counter", bucket.replyPendingCount + bucket.replyNeutralCount + bucket.replyCounterCount)
-                        )
-                        .foregroundStyle(Color.counterBackground)
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Week", bucket.weekStart),
-                            y: .value("Hate", bucket.replyPendingCount + bucket.replyNeutralCount + bucket.replyCounterCount + bucket.replyHateCount)
-                        )
-                        .foregroundStyle(Color.hateBackground)
-                        .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.replyPendingCount))
+                            .foregroundStyle(by: .value("Stage", "Pending"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.replyNeutralCount))
+                            .foregroundStyle(by: .value("Stage", "Neutral"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.replyCounterCount))
+                            .foregroundStyle(by: .value("Stage", "Counter"))
+                            .interpolationMethod(.catmullRom)
+                        AreaMark(x: .value("Week", bucket.weekStart),
+                                 y: .value("Count", bucket.replyHateCount))
+                            .foregroundStyle(by: .value("Stage", "Hate"))
+                            .interpolationMethod(.catmullRom)
                     }
                 }
+                .chartForegroundStyleScale([
+                    "Pending": Color.pendingBackground,
+                    "Neutral": Color.neutralBackground,
+                    "Counter": Color.counterBackground,
+                    "Hate":    Color.hateBackground,
+                ])
+                .chartLegend(.hidden)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
