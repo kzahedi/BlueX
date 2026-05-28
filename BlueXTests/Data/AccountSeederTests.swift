@@ -41,14 +41,15 @@ final class AccountSeederTests: XCTestCase {
         XCTAssertTrue(groupNames.contains("All Media"))
     }
 
-    func testSeedCreatesDefaultModelConfig() throws {
+    func testSeedCreatesModelConfigsWithDefault() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         try AccountSeeder.seed(into: context)
         let configs = try context.fetch(FetchDescriptor<ModelConfig>())
-        XCTAssertEqual(configs.count, 1)
-        XCTAssertTrue(configs[0].isDefault)
-        XCTAssertEqual(configs[0].modelID, "llama3.2")
+        XCTAssertEqual(configs.count, AccountSeeder.modelPresets.count)
+        let defaults = configs.filter { $0.isDefault }
+        XCTAssertEqual(defaults.count, 1, "exactly one ModelConfig should be marked default")
+        XCTAssertEqual(defaults.first?.modelID, "qwen2.5:7b")
     }
 
     func testSpiegelHasKnownDID() throws {

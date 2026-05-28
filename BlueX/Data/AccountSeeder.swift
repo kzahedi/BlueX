@@ -77,16 +77,55 @@ struct AccountSeeder {
         let allAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())
         allGroup.accounts = allAccounts
 
-        // Seed default Ollama model config
-        let defaultConfig = ModelConfig(
-            name: "Llama 3.2 (Ollama)",
-            endpoint: "http://localhost:11434",
-            modelID: "llama3.2",
-            promptTemplate: ModelConfig.defaultPromptTemplate,
-            isDefault: true
-        )
-        context.insert(defaultConfig)
-
         try context.save()
+        try ensureModelConfigs(in: context)
+    }
+
+    struct ModelPreset {
+        let name: String
+        let modelID: String
+        let isDefault: Bool
+    }
+
+    /// Preset Ollama models we know the dev machine has, ordered by recommended use.
+    static let modelPresets: [ModelPreset] = [
+        ModelPreset(name: "Qwen 2.5 7B (Ollama, recommended)", modelID: "qwen2.5:7b", isDefault: true),
+        ModelPreset(name: "Qwen 3.6 27B (Ollama, slow/quality)", modelID: "qwen3.6:27b", isDefault: false),
+        ModelPreset(name: "Gemma 4 26B (Ollama, slow/quality)", modelID: "gemma4:26b", isDefault: false),
+        ModelPreset(name: "Qwen 2.5 3B (Ollama, fast)", modelID: "qwen2.5:3b", isDefault: false),
+    ]
+
+    /// Idempotently ensure every preset ModelConfig exists, replace any stale "llama3.2"
+    /// default, and make sure exactly one config is marked default. User-added configs
+    /// (any modelID not in the preset list) are preserved.
+    static func ensureModelConfigs(in context: ModelContext) throws {
+        let existing = try context.fetch(FetchDescriptor<ModelConfig>())
+        let existingIDs = Set(existing.map { $0.modelID })
+
+        // Drop the stale llama3.2 seed if it's still around — that model isn't installed.
+        for cfg in existing where cfg.modelID == "llama3.2" {
+            context.delete(cfg)
+        }
+
+        for preset in modelPresets where !existingIDs.contains(preset.modelID) {
+            let cfg = ModelConfig(
+                name: preset.name,
+                endpoint: "http://localhost:11434",
+                modelID: preset.modelID,
+                promptTemplate: ModelConfig.defaultPromptTemplate,
+                isDefault: false
+            )
+            context.insert(cfg)
+        }
+        try context.save()
+
+        // Ensure exactly one isDefault — pick qwen2.5:7b if no current default applies.
+        let refreshed = try context.fetch(FetchDescriptor<ModelConfig>())
+        let validDefault = refreshed.first(where: { $0.isDefault })
+        if validDefault == nil {
+            for cfg in refreshed { cfg.isDefault = false }
+            (refreshed.first(where: { $0.modelID == "qwen2.5:7b" }) ?? refreshed.first)?.isDefault = true
+            try context.save()
+        }
     }
 }

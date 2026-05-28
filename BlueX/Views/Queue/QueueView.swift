@@ -7,7 +7,16 @@ struct QueueView: View {
     let modelContainer: ModelContainer
 
     @State private var viewModel = QueueViewModel()
+    @State private var selectedModelID: String?       // ModelConfig.modelID; nil → fall back to isDefault
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ModelConfig.name) private var modelConfigs: [ModelConfig]
+
+    private var activeModel: ModelConfig? {
+        if let id = selectedModelID, let m = modelConfigs.first(where: { $0.modelID == id }) {
+            return m
+        }
+        return modelConfigs.first(where: { $0.isDefault }) ?? modelConfigs.first
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +91,26 @@ struct QueueView: View {
             .background(Color.selectedBackground)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .disabled(viewModel.isRunning || coordinator.annotationService.isRunning || viewModel.sentimentPending == 0)
+
+            // LLM model picker — sourced from ModelConfig in Settings (seeded with the
+            // installed Ollama models). Falls back to whichever is marked isDefault.
+            Menu(activeModel.map { "Model: \($0.modelID)" } ?? "No model") {
+                ForEach(modelConfigs) { cfg in
+                    Button {
+                        selectedModelID = cfg.modelID
+                    } label: {
+                        if cfg.modelID == activeModel?.modelID {
+                            Label(cfg.name, systemImage: "checkmark")
+                        } else {
+                            Text(cfg.name)
+                        }
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .font(.system(size: 12))
+            .foregroundStyle(Color.secondaryText)
+            .disabled(viewModel.isRunning || coordinator.annotationService.isRunning)
 
             // Batch size picker
             Menu("Batch: \(viewModel.batchSize)") {
@@ -256,12 +285,19 @@ struct QueueView: View {
     }
 
     private func startAnnotation() {
+        guard let cfg = activeModel else {
+            viewModel.lastError = "No LLM model configured. Add one in Settings."
+            return
+        }
         viewModel.isRunning = true
         viewModel.lastError = nil
         Task {
+            // For now every preset endpoint is Ollama; OpenAI-compatible servers (MLX,
+            // LM Studio) can be added later by branching on cfg.endpoint here.
             let client = OllamaClient(
-                modelName: "llama3.2",
-                endpoint: "http://localhost:11434"
+                modelName: cfg.modelID,
+                endpoint: cfg.endpoint,
+                promptTemplate: cfg.promptTemplate
             )
             await coordinator.runLLMAnnotation(using: client, batchSize: viewModel.batchSize)
             await MainActor.run {

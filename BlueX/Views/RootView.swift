@@ -40,6 +40,8 @@ struct RootView: View {
             }
             // Seed / prune accounts to match the current seed set
             try? AccountSeeder.resetToSeedSet(in: modelContext)
+            // Keep the installed-model presets in sync (replaces stale llama3.2 etc.)
+            try? AccountSeeder.ensureModelConfigs(in: modelContext)
         }
         .onChange(of: coordinator?.phase) { _, newPhase in
             sidebarVM.scrapePhase = newPhase ?? .idle

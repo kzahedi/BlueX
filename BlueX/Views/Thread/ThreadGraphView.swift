@@ -136,10 +136,10 @@ struct ThreadGraphView: View {
                 .foregroundStyle(Color.secondaryText)
             Spacer()
             HStack(spacing: 10) {
-                legendDot(color: .hateBorder, label: "Hate")
-                legendDot(color: .counterBorder, label: "Counter")
-                legendDot(color: .neutralBorder, label: "Neutral")
-                legendDot(color: .pendingBackground, label: "Pending")
+                legendDot(color: sentimentColor(-1.0), label: "−1")
+                legendDot(color: sentimentColor( 0.0), label: "0")
+                legendDot(color: sentimentColor( 1.0), label: "+1")
+                legendDot(color: Color.pendingBackground, label: "no score")
             }
         }
         .padding(12)
@@ -199,6 +199,9 @@ struct ThreadGraphView: View {
                 Text("@\(post.authorHandle)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.secondaryText)
+                if let score = post.nlTaggerAnnotation?.sentimentScore {
+                    SentimentIndicator(score: score)
+                }
                 Spacer()
                 Text(post.createdAt, style: .relative)
                     .font(.system(size: 10))
@@ -215,10 +218,36 @@ struct ThreadGraphView: View {
 
     // MARK: - Color
 
+    /// Node color encodes Apple's sentiment score: smooth gradient from hateBorder
+    /// (red, score −1) through mutedText (gray, score 0) to counterBorder (green, +1).
+    /// Falls back to the muted pending color when the post hasn't been NLTagger-analysed.
     private func color(for post: Post) -> Color {
-        if let cls = post.currentSpeechClass {
-            return Color.speechClassBorder(cls)
+        guard let score = post.nlTaggerAnnotation?.sentimentScore else {
+            return Color.pendingBackground
         }
-        return Color.pendingBackground
+        return sentimentColor(score)
+    }
+
+    private func sentimentColor(_ score: Double) -> Color {
+        let s = max(-1.0, min(1.0, score))
+        // Palette anchors (matching the rest of the app):
+        //   mutedText    = (0.278, 0.341, 0.412)  ← s = 0
+        //   hateBorder   = (0.937, 0.267, 0.267)  ← s = −1
+        //   counterBorder= (0.133, 0.773, 0.369)  ← s = +1
+        if s < 0 {
+            let t = abs(s)
+            return Color(
+                red:   0.278 + (0.937 - 0.278) * t,
+                green: 0.341 + (0.267 - 0.341) * t,
+                blue:  0.412 + (0.267 - 0.412) * t
+            )
+        } else {
+            let t = s
+            return Color(
+                red:   0.278 + (0.133 - 0.278) * t,
+                green: 0.341 + (0.773 - 0.341) * t,
+                blue:  0.412 + (0.369 - 0.412) * t
+            )
+        }
     }
 }
