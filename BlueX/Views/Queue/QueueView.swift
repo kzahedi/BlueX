@@ -159,16 +159,40 @@ struct QueueView: View {
                     .foregroundStyle(Color.primaryText)
             }
             ProgressView(value: progress).tint(Color.counterBorder)
-            if !svc.currentPostText.isEmpty {
-                Text(svc.currentPostText)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.mutedText)
-                    .lineLimit(1)
+            HStack {
+                if !svc.currentPostText.isEmpty {
+                    Text(svc.currentPostText)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.mutedText)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let eta = svc.etaSeconds {
+                    Text("~\(Self.formatETA(eta)) remaining")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.secondaryText)
+                        .monospacedDigit()
+                }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.panelBackground)
+    }
+
+    private static func formatETA(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds.rounded()))
+        if s >= 3600 {
+            let h = s / 3600
+            let m = (s % 3600) / 60
+            return "\(h)h \(m)m"
+        }
+        if s >= 60 {
+            let m = s / 60
+            let sec = s % 60
+            return "\(m)m \(sec)s"
+        }
+        return "\(s)s"
     }
 
     private var progressSection: some View {

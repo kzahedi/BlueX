@@ -12,6 +12,9 @@ final class AnnotationService {
     var currentPostText: String = ""
     var errorCount: Int = 0
     var lastLLMError: String? = nil
+    /// Estimated seconds remaining, computed from the per-post running average since
+    /// the current pass started. nil before the first post completes.
+    var etaSeconds: Double? = nil
 
     private let modelContainer: ModelContainer
     private let nlTagger = NLTaggerAnalyser()
@@ -36,9 +39,11 @@ final class AnnotationService {
         passLabel = "Apple sentiment"
         queueSize = 0
         processedCount = 0
+        etaSeconds = nil
         defer {
             isRunning = false
             passLabel = ""
+            etaSeconds = nil
         }
 
         // Capture only Sendable values for the detached task — @Model instances are
@@ -46,15 +51,16 @@ final class AnnotationService {
         let container = modelContainer
         let tagger = nlTagger
 
-        let stream = AsyncThrowingStream<(Int, Int), Error> { continuation in
+        let stream = AsyncThrowingStream<(Int, Int, Double?), Error> { continuation in
             Task.detached(priority: .userInitiated) {
                 do {
                     let context = ModelContext(container)
                     let pending = try context.fetch(FetchDescriptor<Post>())
                         .filter { !$0.hasNLTaggerAnnotation }
                     let total = pending.count
-                    continuation.yield((0, total))
+                    continuation.yield((0, total, nil))
 
+                    let runStart = Date()
                     var processed = 0
                     while processed < total {
                         try Task.checkCancellation()
@@ -67,7 +73,8 @@ final class AnnotationService {
                         }
                         try context.save()
                         processed = upper
-                        continuation.yield((processed, total))
+                        let eta = etaFromRunningAverage(start: runStart, processed: processed, total: total)
+                        continuation.yield((processed, total, eta))
                     }
                     continuation.finish()
                 } catch {
@@ -76,10 +83,20 @@ final class AnnotationService {
             }
         }
 
-        for try await (processed, total) in stream {
+        for try await (processed, total, eta) in stream {
             queueSize = total
             processedCount = processed
+            etaSeconds = eta
         }
+    }
+
+    /// Linear ETA from the running per-post average since the current pass started.
+    /// nil until at least one post has been processed.
+    private static func etaFromRunningAverage(start: Date, processed: Int, total: Int) -> Double? {
+        guard processed > 0, processed < total else { return nil }
+        let elapsed = Date().timeIntervalSince(start)
+        let avg = elapsed / Double(processed)
+        return avg * Double(total - processed)
     }
 
     /// Stops the in-flight runLLMPass (if any) at the next cancellation checkpoint.
@@ -108,10 +125,12 @@ final class AnnotationService {
         errorCount = 0
         lastLLMError = nil
         currentPostText = ""
+        etaSeconds = nil
         defer {
             isRunning = false
             passLabel = ""
             currentPostText = ""
+            etaSeconds = nil
             runningTask = nil
         }
 
@@ -145,6 +164,7 @@ final class AnnotationService {
 
                     var processed = 0
                     var errors = 0
+                    let runStart = Date()
 
                     var chunkStart = 0
                     while chunkStart < total {
@@ -157,7 +177,8 @@ final class AnnotationService {
                             let language = baseline?.detectedLanguage ?? "other"
                             let baselineSentiment = baseline?.sentimentScore ?? 0.0
                             let preview = String(post.text.prefix(60))
-                            continuation.yield(.tick(processed: processed, currentText: preview, errors: errors))
+                            let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
+                            continuation.yield(.tick(processed: processed, currentText: preview, errors: errors, etaSeconds: eta))
 
                             do {
                                 let llmResult = try await client.classify(text: post.text, language: language)
@@ -186,7 +207,8 @@ final class AnnotationService {
                             }
                         }
                         try context.save()
-                        continuation.yield(.tick(processed: processed, currentText: "", errors: errors))
+                        let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
+                        continuation.yield(.tick(processed: processed, currentText: "", errors: errors, etaSeconds: eta))
                         chunkStart = chunkEnd
                     }
                     continuation.finish()
@@ -208,9 +230,10 @@ final class AnnotationService {
                     switch event {
                     case .start(let total):
                         queueSize = total
-                    case .tick(let p, let text, let e):
+                    case .tick(let p, let text, let e, let eta):
                         processedCount = p
                         errorCount = e
+                        etaSeconds = eta
                         if !text.isEmpty { currentPostText = text }
                     case .error(let msg):
                         lastLLMError = msg
@@ -223,7 +246,7 @@ final class AnnotationService {
 
     private enum LLMPassEvent: Sendable {
         case start(total: Int)
-        case tick(processed: Int, currentText: String, errors: Int)
+        case tick(processed: Int, currentText: String, errors: Int, etaSeconds: Double?)
         case error(message: String)
     }
 
