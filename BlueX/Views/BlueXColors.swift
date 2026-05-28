@@ -17,6 +17,7 @@ extension Color {
     static let primaryText      = Color(red: 0.886, green: 0.910, blue: 0.941)
     static let secondaryText    = Color(red: 0.580, green: 0.635, blue: 0.722)
     static let mutedText        = Color(red: 0.278, green: 0.341, blue: 0.412)
+    static let pendingBackground = Color(red: 0.278, green: 0.341, blue: 0.412).opacity(0.45)
 }
 
 extension Color {

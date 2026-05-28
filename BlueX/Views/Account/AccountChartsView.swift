@@ -131,21 +131,28 @@ struct AccountChartsView: View {
                     ForEach(viewModel.visibleBuckets) { bucket in
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Neutral", bucket.neutralCount)
+                            y: .value("Pending", bucket.pendingCount)
+                        )
+                        .foregroundStyle(Color.pendingBackground)
+                        .interpolationMethod(.catmullRom)
+
+                        AreaMark(
+                            x: .value("Week", bucket.weekStart),
+                            y: .value("Neutral", bucket.pendingCount + bucket.neutralCount)
                         )
                         .foregroundStyle(Color.neutralBackground)
                         .interpolationMethod(.catmullRom)
 
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Counter", bucket.counterCount + bucket.neutralCount)
+                            y: .value("Counter", bucket.pendingCount + bucket.neutralCount + bucket.counterCount)
                         )
                         .foregroundStyle(Color.counterBackground)
                         .interpolationMethod(.catmullRom)
 
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Hate", bucket.hateCount + bucket.counterCount + bucket.neutralCount)
+                            y: .value("Hate", bucket.pendingCount + bucket.neutralCount + bucket.counterCount + bucket.hateCount)
                         )
                         .foregroundStyle(Color.hateBackground)
                         .interpolationMethod(.catmullRom)
@@ -165,6 +172,14 @@ struct AccountChartsView: View {
                     }
                 }
                 .frame(height: 180)
+
+                HStack(spacing: 12) {
+                    legendDot(color: .hateBackground, label: "Hate")
+                    legendDot(color: .counterBackground, label: "Counter")
+                    legendDot(color: .neutralBackground, label: "Neutral")
+                    legendDot(color: .pendingBackground, label: "Pending")
+                    Spacer()
+                }
             }
         }
         .padding(12)
@@ -191,24 +206,31 @@ struct AccountChartsView: View {
             } else {
                 Chart {
                     ForEach(viewModel.visibleBuckets) { bucket in
-                        // Stacked: neutral (bottom) → counter → hate (top)
+                        // Stacked bottom → top: pending → neutral → counter → hate.
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Neutral", bucket.replyNeutralCount)
+                            y: .value("Pending", bucket.replyPendingCount)
+                        )
+                        .foregroundStyle(Color.pendingBackground)
+                        .interpolationMethod(.catmullRom)
+
+                        AreaMark(
+                            x: .value("Week", bucket.weekStart),
+                            y: .value("Neutral", bucket.replyPendingCount + bucket.replyNeutralCount)
                         )
                         .foregroundStyle(Color.neutralBackground)
                         .interpolationMethod(.catmullRom)
 
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Counter", bucket.replyCounterCount + bucket.replyNeutralCount)
+                            y: .value("Counter", bucket.replyPendingCount + bucket.replyNeutralCount + bucket.replyCounterCount)
                         )
                         .foregroundStyle(Color.counterBackground)
                         .interpolationMethod(.catmullRom)
 
                         AreaMark(
                             x: .value("Week", bucket.weekStart),
-                            y: .value("Hate", bucket.replyHateCount + bucket.replyCounterCount + bucket.replyNeutralCount)
+                            y: .value("Hate", bucket.replyPendingCount + bucket.replyNeutralCount + bucket.replyCounterCount + bucket.replyHateCount)
                         )
                         .foregroundStyle(Color.hateBackground)
                         .interpolationMethod(.catmullRom)
@@ -229,15 +251,12 @@ struct AccountChartsView: View {
                 }
                 .frame(height: 180)
 
-                // Shared legend
                 HStack(spacing: 12) {
                     legendDot(color: .hateBackground, label: "Hate")
                     legendDot(color: .counterBackground, label: "Counter")
                     legendDot(color: .neutralBackground, label: "Neutral")
+                    legendDot(color: .pendingBackground, label: "Pending")
                     Spacer()
-                    Text("pending replies not shown")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Color.mutedText)
                 }
             }
         }
