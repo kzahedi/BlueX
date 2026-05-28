@@ -69,7 +69,9 @@ struct RootView: View {
                 selection: $selectedItem,
                 onScrapeAccount: { acct in coordinator?.startScrape(accountDID: acct.did) }
             )
-        case .post, .queue, .settings, nil:
+        case .post(let post):
+            ThreadView(rootPost: post)
+        case .queue, .settings, nil:
             Color.appBackground
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -83,7 +85,7 @@ struct RootView: View {
         case .account(let account):
             AccountChartsView(account: account)
         case .post(let post):
-            ThreadView(rootPost: post)
+            ThreadGraphView(rootPost: post)
         case .queue:
             if let coordinator = coordinator {
                 QueueView(coordinator: coordinator, modelContainer: modelContext.container)
