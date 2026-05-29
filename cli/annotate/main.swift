@@ -121,9 +121,10 @@ func progressLine(processed: Int, total: Int, errors: Int,
     let filled = Int((Double(barWidth) * pct).rounded())
     let bar = String(repeating: "█", count: filled)
               + String(repeating: "░", count: barWidth - filled)
+    let perPost: Double? = processed > 0 ? elapsed / Double(processed) : nil
+    let avgStr: String = perPost.map(formatPerPost) ?? "—"
     let etaStr: String = {
-        guard processed > 0, processed < total else { return "—" }
-        let perPost = elapsed / Double(processed)
+        guard let perPost, processed < total else { return "—" }
         return formatDuration(perPost * Double(total - processed))
     }()
     let thermalGlyph: String = {
@@ -137,9 +138,22 @@ func progressLine(processed: Int, total: Int, errors: Int,
     }()
     let errStr = errors > 0 ? "  \(errors) err" : ""
     return String(
-        format: "%@ · %@  [%@] %5.1f%%  %d/%d%@  ETA %@  %@",
-        modelID, paceLabel, bar, pct * 100, processed, total, errStr, etaStr, thermalGlyph
+        format: "%@ · %@  [%@] %5.1f%%  %d/%d%@  avg %@  ETA %@  %@",
+        modelID, paceLabel, bar, pct * 100, processed, total, errStr, avgStr, etaStr, thermalGlyph
     )
+}
+
+/// Per-post duration formatter. LLM calls are typically 0.5–5 s, so seconds with
+/// a decimal reads cleanly; below 100 ms we show as ms; above 60 s we hand off to
+/// `formatDuration` for the m/s split.
+func formatPerPost(_ seconds: TimeInterval) -> String {
+    if seconds < 0.1 {
+        return String(format: "%dms", Int(seconds * 1000))
+    }
+    if seconds < 60 {
+        return String(format: "%.1fs", seconds)
+    }
+    return formatDuration(seconds)
 }
 
 func formatDuration(_ seconds: TimeInterval) -> String {
