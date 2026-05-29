@@ -8,6 +8,14 @@ protocol URLSessionProtocol {
 
 extension URLSession: URLSessionProtocol {}
 
+/// Shape of the JSON body Bluesky returns on 4xx errors. Both `error` (the code
+/// like "ExpiredToken" / "RecordNotFound") and `message` (free-form text) may be
+/// absent; we treat all fields as optional.
+private struct BlueskyAPIErrorBody: Decodable {
+    let error: String?
+    let message: String?
+}
+
 /// Called when the client receives a 429 and is about to sleep before retrying.
 /// `retryAfter` is the seconds to wait; `attempt` is the 1-based retry attempt.
 /// Used by the CLI to print a "rate-limited, waiting Ns" notice and by the GUI
@@ -178,12 +186,23 @@ struct BlueskyAPIClient {
                         return .failure(.decodingError(underlying: error.localizedDescription))
                     }
                 case 400:
-                    // Bluesky returns 400 for malformed requests, deleted/blocked posts, or
-                    // unknown DIDs. Surfacing it as authFailed sent the user to Settings
-                    // even when their credentials were fine. Keep the body text so the
-                    // caller can decide whether to skip or escalate.
+                    // Bluesky returns 400 for several distinct conditions, and the
+                    // error code in the JSON body is the distinguishing signal:
+                    //   {"error": "ExpiredToken", …} — session JWT timed out (~2 h),
+                    //       must re-auth and retry. Same recovery as 401.
+                    //   {"error": "InvalidToken", …} — same.
+                    //   {"error": "RecordNotFound" / "NotFound", …} — deleted post.
+                    //   anything else — malformed request, treat as terminal.
                     let body = String(data: data, encoding: .utf8) ?? "<unparseable>"
-                    return .failure(.badRequest(message: body))
+                    let parsed = try? JSONDecoder().decode(BlueskyAPIErrorBody.self, from: data)
+                    switch parsed?.error {
+                    case "ExpiredToken", "InvalidToken":
+                        return .failure(.authFailed)
+                    case "RecordNotFound", "NotFound":
+                        return .failure(.notFound)
+                    default:
+                        return .failure(.badRequest(message: body))
+                    }
                 case 401:
                     return .failure(.authFailed)
                 case 404:

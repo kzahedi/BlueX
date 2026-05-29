@@ -21,9 +21,15 @@ install_one() {
     echo "  xcodebuild build -project BlueX.xcodeproj -scheme ${name/blueX-/BlueX} -destination 'platform=macOS,arch=arm64'" >&2
     return 1
   fi
-  cp "$bin" "$DEST_DIR/$name"
-  chmod +x "$DEST_DIR/$name"
-  echo "✓ installed: $DEST_DIR/$name"
+  # SYMLINK instead of cp: newer macOS (Sequoia+ with the provenance xattr)
+  # SIGKILLs binaries that have been copied out of their build location when
+  # they link statically-included SPM products via package-internal rpaths.
+  # The original at DerivedData works; the bytewise-identical copy does not.
+  # Symlinking sidesteps the check entirely and has a nice bonus: rebuilds
+  # are picked up immediately without re-running this script.
+  rm -f "$DEST_DIR/$name"
+  ln -s "$bin" "$DEST_DIR/$name"
+  echo "✓ symlinked: $DEST_DIR/$name → $bin"
 }
 
 install_one blueX-annotate || true

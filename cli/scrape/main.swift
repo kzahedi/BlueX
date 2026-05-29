@@ -162,6 +162,33 @@ func runCLI() async {
 
     print("Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window\n")
 
+    // Bluesky session tokens last ~2 h. Long backfills on NYT-class accounts
+    // routinely outlast that, after which every API call fails with
+    // ExpiredToken. We hold the token in a var and refresh it via the helper
+    // below whenever a call returns .authFailed.
+    var currentToken = token
+    func refreshToken() async -> Bool {
+        writeProgress("token expired — re-authenticating as @\(creds.handle)…")
+        let r = await api.createSession(handle: creds.handle, password: creds.password)
+        if case .success(let s) = r {
+            currentToken = s.accessJwt
+            return true
+        }
+        if case .failure(let err) = r {
+            writeFinalLine("⚠ re-auth failed: \(err.localizedDescription) — stopping.")
+        }
+        return false
+    }
+
+    /// Returns true if `err` was an authFailed and we successfully refreshed —
+    /// caller should retry the operation. Returns false otherwise.
+    func isAuthFailed(_ err: Error) -> Bool {
+        if let blueskyErr = err as? BlueskyError, case .authFailed = blueskyErr {
+            return true
+        }
+        return false
+    }
+
     let runStart = Date()
     var grandNewPosts = 0
     var grandNewReplies = 0
@@ -179,45 +206,60 @@ func runCLI() async {
         writeProgress("\(banner) · refreshing existing reply trees…")
 
         // ---- Phase 1: refresh reply trees of already-stored posts still within the window.
-        do {
-            accountRefreshed = try await threadScraper.scrapeAllThreads(
-                for: account, token: token, window: window
-            )
-        } catch {
-            writeFinalLine("⚠ \(account.handle)  refresh failed: \(error.localizedDescription)")
+        // On authFailed we refresh the token once and retry the phase; second
+        // failure surfaces normally.
+        for attempt in 0...1 {
+            do {
+                accountRefreshed = try await threadScraper.scrapeAllThreads(
+                    for: account, token: currentToken, window: window
+                )
+                break
+            } catch let err where isAuthFailed(err) && attempt == 0 {
+                if !(await refreshToken()) { return }
+                continue
+            } catch {
+                writeFinalLine("⚠ \(account.handle)  refresh failed: \(error.localizedDescription)")
+                break
+            }
         }
 
         // ---- Phase 2: feed scrape, depth-first per post.
-        do {
-            let pace = args.pace
-            let limit = args.limit
-            _ = try await feedScraper.scrape(account: account, token: token) { post in
-                if cancel.isSet { throw CancellationError() }
-                let replies = try await threadScraper.scrapeThreadIfDue(
-                    post, token: token, window: window
-                )
-                accountNewReplies += replies
-                accountNewPosts += 1
+        for attempt in 0...1 {
+            do {
+                let pace = args.pace
+                let limit = args.limit
+                _ = try await feedScraper.scrape(account: account, token: currentToken) { post in
+                    if cancel.isSet { throw CancellationError() }
+                    let replies = try await threadScraper.scrapeThreadIfDue(
+                        post, token: currentToken, window: window
+                    )
+                    accountNewReplies += replies
+                    accountNewPosts += 1
 
-                let elapsed = Date().timeIntervalSince(accountStart)
-                writeProgress(
-                    "\(banner) · \(accountNewPosts) new posts · \(accountNewReplies + accountRefreshed) replies · \(formatDuration(elapsed))"
-                )
+                    let elapsed = Date().timeIntervalSince(accountStart)
+                    writeProgress(
+                        "\(banner) · \(accountNewPosts) new posts · \(accountNewReplies + accountRefreshed) replies · \(formatDuration(elapsed))"
+                    )
 
-                if let lim = limit, accountNewPosts >= lim {
-                    throw LimitReached()
+                    if let lim = limit, accountNewPosts >= lim {
+                        throw LimitReached()
+                    }
+                    if pace.baseDelayNanoseconds > 0 {
+                        try await Task.sleep(nanoseconds: pace.baseDelayNanoseconds)
+                    }
                 }
-                if pace.baseDelayNanoseconds > 0 {
-                    try await Task.sleep(nanoseconds: pace.baseDelayNanoseconds)
-                }
+                break
+            } catch is LimitReached {
+                break  // expected — --limit hit
+            } catch is CancellationError {
+                break  // user pressed Ctrl-C
+            } catch let err where isAuthFailed(err) && attempt == 0 {
+                if !(await refreshToken()) { return }
+                continue
+            } catch {
+                writeFinalLine("⚠ \(account.handle)  scrape error: \(error.localizedDescription)")
+                break
             }
-        } catch is LimitReached {
-            // expected — --limit hit
-        } catch is CancellationError {
-            // user pressed Ctrl-C
-        } catch {
-            writeFinalLine("⚠ \(account.handle)  scrape error: \(error.localizedDescription)")
-            continue
         }
 
         let elapsed = Date().timeIntervalSince(accountStart)
