@@ -58,6 +58,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: cli/annotate
+      - path: cli/Shared
       - path: BlueX/Data
       - path: BlueX/Services/API
       - path: BlueX/Services/Annotation
@@ -81,6 +82,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: cli/scrape
+      - path: cli/Shared
       - path: BlueX/Data
       - path: BlueX/Services/API
       - path: BlueX/Services/Scraping

@@ -38,16 +38,16 @@ struct CLIArgs {
                 i += 1
                 if i < args.count, let p = LLMPace(rawValue: args[i]) { a.pace = p }
                 else if i < args.count {
-                    fail("invalid --pace value '\(args[i])'. Valid: burst, steady, gentle")
+                    fail("blueX-annotate", "invalid --pace value '\(args[i])'. Valid: burst, steady, gentle")
                 }
             case "--limit":
                 i += 1
                 if i < args.count, let n = Int(args[i]), n > 0 { a.limit = n }
                 else if i < args.count {
-                    fail("invalid --limit value '\(args[i])'")
+                    fail("blueX-annotate", "invalid --limit value '\(args[i])'")
                 }
             default:
-                fail("unknown argument: \(arg). Run --help for usage.")
+                fail("blueX-annotate", "unknown argument: \(arg). Run --help for usage.")
             }
             i += 1
         }
@@ -75,40 +75,6 @@ Ctrl-C stops at the next post boundary (no data is lost — last batch is saved)
 Thermal back-off: at ProcessInfo.thermalState .serious / .critical the loop
 adds an extra 3 s / 10 s sleep after each post automatically, on top of pace.
 """
-
-func fail(_ message: String) -> Never {
-    FileHandle.standardError.write(Data("blueX-annotate: \(message)\n".utf8))
-    exit(2)
-}
-
-// MARK: - Store
-
-func openStore() throws -> ModelContainer {
-    let url = URL.applicationSupportDirectory
-        .appendingPathComponent("BlueX", isDirectory: true)
-        .appendingPathComponent("default.store", isDirectory: false)
-    let schema = Schema([
-        TrackedAccount.self,
-        AccountGroup.self,
-        Post.self,
-        Annotation.self,
-        AccountSnapshot.self,
-        ScrapeLog.self,
-        ModelConfig.self,
-        CoordinatorState.self,
-    ])
-    let config = ModelConfiguration(schema: schema, url: url)
-    return try ModelContainer(for: schema, configurations: config)
-}
-
-// MARK: - Cancellation
-
-final class CancelFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var v = false
-    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return v }
-    func set() { lock.lock(); v = true; lock.unlock() }
-}
 
 // MARK: - Progress bar
 
@@ -156,18 +122,7 @@ func formatPerPost(_ seconds: TimeInterval) -> String {
     return formatDuration(seconds)
 }
 
-func formatDuration(_ seconds: TimeInterval) -> String {
-    let s = max(0, Int(seconds.rounded()))
-    if s >= 3600 { return "\(s/3600)h \((s % 3600)/60)m" }
-    if s >= 60   { return "\(s/60)m \(s % 60)s" }
-    return "\(s)s"
-}
-
-func writeProgress(_ line: String) {
-    // \r = back to col 0 ;  \u{1B}[K = clear to end of line
-    let out = "\r\u{1B}[K" + line
-    FileHandle.standardOutput.write(Data(out.utf8))
-}
+// formatDuration / writeProgress now live in cli/Shared/CLISupport.swift.
 
 // MARK: - Main
 
@@ -179,8 +134,8 @@ func runCLI() async {
         if args.help { print(usage); return }
 
         let container: ModelContainer
-        do { container = try openStore() }
-        catch { fail("failed to open store: \(error)") }
+        do { container = try BlueXStore.openContainer() }
+        catch { fail("blueX-annotate", "failed to open store: \(error)") }
         let context = ModelContext(container)
 
         // ---- list-models mode
@@ -203,7 +158,7 @@ func runCLI() async {
             modelCfg = configs.first { $0.isDefault } ?? configs.first
         }
         guard let cfg = modelCfg else {
-            fail("no ModelConfig found in the store. Launch the GUI once to seed defaults, or run --list-models to inspect.")
+            fail("blueX-annotate", "no ModelConfig found in the store. Launch the GUI once to seed defaults, or run --list-models to inspect.")
         }
         let client = OllamaClient(
             modelName: cfg.modelID,
@@ -212,14 +167,7 @@ func runCLI() async {
         )
 
         // ---- cancel handler (Ctrl-C)
-        let cancel = CancelFlag()
-        let sigSrc = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        sigSrc.setEventHandler {
-            cancel.set()
-            FileHandle.standardError.write(Data("\n\nstopping after current post — please wait…\n".utf8))
-        }
-        sigSrc.resume()
-        signal(SIGINT, SIG_IGN)  // dispatch source takes over
+        let cancel = installSIGINTHandler(notice: "\n\nstopping after current post — please wait…\n")
 
         // ---- build pending set, scoped to this model only
         let currentModelName = cfg.modelID
@@ -230,14 +178,14 @@ func runCLI() async {
             ))
             alreadyDone = Set(matched.compactMap { $0.post?.uri })
         } catch {
-            fail("failed to read existing \(cfg.modelID) annotations: \(error)")
+            fail("blueX-annotate","failed to read existing \(cfg.modelID) annotations: \(error)")
         }
 
         var allDesc = FetchDescriptor<Post>(sortBy: [SortDescriptor(\Post.createdAt, order: .reverse)])
         allDesc.relationshipKeyPathsForPrefetching = [\.annotations]
         let allPosts: [Post]
         do { allPosts = try context.fetch(allDesc) }
-        catch { fail("failed to fetch posts: \(error)") }
+        catch { fail("blueX-annotate","failed to fetch posts: \(error)") }
 
         var pending = allPosts.filter { !alreadyDone.contains($0.uri) }
         if let limit = args.limit, pending.count > limit {

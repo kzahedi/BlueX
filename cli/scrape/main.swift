@@ -39,17 +39,17 @@ struct CLIArgs {
             case "--pace":
                 i += 1
                 if i < argv.count, let p = LLMPace(rawValue: argv[i]) { a.pace = p }
-                else if i < argv.count { fail("invalid --pace value '\(argv[i])'. Valid: burst, steady, gentle") }
+                else if i < argv.count { fail("blueX-scrape", "invalid --pace value '\(argv[i])'. Valid: burst, steady, gentle") }
             case "--limit":
                 i += 1
                 if i < argv.count, let n = Int(argv[i]), n > 0 { a.limit = n }
-                else if i < argv.count { fail("invalid --limit value '\(argv[i])'") }
+                else if i < argv.count { fail("blueX-scrape", "invalid --limit value '\(argv[i])'") }
             case "--max-window-days":
                 i += 1
                 if i < argv.count, let n = Int(argv[i]), n > 0 { a.maxWindowDays = n }
-                else if i < argv.count { fail("invalid --max-window-days value '\(argv[i])'") }
+                else if i < argv.count { fail("blueX-scrape", "invalid --max-window-days value '\(argv[i])'") }
             default:
-                fail("unknown argument: \(arg). Run --help for usage.")
+                fail("blueX-scrape", "unknown argument: \(arg). Run --help for usage.")
             }
             i += 1
         }
@@ -84,61 +84,11 @@ Ctrl-C stops at the next post boundary; the partial batch is already saved
 (the depth-first scraper persists each new post + its thread tree immediately).
 """
 
-func fail(_ message: String) -> Never {
-    FileHandle.standardError.write(Data("blueX-scrape: \(message)\n".utf8))
-    exit(2)
-}
-
-// MARK: - Store
-
-func openStore() throws -> ModelContainer {
-    let url = URL.applicationSupportDirectory
-        .appendingPathComponent("BlueX", isDirectory: true)
-        .appendingPathComponent("default.store", isDirectory: false)
-    let schema = Schema([
-        TrackedAccount.self,
-        AccountGroup.self,
-        Post.self,
-        Annotation.self,
-        AccountSnapshot.self,
-        ScrapeLog.self,
-        ModelConfig.self,
-        CoordinatorState.self,
-    ])
-    let config = ModelConfiguration(schema: schema, url: url)
-    return try ModelContainer(for: schema, configurations: config)
-}
-
-// MARK: - Cancel
-
-final class CancelFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var v = false
-    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return v }
-    func set() { lock.lock(); v = true; lock.unlock() }
-}
+// fail / formatDuration / writeProgress / writeFinalLine / CancelFlag /
+// installSIGINTHandler now live in cli/Shared/CLISupport.swift.
 
 /// Thrown by the feed-scraper callback to break out cleanly when --limit is hit.
 struct LimitReached: Error {}
-
-// MARK: - Progress bar (single updating line)
-
-func writeProgress(_ line: String) {
-    let out = "\r\u{1B}[K" + line
-    FileHandle.standardOutput.write(Data(out.utf8))
-}
-
-func writeFinalLine(_ line: String) {
-    let out = "\r\u{1B}[K" + line + "\n"
-    FileHandle.standardOutput.write(Data(out.utf8))
-}
-
-func formatDuration(_ seconds: TimeInterval) -> String {
-    let s = max(0, Int(seconds.rounded()))
-    if s >= 3600 { return "\(s/3600)h \((s % 3600)/60)m" }
-    if s >= 60   { return "\(s/60)m \(s % 60)s" }
-    return "\(s)s"
-}
 
 // MARK: - Main
 
@@ -147,8 +97,8 @@ func runCLI() async {
     if args.help { print(usage); return }
 
     let container: ModelContainer
-    do { container = try openStore() }
-    catch { fail("failed to open store: \(error)") }
+    do { container = try BlueXStore.openContainer() }
+    catch { fail("blueX-scrape", "failed to open store: \(error)") }
     let context = ModelContext(container)
 
     // ---- list-accounts mode
@@ -165,14 +115,14 @@ func runCLI() async {
 
     // ---- credentials
     guard let creds = KeychainCredentials.load() else {
-        fail("no Bluesky credentials in the Keychain. Open BlueX → Settings → Credentials, save an app password, then re-run.")
+        fail("blueX-scrape", "no Bluesky credentials in the Keychain. Open BlueX → Settings → Credentials, save an app password, then re-run.")
     }
     let api = BlueskyAPIClient()
     FileHandle.standardOutput.write(Data("authenticating as @\(creds.handle)…\n".utf8))
     let authResult = await api.createSession(handle: creds.handle, password: creds.password)
     guard case .success(let session) = authResult else {
-        if case .failure(let err) = authResult { fail("authentication failed: \(err)") }
-        fail("authentication failed")
+        if case .failure(let err) = authResult { fail("blueX-scrape", "authentication failed: \(err)") }
+        fail("blueX-scrape", "authentication failed")
     }
     let token = session.accessJwt
 
@@ -183,27 +133,20 @@ func runCLI() async {
             predicate: #Predicate { $0.isActive == true },
             sortBy: [SortDescriptor(\.handle)]
         ))
-    } catch { fail("failed to fetch accounts: \(error)") }
+    } catch { fail("blueX-scrape", "failed to fetch accounts: \(error)") }
 
     let accounts: [TrackedAccount]
     if let h = args.handle {
         let matched = allActive.filter { $0.handle == h || $0.did == h }
-        if matched.isEmpty { fail("no active account matches handle/DID '\(h)'. Run --list-accounts.") }
+        if matched.isEmpty { fail("blueX-scrape", "no active account matches handle/DID '\(h)'. Run --list-accounts.") }
         accounts = matched
     } else {
         accounts = allActive
     }
-    if accounts.isEmpty { fail("no active accounts to scrape.") }
+    if accounts.isEmpty { fail("blueX-scrape", "no active accounts to scrape.") }
 
-    // ---- cancel handler
-    let cancel = CancelFlag()
-    let sigSrc = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-    sigSrc.setEventHandler {
-        cancel.set()
-        FileHandle.standardError.write(Data("\n\nstopping after current post — please wait…\n".utf8))
-    }
-    sigSrc.resume()
-    signal(SIGINT, SIG_IGN)
+    // ---- cancel handler (Ctrl-C)
+    let cancel = installSIGINTHandler(notice: "\n\nstopping after current post — please wait…\n")
 
     let feedScraper = FeedScraper(api: api, context: context)
     let threadScraper = ThreadScraper(api: api, context: context)
