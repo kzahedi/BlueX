@@ -30,6 +30,7 @@
 		1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */; };
 		2269EA8B023E9FF106B6A560 /* ThreadViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFA0B786ADDCE34214193F6 /* ThreadViewModel.swift */; };
 		2305761DCF8055D00A05D340 /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D4CB1A5F075F1A527CD589 /* ModelSettingsView.swift */; };
+		23F30AB47EB1AE28EC7BC017 /* AppleFoundationModelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */; };
 		247B2D46F3754179A212D47C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFC3883CAF3F0D75FC2773B /* main.swift */; };
 		252B8DFD3874E68FF2E72EB6 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
 		27F96A42093B36CB6D2055E1 /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
@@ -84,6 +85,7 @@
 		73B48D4494736D769772D5E0 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
 		744009569C1DC9651B5E14CE /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
 		74A81D98336D962BC66B5100 /* AccountSeederTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A91D2D190D4CCA52CD8D80 /* AccountSeederTests.swift */; };
+		74A9BA0F493C8166EB5330E4 /* ModelClientFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */; };
 		753F2DF8B71FEB4A03E8AE0A /* AnnotationDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */; };
 		75AEF62E5C28E31740630C82 /* LLMPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D23EF32A0BE28A061D51E99 /* LLMPace.swift */; };
 		76251AA5DB29B65FD817AC42 /* BlueskyAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */; };
@@ -92,6 +94,7 @@
 		7D4507032EC5FCDCCE5BDC2A /* Post+Annotations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */; };
 		7E54D60EA393803A2B7EB11D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B196EB48B113AFB1FFB67B81 /* SidebarView.swift */; };
 		7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6993F528F5075C15036ED449 /* MLXClientTests.swift */; };
+		7FFB46BD3B3BE0BB0BC935E1 /* AppleFoundationModelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */; };
 		804A1FB217259224F689E5A1 /* CredentialsSettingsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476B047962647678ADFE5376 /* CredentialsSettingsViewTests.swift */; };
 		80E3BB20E46BF7884B3AC6A2 /* BlueXSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */; };
 		857DDAB5828645BEBE1937A5 /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
@@ -133,6 +136,7 @@
 		EBD200B3925779D14AB6A35A /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
 		ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */; };
 		EE10CBB4262627B47DE729B2 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
+		EE4C74874E11FE09035D2AF6 /* ModelClientFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76BB19440EE67FEA283AC720 /* ModelClientFactoryTests.swift */; };
 		EE810165B82550F9A993C7C5 /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
 		EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */; };
 		F0D9BB11B48CDFB4C0E16F34 /* BlueskyAPIClientRateLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F172A2BD49AF7BC1B8BB3D73 /* BlueskyAPIClientRateLimitTests.swift */; };
@@ -144,6 +148,7 @@
 		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
 		FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */; };
+		FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -201,6 +206,7 @@
 		702D2A974CF1E2C40FB3DDB6 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		75E97E85CBCB11DCB104D467 /* BlueskyError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyError.swift; sourceTree = "<group>"; };
 		75F739E896313A5440C43C4C /* AnnotationBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationBadge.swift; sourceTree = "<group>"; };
+		76BB19440EE67FEA283AC720 /* ModelClientFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelClientFactoryTests.swift; sourceTree = "<group>"; };
 		774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXSchema.swift; sourceTree = "<group>"; };
 		7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXApp.swift; sourceTree = "<group>"; };
 		81B0F5B10734C9CB4AFE3C93 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -250,7 +256,9 @@
 		F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostInspectorView.swift; sourceTree = "<group>"; };
 		F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraperTests.swift; sourceTree = "<group>"; };
 		F172A2BD49AF7BC1B8BB3D73 /* BlueskyAPIClientRateLimitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientRateLimitTests.swift; sourceTree = "<group>"; };
+		F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelClientFactory.swift; sourceTree = "<group>"; };
 		F422C831A27835592CF479D0 /* AccountSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSeeder.swift; sourceTree = "<group>"; };
+		FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleFoundationModelClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -293,9 +301,11 @@
 			isa = PBXGroup;
 			children = (
 				A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */,
+				FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */,
 				D12A6162BC4C739F203659BC /* LLMResponseParser.swift */,
 				504C627B537AE3AAB0582050 /* LocalModelClient.swift */,
 				04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */,
+				F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */,
 				A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */,
 				12CA30A1A6E40070FE91F365 /* OllamaClient.swift */,
 				E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */,
@@ -351,6 +361,7 @@
 			isa = PBXGroup;
 			children = (
 				06227C94794B47DB97425753 /* LLMResponseParserTests.swift */,
+				76BB19440EE67FEA283AC720 /* ModelClientFactoryTests.swift */,
 			);
 			path = Annotation;
 			sourceTree = "<group>";
@@ -759,6 +770,7 @@
 				5740EBB6BAB0AF7293344028 /* LLMPaceTests.swift in Sources */,
 				C9E1D8459606AF2C580DEACF /* LLMResponseParserTests.swift in Sources */,
 				7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */,
+				EE4C74874E11FE09035D2AF6 /* ModelClientFactoryTests.swift in Sources */,
 				0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */,
 				ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */,
 				1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */,
@@ -784,6 +796,7 @@
 				27F96A42093B36CB6D2055E1 /* AccountSnapshot.swift in Sources */,
 				E96B057F1122BB9C21E219D3 /* Annotation.swift in Sources */,
 				753F2DF8B71FEB4A03E8AE0A /* AnnotationDedup.swift in Sources */,
+				7FFB46BD3B3BE0BB0BC935E1 /* AppleFoundationModelClient.swift in Sources */,
 				80E3BB20E46BF7884B3AC6A2 /* BlueXSchema.swift in Sources */,
 				744009569C1DC9651B5E14CE /* BlueskyAPIClient.swift in Sources */,
 				679AF2A39EF9E26FBF0857D9 /* BlueskyError.swift in Sources */,
@@ -795,6 +808,7 @@
 				10F8892EE9DAE78AB7FAD296 /* LLMResponseParser.swift in Sources */,
 				C41C2D1D0CE07630573D0242 /* LocalModelClient.swift in Sources */,
 				8E34307213C36B9D162299E3 /* MLXClient.swift in Sources */,
+				FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */,
 				499DB7C7022DA42F27425EE1 /* ModelConfig.swift in Sources */,
 				AB067319B1BCEB66B724B6C6 /* NLTaggerAnalyser.swift in Sources */,
 				29B87CBE9E42E6C62BE4FCC0 /* OllamaClient.swift in Sources */,
@@ -822,6 +836,7 @@
 				6DF6621063019868636707AE /* AnnotationBadge.swift in Sources */,
 				616595C95C5D9357026B40DF /* AnnotationDedup.swift in Sources */,
 				FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */,
+				23F30AB47EB1AE28EC7BC017 /* AppleFoundationModelClient.swift in Sources */,
 				5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */,
 				AD6634C2A06FECA0E12D80DB /* BlueXColors.swift in Sources */,
 				9E09ED49FC10D6D762147DFF /* BlueXSchema.swift in Sources */,
@@ -840,6 +855,7 @@
 				6C79ED4BE08A0CE29AF9F681 /* LLMResponseParser.swift in Sources */,
 				2A2446CCC27027CEBB6D03B8 /* LocalModelClient.swift in Sources */,
 				85817958A8720EAA402F0AD2 /* MLXClient.swift in Sources */,
+				74A9BA0F493C8166EB5330E4 /* ModelClientFactory.swift in Sources */,
 				CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */,
 				2305761DCF8055D00A05D340 /* ModelSettingsView.swift in Sources */,
 				2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */,

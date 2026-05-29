@@ -290,11 +290,18 @@ struct ModelSettingsView: View {
         isTesting = true
         testResult = nil
         Task {
-            let client = OllamaClient(
-                modelName: editModelID,
-                endpoint: editEndpoint
+            // Route the test through ModelClientFactory so Apple Foundation Models is
+            // covered: a test with endpoint = "apple-foundation" builds an
+            // AppleFoundationModelClient and exercises the actual transport, not
+            // OllamaClient hitting a nonexistent localhost:11434.
+            let probeConfig = ModelConfig(
+                name: "probe",
+                endpoint: editEndpoint,
+                modelID: editModelID,
+                promptTemplate: ModelConfig.defaultPromptTemplate
             )
             do {
+                let client = try ModelClientFactory.make(from: probeConfig)
                 _ = try await client.classify(text: "Test post", language: "en")
                 await MainActor.run {
                     isTesting = false

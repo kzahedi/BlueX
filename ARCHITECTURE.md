@@ -51,7 +51,7 @@ Every entity is a SwiftData `@Model`. Schema is registered once in `BlueXApp.swi
 | `Annotation` | A classification. `stage` is `"nltagger"` for Apple sentiment, `"llm"` for an LLM run. A post can carry many annotations — one NLTagger plus one per LLM model. `modelName` / `modelVersion` / `promptHash` identify the lineage; `rawResponse` preserves the original output for audit. |
 | `AccountSnapshot` | Periodic counters per account (planned for time-series snapshots). |
 | `ScrapeLog` | One row per scrape session: type / status / postCount / `resumeCursor` (for mid-scrape resume). |
-| `ModelConfig` | An LLM endpoint + model id + prompt. The Annotation Queue's model picker enumerates these. Multiple presets seeded on first launch (Qwen 2.5/3.6, Gemma 4); `qwen3.6:27b` is the default after the 2026-05 prompt revision (HICC-style three-class classification, see `Research/LLM_Hate_Counter_Speech_Classification_from_CC.md` in the vault for the comparison). |
+| `ModelConfig` | An LLM endpoint + model id + prompt. The Annotation Queue's model picker enumerates these. Presets seeded on first launch: Apple Foundation Models (default), Qwen 3.6 27B / Qwen 3 8B / Qwen 2.5 7B (Ollama), Gemma 4 26B / Gemma 3 4B (Ollama), Phi 4 14B (Ollama). The `endpoint` field doubles as a transport tag: `"apple-foundation"` → on-device Apple model, any URL → Ollama. See `Research/LLM_Hate_Counter_Speech_Classification_from_CC.md` for the model comparison. |
 | `CoordinatorState` | A singleton row persisting the last coordinator phase for crash recovery. |
 
 ### Data-layer helpers
@@ -92,7 +92,9 @@ Every entity is a SwiftData `@Model`. Schema is registered once in `BlueXApp.swi
 - **`LocalModelClient`** protocol — `classify(text:language:) -> LLMAnnotation`, plus `modelName` / `modelVersion` / `promptHash`.
 - **`OllamaClient`** — Ollama HTTP API. Calls `/api/generate`, parses the response JSON via `LLMResponseParser`.
 - **`MLXClient`** — OpenAI-compatible `/v1/chat/completions`. `OpenAICompatibleClient` is a typealias.
-- **`LLMResponseParser`** — extracts the JSON object from the raw model output, validates `class ∈ {hate, counter, neutral}`, normalises the literal string `"null"` for severity back to nil.
+- **`AppleFoundationModelClient`** — Apple's on-device Foundation Models framework (`SystemLanguageModel`, `LanguageModelSession`). ~3 B parameters, ~2 GB resident memory, runs on the Neural Engine; macOS 26+. Uses the `@Generable` macro for structured output so we skip the JSON-extraction hop entirely — the model produces a typed Swift struct directly. This is the default model after the 24-32 B Ollama variants pushed an M4 into swap.
+- **`LLMResponseParser`** — extracts the JSON object from the raw model output, validates `class ∈ {hate, counter, neutral}`, normalises the literal string `"null"` for severity back to nil. Only the Ollama/MLX path needs it.
+- **`ModelClientFactory`** — picks the transport for a `ModelConfig` based on its `endpoint` field. `"apple-foundation"` → `AppleFoundationModelClient`; anything else → `OllamaClient`. Single dispatch point shared by the GUI Queue, the CLI `blueX-annotate`, and the Settings "Test connection" probe — new transports plug in here without touching call sites.
 - **`AnnotationService`** — `@Observable`, owned by the coordinator. Drives both passes:
   - **`runNLTaggerPass`** — fetches every post without an `"nltagger"` annotation, classifies on a detached `Task` with its own background `ModelContext`, saves in batches of 200, streams progress (processed / total / eta) back to `@Observable` properties.
   - **`runLLMPass(saveEvery:pace:)`** — builds the pending set once via `(post.uri ∉ alreadyClassifiedByThisModel)`, then iterates in chunks of `saveEvery`. After each post: pace delay + thermal back-off (`ProcessInfo.thermalState`). `Task.checkCancellation` at every loop point. Streams progress + thermal state via `AsyncThrowingStream<LLMPassEvent, Error>`.
@@ -225,8 +227,10 @@ BlueX/
 │   └── Annotation/
 │       ├── NLTaggerAnalyser.swift
 │       ├── LocalModelClient.swift       Protocol + LLMAnnotation
+│       ├── ModelClientFactory.swift     Endpoint → transport dispatch
 │       ├── OllamaClient.swift
 │       ├── MLXClient.swift              + OpenAICompatibleClient typealias
+│       ├── AppleFoundationModelClient.swift  on-device, macOS 26+, default
 │       ├── LLMResponseParser.swift
 │       └── AnnotationService.swift      Both passes; AsyncThrowingStream-based
 ├── ViewModels/

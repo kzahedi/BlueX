@@ -160,11 +160,16 @@ func runCLI() async {
         guard let cfg = modelCfg else {
             fail("blueX-annotate", "no ModelConfig found in the store. Launch the GUI once to seed defaults, or run --list-models to inspect.")
         }
-        let client = OllamaClient(
-            modelName: cfg.modelID,
-            endpoint: cfg.endpoint,
-            promptTemplate: cfg.promptTemplate
-        )
+        // Build the transport via the factory so --model apple-foundation works in the
+        // CLI exactly as it does in the GUI Queue. Fail loudly if the requested
+        // transport isn't available on this machine (e.g. Apple Foundation Models
+        // unavailable, Apple Intelligence disabled, or macOS <26).
+        let client: any LocalModelClient
+        do {
+            client = try ModelClientFactory.make(from: cfg)
+        } catch {
+            fail("blueX-annotate", "could not build client for \(cfg.modelID): \(error.localizedDescription)")
+        }
 
         // ---- cancel handler (Ctrl-C)
         let cancel = installSIGINTHandler(notice: "\n\nstopping after current post — please wait…\n")

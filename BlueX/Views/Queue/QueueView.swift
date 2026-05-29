@@ -352,14 +352,17 @@ struct QueueView: View {
         viewModel.isRunning = true
         viewModel.lastError = nil
         Task {
-            // For now every preset endpoint is Ollama; OpenAI-compatible servers (MLX,
-            // LM Studio) can be added later by branching on cfg.endpoint here.
-            let client = OllamaClient(
-                modelName: cfg.modelID,
-                endpoint: cfg.endpoint,
-                promptTemplate: cfg.promptTemplate
-            )
-            await coordinator.runLLMAnnotation(using: client, pace: pace)
+            // Transport selection lives in ModelClientFactory — Apple Foundation Models
+            // is now an option alongside Ollama, and OpenAI-compatible servers (MLX,
+            // LM Studio) plug in there without touching this site.
+            do {
+                let client = try ModelClientFactory.make(from: cfg)
+                await coordinator.runLLMAnnotation(using: client, pace: pace)
+            } catch {
+                await MainActor.run {
+                    viewModel.lastError = error.localizedDescription
+                }
+            }
             await MainActor.run {
                 viewModel.isRunning = false
                 viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
