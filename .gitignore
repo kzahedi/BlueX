@@ -22,6 +22,9 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+*.profraw
+*.profdata
+*.xcresult
 
 # Swift Package Manager
 .build/
