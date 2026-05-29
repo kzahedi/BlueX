@@ -117,7 +117,15 @@ func runCLI() async {
     guard let creds = KeychainCredentials.load() else {
         fail("blueX-scrape", "no Bluesky credentials in the Keychain. Open BlueX → Settings → Credentials, save an app password, then re-run.")
     }
-    let api = BlueskyAPIClient()
+    // The CLI prints a one-line notice each time the API client decides to wait out a
+    // 429. Without it, the scrape would just go silent for ~60 s and look hung. The
+    // observer also includes the retry-attempt number so the user can see if we're
+    // hitting the budget repeatedly (a sign to slow down or split the run).
+    let api = BlueskyAPIClient(
+        onRateLimited: { retryAfter, attempt in
+            writeProgress("⏸ rate limited — waiting \(Int(retryAfter))s (retry \(attempt))…")
+        }
+    )
     FileHandle.standardOutput.write(Data("authenticating as @\(creds.handle)…\n".utf8))
     let authResult = await api.createSession(handle: creds.handle, password: creds.password)
     guard case .success(let session) = authResult else {
