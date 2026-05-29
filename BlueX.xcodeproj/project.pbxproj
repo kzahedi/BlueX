@@ -135,6 +135,7 @@
 		EE10CBB4262627B47DE729B2 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
 		EE810165B82550F9A993C7C5 /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
 		EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */; };
+		F0D9BB11B48CDFB4C0E16F34 /* BlueskyAPIClientRateLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F172A2BD49AF7BC1B8BB3D73 /* BlueskyAPIClientRateLimitTests.swift */; };
 		F155F074A16F2287F7D065F2 /* ATProtoDate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */; };
 		F4BF51CEDBA8B24A22BB2F0E /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
 		F5F9FB11974BC2F7777C1417 /* AccountContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03190618A41BC1BAE95560C /* AccountContentView.swift */; };
@@ -248,6 +249,7 @@
 		EC29C79B0EF209A2D41DFBD9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostInspectorView.swift; sourceTree = "<group>"; };
 		F0BEDE1AAC672247695ABD3F /* FeedScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraperTests.swift; sourceTree = "<group>"; };
+		F172A2BD49AF7BC1B8BB3D73 /* BlueskyAPIClientRateLimitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientRateLimitTests.swift; sourceTree = "<group>"; };
 		F422C831A27835592CF479D0 /* AccountSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSeeder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -574,6 +576,7 @@
 			children = (
 				B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */,
 				D631B79D81CCB5A44EE040AB /* ATProtoDateTests.swift */,
+				F172A2BD49AF7BC1B8BB3D73 /* BlueskyAPIClientRateLimitTests.swift */,
 				8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */,
 				C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */,
 				6993F528F5075C15036ED449 /* MLXClientTests.swift */,
@@ -748,6 +751,7 @@
 				54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */,
 				61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */,
 				0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */,
+				F0D9BB11B48CDFB4C0E16F34 /* BlueskyAPIClientRateLimitTests.swift in Sources */,
 				76251AA5DB29B65FD817AC42 /* BlueskyAPIClientTests.swift in Sources */,
 				4A811F85A1D94045E7A3F491 /* BlueskyErrorTests.swift in Sources */,
 				804A1FB217259224F689E5A1 /* CredentialsSettingsViewTests.swift in Sources */,

@@ -27,16 +27,16 @@ final class ScrapeCoordinator {
     var totalPostsThisRun: Int = 0
     // Per-account status for this run, keyed by DID. Drives the sidebar status dots.
     var accountStatuses: [String: AccountScrapeStatus] = [:]
+    /// When the API client is sleeping out a 429, this holds the seconds remaining.
+    /// nil while not waiting. Sidebar can show "rate limited, waiting Ns".
+    /// The auto-retry inside `BlueskyAPIClient.perform` updates this via the
+    /// `onRateLimited` observer passed at construction.
+    var rateLimitWaiting: TimeInterval? = nil
 
-    private let api: BlueskyAPIClient
+    private var api: BlueskyAPIClient
     private let modelContainer: ModelContainer
     // One service for the app's lifetime so the Queue view can observe live progress.
     let annotationService: AnnotationService
-
-    // Rate limiting: Bluesky public API ≈ 3,000 requests/hour
-    private var requestCount = 0
-    private var windowStart = Date()
-    private let maxRequestsPerWindow = 2800  // conservative buffer
 
     // Cancellation flag — checked between accounts
     private var isCancelled = false
@@ -45,6 +45,7 @@ final class ScrapeCoordinator {
         self.api = api
         self.modelContainer = modelContainer
         self.annotationService = AnnotationService(modelContainer: modelContainer)
+        self.api = rebindWithRateLimitObserver(api)
     }
 
     // Internal for testing — runNLTaggerAnnotation doesn't need the api client
@@ -52,6 +53,27 @@ final class ScrapeCoordinator {
         self.api = BlueskyAPIClient()
         self.modelContainer = modelContainer
         self.annotationService = AnnotationService(modelContainer: modelContainer)
+        self.api = rebindWithRateLimitObserver(self.api)
+    }
+
+    /// Wraps `client` so 429 retry sleeps update `rateLimitWaiting`. We can't mutate
+    /// the original `BlueskyAPIClient` (it's a struct), so we construct a copy with
+    /// the same baseURL/session and a fresh observer closure that captures self.
+    private func rebindWithRateLimitObserver(_ client: BlueskyAPIClient) -> BlueskyAPIClient {
+        BlueskyAPIClient(
+            session: URLSession.shared,
+            onRateLimited: { [weak self] retryAfter, _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.rateLimitWaiting = retryAfter
+                    // Clear the badge a moment after the sleep finishes — the next
+                    // request either succeeds (no further trigger) or we'll set
+                    // again on the next 429.
+                    try? await Task.sleep(nanoseconds: UInt64((retryAfter + 1) * 1_000_000_000))
+                    self.rateLimitWaiting = nil
+                }
+            }
+        )
     }
 
     // MARK: - Public interface (called from UI)
@@ -181,20 +203,19 @@ final class ScrapeCoordinator {
                     accountStatuses[accountDID] = .done
                 }
             } catch let error as BlueskyError {
-                if case .rateLimited(let retryAfter) = error {
-                    await MainActor.run { accountStatuses[accountDID] = .failed }
-                    try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
-                } else {
-                    await MainActor.run { lastError = error; accountStatuses[accountDID] = .failed }
-                }
+                // Transient 429s are absorbed inside BlueskyAPIClient.perform via auto-retry,
+                // so anything that surfaces here is already exhausted-retry or a different
+                // kind of failure — treat them all the same way. Per-post failures inside
+                // a thread scrape are absorbed even further down (ThreadScraper marks dead
+                // URIs complete; transient ones stay .inProgress for the next run), so this
+                // catch only fires for account-level failures like a stale token.
+                await MainActor.run { lastError = error; accountStatuses[accountDID] = .failed }
             } catch {
                 await MainActor.run {
                     lastError = .networkError(underlying: error.localizedDescription)
                     accountStatuses[accountDID] = .failed
                 }
             }
-
-            await checkAndEnforceRateLimit()
         }
 
         // Annotation (Apple sentiment / LLM) is a separate step, triggered independently
@@ -240,23 +261,6 @@ final class ScrapeCoordinator {
     /// Cancels an in-flight LLM (or sentiment) annotation pass.
     func cancelAnnotation() {
         annotationService.cancel()
-    }
-
-    // MARK: - Rate limiting
-
-    private func checkAndEnforceRateLimit() async {
-        requestCount += 1
-        let elapsed = Date().timeIntervalSince(windowStart)
-
-        if elapsed < 3600 && requestCount >= maxRequestsPerWindow {
-            let waitTime = 3600 - elapsed
-            try? await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
-            requestCount = 0
-            windowStart = Date()
-        } else if elapsed >= 3600 {
-            requestCount = 0
-            windowStart = Date()
-        }
     }
 
     // MARK: - State persistence (for resume on restart)

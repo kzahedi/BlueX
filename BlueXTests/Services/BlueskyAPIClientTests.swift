@@ -3,19 +3,43 @@ import XCTest
 
 // Why: MockURLSession lets us test all API client behavior without real HTTP calls.
 // We control exactly what data and status code each call returns.
+//
+// Supports two modes:
+// 1. Single response — set `mockData` / `mockStatusCode` / `mockHeaders`; every
+//    call returns the same triple. Simplest, default.
+// 2. Scripted sequence — append to `scriptedResponses`. Each call pops the next
+//    entry; falls back to the single-response mode after the script is exhausted.
+//    Used by the 429 retry tests to make the first N calls fail and the (N+1)th
+//    succeed.
 final class MockURLSession: URLSessionProtocol {
     var mockData: Data = Data()
     var mockStatusCode: Int = 200
     var mockHeaders: [String: String] = [:]
 
+    struct ScriptedResponse {
+        var data: Data = Data()
+        var statusCode: Int = 200
+        var headers: [String: String] = [:]
+    }
+    var scriptedResponses: [ScriptedResponse] = []
+    private(set) var callCount = 0
+
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        let response = HTTPURLResponse(
+        callCount += 1
+        let resp: (Data, Int, [String: String])
+        if !scriptedResponses.isEmpty {
+            let next = scriptedResponses.removeFirst()
+            resp = (next.data, next.statusCode, next.headers)
+        } else {
+            resp = (mockData, mockStatusCode, mockHeaders)
+        }
+        let httpResponse = HTTPURLResponse(
             url: request.url!,
-            statusCode: mockStatusCode,
+            statusCode: resp.1,
             httpVersion: nil,
-            headerFields: mockHeaders
+            headerFields: resp.2
         )!
-        return (mockData, response)
+        return (resp.0, httpResponse)
     }
 }
 

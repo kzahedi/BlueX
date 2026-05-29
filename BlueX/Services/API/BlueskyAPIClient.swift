@@ -8,16 +8,37 @@ protocol URLSessionProtocol {
 
 extension URLSession: URLSessionProtocol {}
 
+/// Called when the client receives a 429 and is about to sleep before retrying.
+/// `retryAfter` is the seconds to wait; `attempt` is the 1-based retry attempt.
+/// Used by the CLI to print a "rate-limited, waiting Ns" notice and by the GUI
+/// to surface a `rateLimitWaiting` state to the sidebar. Synchronous because the
+/// observer's job is to record state, not to do work; the sleep happens in `perform`.
+typealias RateLimitObserver = @Sendable (TimeInterval, Int) -> Void
+
 // Why: A struct is ideal for a stateless HTTP client — no stored mutable state,
 // no lifecycle management. The token is passed in per-call; ScrapeCoordinator owns it.
 struct BlueskyAPIClient {
     private let baseURL: URL
     private let session: URLSessionProtocol
+    private let onRateLimited: RateLimitObserver?
+    private let sleeper: @Sendable (UInt64) async -> Void
+    /// Hard ceiling on consecutive 429s before we give up and surface the failure to
+    /// the caller. Five attempts at the default ~60s Retry-After buys ~5 minutes
+    /// of patience; beyond that, something is wrong (token-level throttle, etc.).
+    private let maxRateLimitRetries: Int
 
     init(baseURL: URL = URL(string: "https://bsky.social/xrpc")!,
-         session: URLSessionProtocol = URLSession.shared) {
+         session: URLSessionProtocol = URLSession.shared,
+         onRateLimited: RateLimitObserver? = nil,
+         maxRateLimitRetries: Int = 5,
+         sleeper: @escaping @Sendable (UInt64) async -> Void = { ns in
+             try? await Task.sleep(nanoseconds: ns)
+         }) {
         self.baseURL = baseURL
         self.session = session
+        self.onRateLimited = onRateLimited
+        self.maxRateLimitRetries = maxRateLimitRetries
+        self.sleeper = sleeper
     }
 
     // MARK: - Auth
@@ -127,43 +148,61 @@ struct BlueskyAPIClient {
 
     // MARK: - Private
 
+    /// Executes one request with transparent 429 retry.
+    ///
+    /// On 429 we read `Retry-After`, notify `onRateLimited`, sleep, and re-issue the
+    /// same request — up to `maxRateLimitRetries` times. The caller never sees a
+    /// retryable 429; only an exhausted-retry 429 surfaces as `.rateLimited`. This
+    /// is what makes long-running scrapes (NYT-class accounts) traverse the full
+    /// history without losing their place: a hit on the 3,000-req/hr budget pauses
+    /// at exactly this method, not several layers up where un-visited posts would
+    /// be silently abandoned.
     private func perform<T: Codable>(request: URLRequest, as type: T.Type) async -> Result<T, BlueskyError> {
-        do {
-            let (data, response) = try await session.data(for: request)
+        var attempt = 0
+        while true {
+            do {
+                let (data, response) = try await session.data(for: request)
 
-            // Why: URLResponse is the base class; we cast to HTTPURLResponse to read status code.
-            // For HTTP URLs this cast is always safe.
-            guard let http = response as? HTTPURLResponse else {
-                return .failure(.networkError(underlying: "Non-HTTP response"))
-            }
-
-            switch http.statusCode {
-            case 200...299:
-                do {
-                    let decoded = try JSONDecoder().decode(T.self, from: data)
-                    return .success(decoded)
-                } catch {
-                    return .failure(.decodingError(underlying: error.localizedDescription))
+                // Why: URLResponse is the base class; we cast to HTTPURLResponse to read status code.
+                // For HTTP URLs this cast is always safe.
+                guard let http = response as? HTTPURLResponse else {
+                    return .failure(.networkError(underlying: "Non-HTTP response"))
                 }
-            case 400:
-                // Bluesky returns 400 for malformed requests, deleted/blocked posts, or
-                // unknown DIDs. Surfacing it as authFailed sent the user to Settings
-                // even when their credentials were fine. Keep the body text so the
-                // caller can decide whether to skip or escalate.
-                let body = String(data: data, encoding: .utf8) ?? "<unparseable>"
-                return .failure(.badRequest(message: body))
-            case 401:
-                return .failure(.authFailed)
-            case 404:
-                return .failure(.notFound)
-            case 429:
-                let retryAfter = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
-                return .failure(.rateLimited(retryAfter: retryAfter))
-            default:
-                return .failure(.networkError(underlying: "HTTP \(http.statusCode)"))
+
+                switch http.statusCode {
+                case 200...299:
+                    do {
+                        let decoded = try JSONDecoder().decode(T.self, from: data)
+                        return .success(decoded)
+                    } catch {
+                        return .failure(.decodingError(underlying: error.localizedDescription))
+                    }
+                case 400:
+                    // Bluesky returns 400 for malformed requests, deleted/blocked posts, or
+                    // unknown DIDs. Surfacing it as authFailed sent the user to Settings
+                    // even when their credentials were fine. Keep the body text so the
+                    // caller can decide whether to skip or escalate.
+                    let body = String(data: data, encoding: .utf8) ?? "<unparseable>"
+                    return .failure(.badRequest(message: body))
+                case 401:
+                    return .failure(.authFailed)
+                case 404:
+                    return .failure(.notFound)
+                case 429:
+                    let retryAfter = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
+                    attempt += 1
+                    if attempt > maxRateLimitRetries {
+                        return .failure(.rateLimited(retryAfter: retryAfter))
+                    }
+                    onRateLimited?(retryAfter, attempt)
+                    await sleeper(UInt64(max(retryAfter, 0) * 1_000_000_000))
+                    continue   // retry the same request
+                default:
+                    return .failure(.networkError(underlying: "HTTP \(http.statusCode)"))
+                }
+            } catch {
+                return .failure(.networkError(underlying: error.localizedDescription))
             }
-        } catch {
-            return .failure(.networkError(underlying: error.localizedDescription))
         }
     }
 }
