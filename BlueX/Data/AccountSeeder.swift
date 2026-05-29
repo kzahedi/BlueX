@@ -88,11 +88,15 @@ struct AccountSeeder {
     }
 
     /// Preset Ollama models we know the dev machine has, ordered by recommended use.
+    /// Research (2026-05-29) settled on Qwen 3 32B as the new default: 7B models
+    /// systematically over-flag political anger as hate, and the 24-32B band is the
+    /// documented sweet spot for nuanced multilingual classification. See
+    /// Research/LLM_Hate_Counter_Speech_Classification_from_CC.md in the vault.
     static let modelPresets: [ModelPreset] = [
-        ModelPreset(name: "Qwen 2.5 7B (Ollama, recommended)", modelID: "qwen2.5:7b", isDefault: true),
-        ModelPreset(name: "Qwen 3.6 27B (Ollama, slow/quality)", modelID: "qwen3.6:27b", isDefault: false),
-        ModelPreset(name: "Gemma 4 26B (Ollama, slow/quality)", modelID: "gemma4:26b", isDefault: false),
-        ModelPreset(name: "Qwen 2.5 3B (Ollama, fast)", modelID: "qwen2.5:3b", isDefault: false),
+        ModelPreset(name: "Qwen 3.6 27B (Ollama, recommended)", modelID: "qwen3.6:27b", isDefault: true),
+        ModelPreset(name: "Gemma 4 26B (Ollama, second opinion)", modelID: "gemma4:26b", isDefault: false),
+        ModelPreset(name: "Qwen 2.5 7B (Ollama, fast baseline)", modelID: "qwen2.5:7b", isDefault: false),
+        ModelPreset(name: "Qwen 2.5 3B (Ollama, speed tests)", modelID: "qwen2.5:3b", isDefault: false),
     ]
 
     /// Idempotently ensure every preset ModelConfig exists, replace any stale "llama3.2"
@@ -134,12 +138,27 @@ struct AccountSeeder {
         }
         try context.save()
 
-        // Ensure exactly one isDefault — pick qwen2.5:7b if no current default applies.
+        // Ensure exactly one isDefault, and migrate users off the stale qwen2.5:7b
+        // default established by the seeder before 2026-05-29. The current
+        // research-backed default is the largest installed Qwen 3.
         let refreshed = try context.fetch(FetchDescriptor<ModelConfig>())
-        let validDefault = refreshed.first(where: { $0.isDefault })
-        if validDefault == nil {
-            for cfg in refreshed { cfg.isDefault = false }
-            (refreshed.first(where: { $0.modelID == "qwen2.5:7b" }) ?? refreshed.first)?.isDefault = true
+        let preferredDefault = refreshed.first { $0.modelID == "qwen3.6:27b" }
+                              ?? refreshed.first
+
+        // (a) If the current default is the deprecated qwen2.5:7b, flip to qwen3.6:27b.
+        if let staleDefault = refreshed.first(where: { $0.isDefault && $0.modelID == "qwen2.5:7b" }),
+           let newDefault = preferredDefault,
+           newDefault.modelID != staleDefault.modelID {
+            staleDefault.isDefault = false
+            newDefault.isDefault = true
+            try context.save()
+        }
+
+        // (b) If no config is the default at all (e.g. all imported flat), set one.
+        let after = try context.fetch(FetchDescriptor<ModelConfig>())
+        if after.first(where: { $0.isDefault }) == nil {
+            for cfg in after { cfg.isDefault = false }
+            (after.first(where: { $0.modelID == "qwen3.6:27b" }) ?? after.first)?.isDefault = true
             try context.save()
         }
     }

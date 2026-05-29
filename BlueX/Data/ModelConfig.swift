@@ -32,34 +32,69 @@ final class ModelConfig {
     /// Convenience for this config's own prompt hash.
     var promptHash: String { Self.promptHash(of: promptTemplate) }
 
-    // Research-grade prompt — tightened with concrete criteria and explicit
-    // non-examples after qwen2.5:7b kept flagging mere political anger as "hate".
+    // Research-grade prompt — structure adapted from the HICC three-class hate /
+    // counter / neutral benchmark (Schmid et al., KONVENS 2025). Conjunctive hate
+    // criteria (identity-based targeting AND dehumanization/harm-call) plus explicit
+    // few-shot examples are the documented fix for 7B-and-up over-flagging of
+    // political anger as hate.
     static let defaultPromptTemplate = """
-    You are classifying ONE Bluesky reply for a research study on hate speech vs. counter speech. Be precise and conservative.
+    You are classifying ONE Bluesky reply for a research study on hate speech and counter speech.
+    The reply is in {{language}} and may respond to a news post or to another reply.
+    Be precise and conservative — most replies are NEUTRAL.
 
-    Classify the reply into EXACTLY ONE of:
-    - "hate": contains slurs, dehumanizing language, explicit calls for violence or harassment, or pejorative attacks targeting a person or group BASED ON race, ethnicity, religion, gender, sexual orientation, disability, immigration status, or other protected attributes.
-    - "counter": directly responds to, challenges, refutes, or de-escalates hateful content — defends a targeted group, calls for civility, fact-checks hate, expresses solidarity with targets.
-    - "neutral": none of the above. This is the DEFAULT class when you are uncertain.
+    CLASSES
 
-    DO NOT classify as "hate":
-    - mere disagreement, frustration, or anger toward public figures, institutions, parties, or policies
-    - sarcasm, snark, or strong political opinion that does not target a protected group
-    - "they should be held accountable" / "this is terrible" / "disgusting" without identity-based targeting
-    - expressions of sadness, worry, moral concern, or exasperation
+    - "hate": REQUIRES BOTH
+        (a) the reply targets a person or group based on race, ethnicity, religion, gender,
+            sexual orientation, disability, immigration status, or another protected attribute, AND
+        (b) the reply uses a slur, dehumanizing language, an explicit call for violence or
+            harassment, OR a sustained pejorative attack tied to that identity.
+      Both conditions must hold. Political criticism alone is NOT hate, no matter how harsh.
 
-    For "hate" only, also pick severity: "mild" / "moderate" / "severe".
-    For "counter" or "neutral", set severity to JSON null (literal null, NOT the string "null").
+    - "counter": the reply pushes back against hateful content elsewhere in the thread —
+      defends a targeted group, refutes or fact-checks hate, expresses solidarity with victims,
+      or calls for civility specifically in response to hostility. Counter speech is directed
+      at HATE, not at every political disagreement.
 
-    Confidence: a number 0.0–1.0. Reasoning: one short sentence.
+    - "neutral": everything else. Default to neutral when in doubt.
 
-    Reply language: {{language}}
-    Reply text:
+    EXAMPLES — NOT HATE (classify as "neutral")
+
+    - "Trump weaponized the DOJ. They should be held accountable."          → political criticism
+    - "This is disgusting and terrible."                                     → moral exasperation
+    - "Diese Politik ist unverantwortlich und gehört vor Gericht."           → political criticism
+    - "Yeah" / emoji-only replies                                            → not a substantive claim
+    - "I disagree with that policy, it harms working families."              → mere disagreement
+
+    EXAMPLES — HATE
+
+    - "[slur] like them shouldn't be in this country."                       → slur + identity targeting
+    - "Send them all back, they are vermin."                                 → dehumanization + identity
+    - Sustained pejorative attack tied to a religion or sexual orientation
+
+    EXAMPLES — COUNTER
+
+    - "Calling immigrants 'invaders' is dehumanizing. They are people."       → refutes hate framing
+    - "You're wrong about Muslims; here are the actual statistics."           → fact-checks hate
+    - "Solidarität mit allen Betroffenen dieser Hetze."                       → solidarity with targets
+
+    OUTPUT
+
+    Respond with a SINGLE JSON object, nothing before or after:
+
+    {
+      "class":      "hate" | "counter" | "neutral",
+      "severity":   "mild" | "moderate" | "severe" | null,
+      "confidence": 0.0 to 1.0,
+      "reasoning":  "<one short sentence justifying the class>"
+    }
+
+    severity MUST be JSON null (the literal null, NOT the string "null") for "counter" and "neutral".
+    severity may also be null for "hate" if intensity is unclear.
+
+    REPLY TEXT
     \"\"\"
     {{text}}
     \"\"\"
-
-    Output a SINGLE JSON object only, nothing before or after:
-    {"class": "hate" | "counter" | "neutral", "severity": "mild" | "moderate" | "severe" | null, "confidence": 0.0, "reasoning": "..."}
     """
 }

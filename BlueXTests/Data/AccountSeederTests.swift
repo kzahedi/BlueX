@@ -49,7 +49,7 @@ final class AccountSeederTests: XCTestCase {
         XCTAssertEqual(configs.count, AccountSeeder.modelPresets.count)
         let defaults = configs.filter { $0.isDefault }
         XCTAssertEqual(defaults.count, 1, "exactly one ModelConfig should be marked default")
-        XCTAssertEqual(defaults.first?.modelID, "qwen2.5:7b")
+        XCTAssertEqual(defaults.first?.modelID, "qwen3.6:27b")
     }
 
     func testSpiegelHasKnownDID() throws {
