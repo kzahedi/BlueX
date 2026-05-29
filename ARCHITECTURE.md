@@ -79,9 +79,11 @@ Every entity is a SwiftData `@Model`. Schema is registered once in `BlueXApp.swi
 
 ### Scraping (`Services/Scraping/`)
 
+**Full behavior spec:** `docs/scraping-methodology.md` covers the algorithm end-to-end — completeness guarantee, rescraping window semantics, terminal vs transient failure handling, rate-limit retry. Read it before changing anything in this directory.
+
 - **`FeedScraper`** — paginates `getAuthorFeed` for one account, saves each new root post, supports an `onNewRootPost` callback for depth-first interleaving (see below), resumes from `ScrapeLog.resumeCursor` if a previous run was interrupted.
-- **`ThreadScraper`** — pulls `getPostThread` for one root post, recursively walks the returned `ATProtoThreadView` and stores every reply. Two entry points: `scrapeThreadIfDue(post:token:window:)` for the depth-first callback, `scrapeAllThreads(for:token:window:)` to catch up existing posts.
-- **`RescrapingPolicy`** — a single rule: a post's reply tree is refreshed only while its previous scrape happened within `createdAt + window` (default **14 days**, surfaced as the `scraping.maxRescrapeWindowDays` setting). Newly-discovered posts always get one scrape regardless of age; once the window closes, the tree is frozen.
+- **`ThreadScraper`** — pulls `getPostThread` for one root post, recursively walks the returned `ATProtoThreadView` and stores every reply. Two entry points: `scrapeThreadIfDue(post:token:window:)` for the depth-first callback, `scrapeAllThreads(for:token:window:)` to catch up existing posts. Per-post try/catch: terminal failures (`.notFound` / `.badRequest`) freeze the post `.complete`; transient ones leave it `.inProgress` for the next run.
+- **`RescrapingPolicy`** — gates rescrapes by status + age: `replyTreeStatus != .complete` is always due (guarantees every post gets scraped at least once, even across many sessions); `.complete` posts are refreshed only while `replyTreeLastChecked ≤ createdAt + window` (default **14 days**).
 - **`ScrapeCoordinator`** — the state machine. `@Observable`. Public API: `startScrape()`, `startScrape(accountDID:)`, `cancel()`, `runNLTaggerAnnotation()`, `runLLMAnnotation(using:saveEvery:pace:)`, `cancelAnnotation()`. Owns one long-lived `AnnotationService`. Exposes `phase`, `accountStatuses` (per-DID), `totalPostsThisRun`, `lastError` for the sidebar.
 
 ### Annotation (`Services/Annotation/`)
