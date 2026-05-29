@@ -58,15 +58,19 @@ final class ThreadScraperTests: XCTestCase {
             "at://did:public/post/r2"
         ])
 
+        let account = TrackedAccount(did: "did:plc:test", handle: "test.de",
+                                     displayName: "Test", startAt: Date(timeIntervalSince1970: 0))
         let rootPost = Post(uri: rootURI, text: "Root", createdAt: Date(),
                            authorDID: "did:plc:test", authorHandle: "test.de",
                            parentURI: nil, rootURI: rootURI, isRootPost: true, depth: 0)
+        rootPost.account = account
+        context.insert(account)
         context.insert(rootPost)
         try context.save()
 
         let client = BlueskyAPIClient(session: mockSession)
         let scraper = ThreadScraper(api: client, context: context)
-        let count = try await scraper.scrapeNextBatch(token: "tok", batchSize: 10)
+        let count = try await scraper.scrapeAllThreads(for: account, token: "tok")
 
         XCTAssertEqual(count, 2)
         let allPosts = try context.fetch(FetchDescriptor<Post>())
@@ -77,15 +81,19 @@ final class ThreadScraperTests: XCTestCase {
         let rootURI = "at://did:plc:test/post/root"
         mockSession.mockData = try makeThreadJSON(rootURI: rootURI, replyURIs: [])
 
+        let account = TrackedAccount(did: "did:plc:test", handle: "test.de",
+                                     displayName: "Test", startAt: Date(timeIntervalSince1970: 0))
         let rootPost = Post(uri: rootURI, text: "Root", createdAt: Date(),
                            authorDID: "did:plc:test", authorHandle: "test.de",
                            parentURI: nil, rootURI: rootURI, isRootPost: true, depth: 0)
+        rootPost.account = account
+        context.insert(account)
         context.insert(rootPost)
         try context.save()
 
         let client = BlueskyAPIClient(session: mockSession)
         let scraper = ThreadScraper(api: client, context: context)
-        _ = try await scraper.scrapeNextBatch(token: "tok", batchSize: 10)
+        _ = try await scraper.scrapeAllThreads(for: account, token: "tok")
 
         XCTAssertEqual(rootPost.replyTreeStatus, .complete)
         XCTAssertNotNil(rootPost.replyTreeLastChecked)
@@ -95,15 +103,19 @@ final class ThreadScraperTests: XCTestCase {
         let rootURI = "at://did:plc:test/post/root"
         mockSession.mockData = try makeThreadJSON(rootURI: rootURI, replyURIs: ["at://public/post/r1"])
 
+        let account = TrackedAccount(did: "did:plc:test", handle: "test.de",
+                                     displayName: "Test", startAt: Date(timeIntervalSince1970: 0))
         let rootPost = Post(uri: rootURI, text: "Root", createdAt: Date(),
                            authorDID: "did:plc:test", authorHandle: "test.de",
                            parentURI: nil, rootURI: rootURI, isRootPost: true, depth: 0)
+        rootPost.account = account
+        context.insert(account)
         context.insert(rootPost)
         try context.save()
 
         let client = BlueskyAPIClient(session: mockSession)
         let scraper = ThreadScraper(api: client, context: context)
-        _ = try await scraper.scrapeNextBatch(token: "tok", batchSize: 10)
+        _ = try await scraper.scrapeAllThreads(for: account, token: "tok")
 
         let replies = try context.fetch(FetchDescriptor<Post>(
             predicate: #Predicate { !$0.isRootPost }

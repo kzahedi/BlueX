@@ -5,12 +5,11 @@ import Observation
 
 @Observable
 final class QueueViewModel {
+    /// True while the QueueView's own per-pass async Task is running. Distinct from
+    /// `coordinator.annotationService.isRunning` only briefly during setup/teardown.
     var isRunning: Bool = false
-    var batchSize: Int = 10
-    var processedCount: Int = 0
     var totalQueued: Int = 0
     var lastError: String? = nil
-    var progress: Double = 0.0
 
     var pendingPosts: [Post] = []
     var sentimentPending: Int = 0   // posts lacking an Apple-sentiment (nltagger) annotation
@@ -72,9 +71,4 @@ final class QueueViewModel {
         }
     }
 
-    func updateProgress(processed: Int, total: Int) {
-        processedCount = processed
-        totalQueued = total
-        progress = total > 0 ? Double(processed) / Double(total) : 0
-    }
 }

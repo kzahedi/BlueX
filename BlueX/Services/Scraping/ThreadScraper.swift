@@ -11,17 +11,6 @@ final class ThreadScraper {
         self.context = context
     }
 
-    /// Scrapes reply trees for posts with replyTreeStatus == .pending or .inProgress.
-    /// - Returns: total number of reply posts stored
-    func scrapeNextBatch(token: String, batchSize: Int = 10) async throws -> Int {
-        let pendingPosts = try fetchPendingRootPosts(limit: batchSize)
-        var totalReplies = 0
-        for post in pendingPosts {
-            totalReplies += try await scrapeThread(rootPost: post, token: token)
-        }
-        return totalReplies
-    }
-
     /// Depth-first: scrapes the full reply tree for every of `account`'s root posts that
     /// the rescraping policy still wants refreshed (within `window` of the post's creation,
     /// or never scraped yet). Used by the coordinator so each account is fully scraped
@@ -139,20 +128,6 @@ final class ThreadScraper {
         return roots.filter { rescrapingPolicy.needsRescrape($0, window: window) }
     }
 
-    private func fetchPendingRootPosts(limit: Int) throws -> [Post] {
-        // Fetch all root posts and filter in Swift — simpler than fighting #Predicate with enums.
-        // Why: SwiftData's #Predicate macro cannot compare enum cases directly;
-        // it only understands primitive types. We store ReplyTreeStatus as String (rawValue)
-        // via Codable, but the property type is ReplyTreeStatus, causing predicate issues.
-        let allRootPosts = try context.fetch(FetchDescriptor<Post>(
-            predicate: #Predicate<Post> { $0.isRootPost == true },
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        ))
-        return allRootPosts
-            .filter { $0.replyTreeStatus == .pending || $0.replyTreeStatus == .inProgress }
-            .prefix(limit)
-            .map { $0 }
-    }
 
     private func isDuplicate(uri: String) -> Bool {
         var descriptor = FetchDescriptor<Post>(predicate: #Predicate { $0.uri == uri })

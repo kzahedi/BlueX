@@ -250,25 +250,6 @@ struct QueueView: View {
         return "\(s)s"
     }
 
-    private var progressSection: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text("Annotating…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.secondaryText)
-                Spacer()
-                Text("\(viewModel.processedCount) / \(viewModel.totalQueued)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.primaryText)
-            }
-            ProgressView(value: viewModel.progress)
-                .tint(Color.counterBorder)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.panelBackground)
-    }
-
     // MARK: - Queue Row
 
     private func queueRow(for post: Post) -> some View {
