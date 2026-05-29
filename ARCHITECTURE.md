@@ -32,7 +32,10 @@ Data/              @Model classes, seeding, dedup, shared accessors
 
 Views read SwiftData via `@Query` and dispatch actions through view-model methods or via closures owned by `ScrapeCoordinator` / `AnnotationService`. ViewModels never touch the network or persistence directly. Services never know about SwiftUI.
 
-A fifth helper directory, `tools/`, holds dev-time scripts (currently the app-icon generator).
+Two sibling top-level directories support the GUI:
+
+- **`cli/`** — two headless tools that reuse the GUI's services and `@Model` schema directly (no logic duplication). `cli/annotate/` builds `blueX-annotate`; `cli/scrape/` builds `blueX-scrape`. `cli/Shared/CLISupport.swift` carries the shared utilities (Ctrl-C handler, progress writer, duration formatter, fail()). Both tools open the same SwiftData store as the GUI via `BlueXStore.openContainer()` (see `Data/BlueXSchema.swift`), so a long-running annotation pass writes back to the same store the GUI is reading. Pace + thermal back-off are reused unchanged.
+- **`tools/`** — dev-time scripts (currently the app-icon generator).
 
 ---
 
@@ -48,7 +51,7 @@ Every entity is a SwiftData `@Model`. Schema is registered once in `BlueXApp.swi
 | `Annotation` | A classification. `stage` is `"nltagger"` for Apple sentiment, `"llm"` for an LLM run. A post can carry many annotations — one NLTagger plus one per LLM model. `modelName` / `modelVersion` / `promptHash` identify the lineage; `rawResponse` preserves the original output for audit. |
 | `AccountSnapshot` | Periodic counters per account (planned for time-series snapshots). |
 | `ScrapeLog` | One row per scrape session: type / status / postCount / `resumeCursor` (for mid-scrape resume). |
-| `ModelConfig` | An LLM endpoint + model id + prompt. The Annotation Queue's model picker enumerates these. Multiple presets seeded on first launch (Qwen 2.5/3.6, Gemma 4). |
+| `ModelConfig` | An LLM endpoint + model id + prompt. The Annotation Queue's model picker enumerates these. Multiple presets seeded on first launch (Qwen 2.5/3.6, Gemma 4); `qwen3.6:27b` is the default after the 2026-05 prompt revision (HICC-style three-class classification, see `Research/LLM_Hate_Counter_Speech_Classification_from_CC.md` in the vault for the comparison). |
 | `CoordinatorState` | A singleton row persisting the last coordinator phase for crash recovery. |
 
 ### Data-layer helpers
@@ -192,6 +195,7 @@ BlueX/
 ├── BlueX.entitlements                   Network client + keychain access
 ├── Info.plist
 ├── Data/
+│   ├── BlueXSchema.swift                Schema list + BlueXStore (URL + openContainer)
 │   ├── TrackedAccount.swift
 │   ├── AccountGroup.swift
 │   ├── Post.swift
@@ -246,9 +250,22 @@ BlueX/
     ├── Thread/AnnotationBadge.swift
     ├── Queue/QueueView.swift            Sentiment / LLM run UI
     └── Settings/{Settings,CredentialsSettings,ModelSettings,ScrapingSettings}View.swift
+cli/
+├── Shared/CLISupport.swift               CancelFlag, SIGINT handler, progress writer
+├── annotate/main.swift                   blueX-annotate — top-level entry point
+└── scrape/main.swift                     blueX-scrape — top-level entry point
 tools/
 └── generate-app-icon.swift              Core Graphics renderer for the app icon
 ```
+
+### Command-line tools
+
+Two CLIs share the GUI's services and schema; they don't duplicate scraping or annotation logic. Both open the same SwiftData store and write back into it, so an unattended overnight CLI run is visible the next time you launch the GUI.
+
+- **`blueX-annotate`** — runs the LLM annotation pass against the existing store. Picks the `isDefault` `ModelConfig` unless `--model <id>` is passed (`--list-models` enumerates them). `--pace burst|steady|gentle` controls the per-post sleep; `--limit <n>` caps the run. Progress bar reports posts processed, average time per post, ETA, and a thermal-state glyph (🟢 / 🟡 / 🔴) that escalates the cool-down automatically.
+- **`blueX-scrape`** — runs the depth-first scrape (feed + reply trees) against active accounts. `--handle <h>` restricts to one account; `--limit <n>` caps new posts per account; `--max-window-days <n>` overrides the reply-tree refresh window for this run only; `--list-accounts` enumerates active accounts. Uses the same Keychain credentials as the GUI.
+
+Both tools install a SIGINT handler so Ctrl-C stops cleanly at the next post boundary (the partial batch is already saved). Local install target: `~/.local/bin/`.
 
 ---
 
