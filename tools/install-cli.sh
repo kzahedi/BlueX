@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
 # tools/install-cli.sh
 #
-# Copy the freshly-built blueX-annotate binary from Xcode's DerivedData into
-# ~/.local/bin so it's on PATH. Safe to re-run after every CLI rebuild.
+# Copy the freshly-built BlueX command-line tools (blueX-annotate, blueX-scrape)
+# from Xcode's DerivedData into ~/.local/bin so they're on PATH. Safe to re-run
+# after every CLI rebuild.
 
 set -euo pipefail
 
 DEST_DIR="${HOME}/.local/bin"
 mkdir -p "$DEST_DIR"
 
-BIN=$(find "${HOME}/Library/Developer/Xcode/DerivedData/BlueX-"*"/Build/Products/Debug" \
-        -name "blueX-annotate" -type f 2>/dev/null | head -1)
+BUILD_DIR="${HOME}/Library/Developer/Xcode/DerivedData/BlueX-"*"/Build/Products/Debug"
 
-if [[ -z "$BIN" ]]; then
-  echo "blueX-annotate binary not found. Build it first:" >&2
-  echo "  xcodebuild build -project BlueX.xcodeproj -scheme BlueXAnnotate -destination 'platform=macOS,arch=arm64'" >&2
-  exit 1
-fi
+install_one() {
+  local name="$1"
+  local bin
+  bin=$(find ${BUILD_DIR} -name "$name" -type f 2>/dev/null | head -1)
+  if [[ -z "$bin" ]]; then
+    echo "✗ $name not found in DerivedData. Build it first:" >&2
+    echo "  xcodebuild build -project BlueX.xcodeproj -scheme ${name/blueX-/BlueX} -destination 'platform=macOS,arch=arm64'" >&2
+    return 1
+  fi
+  cp "$bin" "$DEST_DIR/$name"
+  chmod +x "$DEST_DIR/$name"
+  echo "✓ installed: $DEST_DIR/$name"
+}
 
-cp "$BIN" "$DEST_DIR/blueX-annotate"
-chmod +x "$DEST_DIR/blueX-annotate"
+install_one blueX-annotate || true
+install_one blueX-scrape    || true
 
-echo "installed: $DEST_DIR/blueX-annotate"
 case ":$PATH:" in
   *":$DEST_DIR:"*) ;;
   *)
@@ -29,6 +36,6 @@ case ":$PATH:" in
     echo "NOTE: $DEST_DIR is not on your PATH."
     echo "Add this to your shell rc (~/.zshrc or ~/.bashrc):"
     echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-    echo "Then open a new terminal and you can run: blueX-annotate --help"
+    echo "Then open a new terminal and you can run the CLIs."
     ;;
 esac

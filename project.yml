@@ -57,7 +57,7 @@ targets:
     platform: macOS
     deploymentTarget: "14.0"
     sources:
-      - path: cli
+      - path: cli/annotate
       - path: BlueX/Data
       - path: BlueX/Services/API
       - path: BlueX/Services/Annotation
@@ -66,6 +66,29 @@ targets:
     settings:
       base:
         PRODUCT_NAME: blueX-annotate
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    dependencies:
+      - sdk: SwiftData.framework
+
+  BlueXScrape:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: cli/scrape
+      - path: BlueX/Data
+      - path: BlueX/Services/API
+      - path: BlueX/Services/Scraping
+        excludes:
+          - "ScrapeCoordinator.swift"   # GUI-coupled (@Observable, AnnotationService)
+    settings:
+      base:
+        PRODUCT_NAME: blueX-scrape
         SWIFT_VERSION: "5.9"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: NO
