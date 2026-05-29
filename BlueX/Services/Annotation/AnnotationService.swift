@@ -117,12 +117,25 @@ final class AnnotationService {
     /// `saveEvery` is the transactional batch size, NOT a hard cap on the run. Each
     /// LLM call is one post; the save just bounds the in-memory annotation list and
     /// the SQLite transaction.
+    ///
+    /// `stage` is the annotation stage tag written for each post and also the filter
+    /// for the "already done" pending set — so the sentiment pass (stage =
+    /// "llm-sentiment") doesn't trip over annotations from the hate/counter pass
+    /// (stage = "llm") and vice versa. Each (post, modelName, stage) is annotated
+    /// at most once.
+    ///
+    /// `signedSentimentScore` controls how the `sentimentScore` field is filled:
+    /// false (default) → preserve the NLTagger baseline; true → derive from the
+    /// LLM's class label (positive → +confidence, negative → −confidence, else 0).
+    /// The latter is for the LLM-sentiment pass where the model's own emission is
+    /// what we want plotted.
     @MainActor
-    func runLLMPass(saveEvery: Int = 20, pace: LLMPace = .steady) async throws {
+    func runLLMPass(saveEvery: Int = 20, pace: LLMPace = .steady,
+                    stage: String = "llm", signedSentimentScore: Bool = false) async throws {
         guard let client = activeClient else { return }
 
         isRunning = true
-        passLabel = "LLM · \(client.modelName)"
+        passLabel = (stage == "llm-sentiment" ? "LLM sentiment · " : "LLM · ") + client.modelName
         queueSize = 0
         processedCount = 0
         errorCount = 0
@@ -146,15 +159,17 @@ final class AnnotationService {
                 do {
                     let context = ModelContext(container)
 
-                    // Build the pending set once, scoped to THIS run's model. A post is
-                    // "done" once this model has any LLM annotation for it — we never
-                    // re-classify the same post with the same model, even if the prompt
-                    // template has been revised since. Annotations from OTHER models
-                    // are preserved untouched so cross-model comparison still works.
+                    // Build the pending set once, scoped to THIS run's (stage, model).
+                    // A post is "done" once this stage+model has any annotation for it
+                    // — we never re-classify the same post with the same stage+model,
+                    // even if the prompt template has been revised since. Annotations
+                    // from OTHER stages/models are preserved untouched so cross-pass
+                    // comparison still works.
                     let currentModelName = client.modelName
+                    let currentStage = stage
                     let matchingAnnotations = try context.fetch(FetchDescriptor<Annotation>(
                         predicate: #Predicate {
-                            $0.stage == "llm" && $0.modelName == currentModelName
+                            $0.stage == currentStage && $0.modelName == currentModelName
                         }
                     ))
                     let alreadyClassifiedURIs = Set(matchingAnnotations.compactMap { $0.post?.uri })
@@ -193,15 +208,29 @@ final class AnnotationService {
 
                             do {
                                 let llmResult = try await client.classify(text: post.text, language: language)
+                                // For sentiment passes, the LLM's class label becomes a signed
+                                // score (-conf..+conf) so charts can plot it directly. For the
+                                // hate/counter pass we keep the NLTagger baseline since it
+                                // carries the actual sentiment polarity.
+                                let scoreToStore: Double
+                                if signedSentimentScore {
+                                    switch llmResult.speechClass {
+                                    case "positive": scoreToStore = llmResult.confidence
+                                    case "negative": scoreToStore = -llmResult.confidence
+                                    default:         scoreToStore = 0.0
+                                    }
+                                } else {
+                                    scoreToStore = baselineSentiment
+                                }
                                 let annotation = Annotation(
                                     speechClass: llmResult.speechClass,
-                                    sentimentScore: baselineSentiment,
+                                    sentimentScore: scoreToStore,
                                     detectedLanguage: language,
                                     modelName: client.modelName,
                                     modelVersion: client.modelVersion,
                                     promptHash: client.promptHash,
                                     rawResponse: llmResult.rawResponse,
-                                    stage: "llm",
+                                    stage: currentStage,
                                     severity: llmResult.severity,
                                     confidence: llmResult.confidence,
                                     reasoning: llmResult.reasoning

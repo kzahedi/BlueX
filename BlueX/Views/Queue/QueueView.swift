@@ -95,6 +95,28 @@ struct QueueView: View {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .disabled(viewModel.isRunning || coordinator.annotationService.isRunning || viewModel.sentimentPending == 0)
 
+            // LLM sentiment pass — uses the same LLM model as the classification pass
+            // but with a sentiment-specific prompt (positive/neutral/negative). Sits
+            // alongside Apple sentiment for comparison and catches contrastive replies
+            // ("subscriber for 40 years but article is shit") that NLTagger mis-scores
+            // as positive.
+            Button("Run LLM Sentiment") {
+                startLLMSentiment()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.selectedBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .disabled(
+                viewModel.isRunning
+                || coordinator.annotationService.isRunning
+                || activeModel == nil
+            )
+            .help("Run sentiment classification (positive/neutral/negative) using the selected LLM. Annotations stored separately from Apple NLTagger sentiment for side-by-side comparison.")
+
             // LLM model picker — sourced from ModelConfig in Settings (seeded with the
             // installed Ollama models). Falls back to whichever is marked isDefault.
             Menu(activeModel.map { "Model: \($0.modelID)" } ?? "No model") {
@@ -337,6 +359,38 @@ struct QueueView: View {
             } catch {
                 await MainActor.run { viewModel.lastError = error.localizedDescription }
             }
+            await MainActor.run {
+                viewModel.isRunning = false
+                viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)
+            }
+        }
+    }
+
+    /// Kicks off the LLM-sentiment pass: same selected model + endpoint as the
+    /// classification pass, but the client is built with the sentiment prompt and
+    /// the positive/neutral/negative class set. Annotations land at
+    /// stage = "llm-sentiment" so the hate/counter LLM pass and the NLTagger pass
+    /// stay untouched for comparison.
+    private func startLLMSentiment() {
+        guard let cfg = activeModel else {
+            viewModel.lastError = "No LLM model configured. Add one in Settings."
+            return
+        }
+        viewModel.isRunning = true
+        viewModel.lastError = nil
+        Task {
+            // Build an Ollama client directly: ModelClientFactory uses the config's
+            // own prompt template, but for the sentiment pass we need a *different*
+            // template + class set. So we sidestep the factory and construct here.
+            // (The Apple Foundation Models path is hate-only via guardrails anyway,
+            //  so this branching only matters for Ollama-backed configs.)
+            let client = OllamaClient(
+                modelName: cfg.modelID,
+                endpoint: cfg.endpoint,
+                promptTemplate: ModelConfig.defaultSentimentPromptTemplate,
+                validClasses: LLMResponseParser.positiveNeutralNegative
+            )
+            await coordinator.runLLMSentimentAnnotation(using: client, pace: pace)
             await MainActor.run {
                 viewModel.isRunning = false
                 viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)

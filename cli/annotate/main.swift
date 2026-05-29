@@ -17,11 +17,17 @@ import SwiftData
 
 // MARK: - Argument parsing
 
+enum AnnotatePass: String {
+    case llm                // hate / counter / neutral classification (default)
+    case llmSentiment       // positive / neutral / negative sentiment
+}
+
 struct CLIArgs {
     var modelID: String?
     var pace: LLMPace = .steady
     var limit: Int?
     var concurrency: Int = 1
+    var pass: AnnotatePass = .llm
     var listModels = false
     var help = false
 
@@ -53,6 +59,16 @@ struct CLIArgs {
                 else if i < args.count {
                     fail("blueX-annotate", "invalid --concurrency value '\(args[i])' (must be 1–32)")
                 }
+            case "--pass":
+                i += 1
+                if i < args.count {
+                    switch args[i] {
+                    case "llm": a.pass = .llm
+                    case "llm-sentiment", "sentiment": a.pass = .llmSentiment
+                    default:
+                        fail("blueX-annotate", "invalid --pass value '\(args[i])'. Valid: llm, llm-sentiment")
+                    }
+                }
             default:
                 fail("blueX-annotate", "unknown argument: \(arg). Run --help for usage.")
             }
@@ -77,6 +93,13 @@ usage: blueX-annotate [options]
                      Engine handles concurrency well — try 4–8. For Ollama the
                      local server is single-threaded per model, so keep at 1
                      unless you're hitting a remote endpoint. Max 32.
+  --pass <p>         llm            — hate / counter / neutral classification
+                                       using the model's prompt template (default)
+                     llm-sentiment  — positive / neutral / negative sentiment
+                                       classification, distinct prompt + class
+                                       set; writes stage="llm-sentiment" so it
+                                       sits alongside the NLTagger sentiment
+                                       and the hate/counter annotation.
   --list-models      Print available ModelConfigs and exit.
   --help, -h         This help.
 
@@ -173,26 +196,43 @@ func runCLI() async {
         guard let cfg = modelCfg else {
             fail("blueX-annotate", "no ModelConfig found in the store. Launch the GUI once to seed defaults, or run --list-models to inspect.")
         }
-        // Build the transport via the factory so --model apple-foundation works in the
-        // CLI exactly as it does in the GUI Queue. Fail loudly if the requested
-        // transport isn't available on this machine (e.g. Apple Foundation Models
-        // unavailable, Apple Intelligence disabled, or macOS <26).
+        // For the sentiment pass we ignore Apple Foundation Models (guardrails block
+        // it on hateful inputs anyway) and the ModelConfig's prompt template. We
+        // build an Ollama client directly with the sentiment prompt + class set.
+        // For the classification pass the factory's normal dispatch applies.
         let client: any LocalModelClient
-        do {
-            client = try ModelClientFactory.make(from: cfg)
-        } catch {
-            fail("blueX-annotate", "could not build client for \(cfg.modelID): \(error.localizedDescription)")
+        let stageTag: String
+        let signedSentimentScore: Bool
+        switch args.pass {
+        case .llmSentiment:
+            client = OllamaClient(
+                modelName: cfg.modelID,
+                endpoint: cfg.endpoint,
+                promptTemplate: ModelConfig.defaultSentimentPromptTemplate,
+                validClasses: LLMResponseParser.positiveNeutralNegative
+            )
+            stageTag = "llm-sentiment"
+            signedSentimentScore = true
+        case .llm:
+            do {
+                client = try ModelClientFactory.make(from: cfg)
+            } catch {
+                fail("blueX-annotate", "could not build client for \(cfg.modelID): \(error.localizedDescription)")
+            }
+            stageTag = "llm"
+            signedSentimentScore = false
         }
 
         // ---- cancel handler (Ctrl-C)
         let cancel = installSIGINTHandler(notice: "\n\nstopping after current post — please wait…\n")
 
-        // ---- build pending set, scoped to this model only
+        // ---- build pending set, scoped to this (stage, model) pair
         let currentModelName = cfg.modelID
+        let currentStage = stageTag
         let alreadyDone: Set<String>
         do {
             let matched = try context.fetch(FetchDescriptor<Annotation>(
-                predicate: #Predicate { $0.stage == "llm" && $0.modelName == currentModelName }
+                predicate: #Predicate { $0.stage == currentStage && $0.modelName == currentModelName }
             ))
             alreadyDone = Set(matched.compactMap { $0.post?.uri })
         } catch {
@@ -218,7 +258,8 @@ func runCLI() async {
 
         // ---- run
         let concurrencyTag = args.concurrency > 1 ? " · j=\(args.concurrency)" : ""
-        print("Annotating \(total) posts · \(cfg.modelID) · pace \(args.pace.rawValue)\(concurrencyTag)\n")
+        let passTag = (args.pass == .llmSentiment) ? " · sentiment" : ""
+        print("Annotating \(total) posts · \(cfg.modelID) · pace \(args.pace.rawValue)\(concurrencyTag)\(passTag)\n")
 
         let runStart = Date()
 
@@ -265,15 +306,28 @@ func runCLI() async {
             guard let post = postsByURI[outcome.item.uri] else { return }
             switch outcome.result {
             case .success(let result):
+                // For the LLM-sentiment pass, derive a signed sentimentScore from the
+                // class label so charts pick it up directly. For the hate/counter pass,
+                // preserve the NLTagger baseline.
+                let scoreToStore: Double
+                if signedSentimentScore {
+                    switch result.speechClass {
+                    case "positive": scoreToStore = result.confidence
+                    case "negative": scoreToStore = -result.confidence
+                    default:         scoreToStore = 0.0
+                    }
+                } else {
+                    scoreToStore = outcome.item.baselineSentiment
+                }
                 let annotation = Annotation(
                     speechClass: result.speechClass,
-                    sentimentScore: outcome.item.baselineSentiment,
+                    sentimentScore: scoreToStore,
                     detectedLanguage: outcome.item.language,
                     modelName: modelName,
                     modelVersion: modelVersion,
                     promptHash: promptHashValue,
                     rawResponse: result.rawResponse,
-                    stage: "llm",
+                    stage: currentStage,
                     severity: result.severity,
                     confidence: result.confidence,
                     reasoning: result.reasoning

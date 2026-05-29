@@ -258,6 +258,29 @@ final class ScrapeCoordinator {
         phase = .idle
     }
 
+    /// Runs LLM SENTIMENT annotation — same engine as `runLLMAnnotation` but writes
+    /// `stage = "llm-sentiment"` and uses the sentiment prompt template. The class
+    /// label (positive/neutral/negative) is mapped to a signed sentimentScore so the
+    /// charts pick it up the same way they pick up NLTagger. Pass a client that was
+    /// constructed with `promptTemplate = ModelConfig.defaultSentimentPromptTemplate`
+    /// and `validClasses = LLMResponseParser.positiveNeutralNegative` — otherwise
+    /// the LLM will refuse the prompt-class mismatch.
+    func runLLMSentimentAnnotation(using client: any LocalModelClient,
+                                   saveEvery: Int = 20,
+                                   pace: LLMPace = .steady) async {
+        phase = .annotating
+        annotationService.setActiveClient(client)
+        do {
+            try await annotationService.runLLMPass(
+                saveEvery: saveEvery, pace: pace,
+                stage: "llm-sentiment", signedSentimentScore: true
+            )
+        } catch {
+            lastError = .networkError(underlying: error.localizedDescription)
+        }
+        phase = .idle
+    }
+
     /// Cancels an in-flight LLM (or sentiment) annotation pass.
     func cancelAnnotation() {
         annotationService.cancel()

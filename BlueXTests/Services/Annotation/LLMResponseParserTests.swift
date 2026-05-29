@@ -87,6 +87,22 @@ final class LLMResponseParserTests: XCTestCase {
         ))
     }
 
+    /// Sentiment pass uses a different class set than the hate/counter pass.
+    /// Passing the positive/neutral/negative set should accept "negative" and
+    /// reject "hate" (the latter would otherwise pass the default validator).
+    func testAcceptsPositiveNeutralNegativeWhenConfigured() throws {
+        let raw = #"{"class": "negative", "severity": null, "confidence": 0.85, "reasoning": "sarcastic praise"}"#
+        let result = try LLMResponseParser.parse(raw, validClasses: LLMResponseParser.positiveNeutralNegative)
+        XCTAssertEqual(result.speechClass, "negative")
+    }
+
+    func testRejectsHateInSentimentMode() {
+        // "hate" is valid for the default set but NOT for sentiment — this guards
+        // against accidentally routing a HICC output through the sentiment pass.
+        let raw = #"{"class": "hate", "severity": "mild", "confidence": 0.9}"#
+        XCTAssertThrowsError(try LLMResponseParser.parse(raw, validClasses: LLMResponseParser.positiveNeutralNegative))
+    }
+
     func testRejectsNoJSON() {
         XCTAssertThrowsError(try LLMResponseParser.parse("I cannot classify this"))
     }

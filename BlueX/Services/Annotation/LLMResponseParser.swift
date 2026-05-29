@@ -4,7 +4,17 @@ import Foundation
 // Why: Both OllamaClient and MLXClient use identical JSON parsing logic.
 // A shared static function avoids duplication and cross-client coupling.
 enum LLMResponseParser {
-    static func parse(_ raw: String) throws -> LLMAnnotation {
+    /// Class sets vary by pass:
+    ///   - HICC hate/counter classification: hate / counter / neutral
+    ///   - Sentiment classification:         positive / neutral / negative
+    /// The parser is otherwise identical (same JSON shape, same brace-balanced
+    /// extraction, same severity normalisation). Defaults to the HICC set for
+    /// backwards compatibility with the original LLM annotation pass.
+    static let hateCounterNeutral: Set<String> = ["hate", "counter", "neutral"]
+    static let positiveNeutralNegative: Set<String> = ["positive", "neutral", "negative"]
+
+    static func parse(_ raw: String,
+                      validClasses: Set<String> = hateCounterNeutral) throws -> LLMAnnotation {
         guard let jsonString = extractBalancedJSONObject(from: raw) else {
             throw BlueskyError.decodingError(underlying: "No JSON object found in: \(raw)")
         }
@@ -27,9 +37,10 @@ enum LLMResponseParser {
             throw BlueskyError.decodingError(underlying: "JSON parse failed: \(error.localizedDescription)")
         }
 
-        let validClasses = ["hate", "counter", "neutral"]
         guard validClasses.contains(decoded.class) else {
-            throw BlueskyError.decodingError(underlying: "Invalid class '\(decoded.class)'")
+            throw BlueskyError.decodingError(
+                underlying: "Invalid class '\(decoded.class)' (expected one of \(validClasses.sorted().joined(separator: ", ")))"
+            )
         }
 
         // Some models emit the literal string "null" or empty string for severity

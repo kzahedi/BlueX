@@ -7,6 +7,10 @@ struct OllamaClient: LocalModelClient {
     let modelVersion: String
     let endpoint: String
     let promptTemplate: String
+    /// Which class label set the parser should validate against. Defaults to the
+    /// hate/counter/neutral set used by the LLM classification pass; the LLM
+    /// sentiment pass overrides this with positive/neutral/negative.
+    let validClasses: Set<String>
     private let session: URLSessionProtocol
 
     var promptHash: String { ModelConfig.promptHash(of: promptTemplate) }
@@ -16,12 +20,14 @@ struct OllamaClient: LocalModelClient {
         modelVersion: String = "latest",
         endpoint: String = "http://localhost:11434",
         promptTemplate: String = ModelConfig.defaultPromptTemplate,
+        validClasses: Set<String> = LLMResponseParser.hateCounterNeutral,
         session: URLSessionProtocol = URLSession.shared
     ) {
         self.modelName = modelName
         self.modelVersion = modelVersion
         self.endpoint = endpoint
         self.promptTemplate = promptTemplate
+        self.validClasses = validClasses
         self.session = session
     }
 
@@ -56,6 +62,6 @@ struct OllamaClient: LocalModelClient {
 
     // Internal for testing — delegates to shared LLMResponseParser
     func parseLLMResponse(_ raw: String) throws -> LLMAnnotation {
-        return try LLMResponseParser.parse(raw)
+        return try LLMResponseParser.parse(raw, validClasses: validClasses)
     }
 }

@@ -97,4 +97,70 @@ final class ModelConfig {
     {{text}}
     \"\"\"
     """
+
+    /// Prompt used by the LLM sentiment pass (`stage = "llm-sentiment"`). Distinct
+    /// from the hate/counter/neutral prompt above: this one classifies emotional
+    /// valence on a positive/neutral/negative scale and is explicitly tuned to
+    /// catch the failure mode that broke NLTagger — contrastive replies that
+    /// START with a positive cue but PIVOT to criticism. ("I've been a subscriber
+    /// for 40 years but this article is full of shit" → must come back NEGATIVE.)
+    /// Same {{text}} / {{language}} placeholders; same JSON output shape so it
+    /// flows through LLMResponseParser unchanged.
+    static let defaultSentimentPromptTemplate = """
+    You are classifying ONE Bluesky reply for emotional valence (sentiment).
+    The reply is in {{language}}. Read the WHOLE reply before deciding.
+
+    CLASSES
+
+    - "positive": the dominant emotion is approval, support, joy, gratitude, or
+      appreciation. The reply as a whole leaves the reader feeling the author is
+      pleased.
+
+    - "negative": the dominant emotion is anger, frustration, contempt,
+      disappointment, hostility, sarcasm, or strong criticism. CRUCIAL: replies
+      that open with a positive frame and then pivot to a complaint, criticism,
+      or insult are NEGATIVE — the criticism is what the author is actually
+      communicating. Sarcastic praise is NEGATIVE.
+
+    - "neutral": informational, asks a question, makes a factual observation,
+      shares a link without comment, or expresses no clear emotional valence.
+      Default to neutral when in doubt.
+
+    EXAMPLES — NEGATIVE (do NOT mistake for positive)
+
+    - "I've been a subscriber for 40 years but this article is full of shit."
+        → mixed-frame contrast; criticism is the point. NEGATIVE.
+    - "Great reporting, except every single fact is wrong."
+        → sarcastic praise followed by undercut. NEGATIVE.
+    - "Toller Artikel, der nichts erklärt und alles falsch macht."
+        → German equivalent of the above pattern. NEGATIVE.
+
+    EXAMPLES — POSITIVE
+
+    - "Genuinely well-researched piece, thank you for this."         → straight praise
+    - "Hervorragende Analyse, vielen Dank!"                          → straight praise
+
+    EXAMPLES — NEUTRAL
+
+    - "Where did this data come from?"                               → question
+    - "Linking the source: [...]"                                    → informational
+    - "Yep" / single emoji                                            → no substantive valence
+
+    OUTPUT
+
+    Respond with a SINGLE JSON object, nothing before or after:
+
+    {
+      "class":      "positive" | "neutral" | "negative",
+      "confidence": 0.0 to 1.0,
+      "reasoning":  "<one short sentence justifying the class>"
+    }
+
+    severity MUST be JSON null (this field is unused for sentiment).
+
+    REPLY TEXT
+    \"\"\"
+    {{text}}
+    \"\"\"
+    """
 }
