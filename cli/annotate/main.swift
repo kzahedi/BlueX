@@ -21,6 +21,7 @@ struct CLIArgs {
     var modelID: String?
     var pace: LLMPace = .steady
     var limit: Int?
+    var concurrency: Int = 1
     var listModels = false
     var help = false
 
@@ -46,6 +47,12 @@ struct CLIArgs {
                 else if i < args.count {
                     fail("blueX-annotate", "invalid --limit value '\(args[i])'")
                 }
+            case "--concurrency", "-j":
+                i += 1
+                if i < args.count, let n = Int(args[i]), n >= 1, n <= 32 { a.concurrency = n }
+                else if i < args.count {
+                    fail("blueX-annotate", "invalid --concurrency value '\(args[i])' (must be 1–32)")
+                }
             default:
                 fail("blueX-annotate", "unknown argument: \(arg). Run --help for usage.")
             }
@@ -64,6 +71,12 @@ usage: blueX-annotate [options]
                      steady  — 0.5 s pause (default)
                      gentle  — 2 s pause; recommended for overnight runs
   --limit <n>        Stop after N posts. Default: process every pending post.
+  --concurrency <n>, -j <n>
+                     Number of classify() calls in flight at once. Default 1
+                     (sequential). For Apple Foundation Models the Neural
+                     Engine handles concurrency well — try 4–8. For Ollama the
+                     local server is single-threaded per model, so keep at 1
+                     unless you're hitting a remote endpoint. Max 32.
   --list-models      Print available ModelConfigs and exit.
   --help, -h         This help.
 
@@ -204,30 +217,61 @@ func runCLI() async {
         }
 
         // ---- run
-        print("Annotating \(total) posts · \(cfg.modelID) · pace \(args.pace.rawValue)\n")
+        let concurrencyTag = args.concurrency > 1 ? " · j=\(args.concurrency)" : ""
+        print("Annotating \(total) posts · \(cfg.modelID) · pace \(args.pace.rawValue)\(concurrencyTag)\n")
 
         let runStart = Date()
+
+        // Build a uri→Post lookup so the LLM tasks can return just the URI (a Sendable
+        // String) and the main actor re-binds to the @Model when persisting. @Model
+        // instances cannot cross actor boundaries safely.
+        var postsByURI: [String: Post] = [:]
+        for post in pending { postsByURI[post.uri] = post }
+
+        // Per-call payload (Sendable) sent into each task.
+        struct PendingClassify: Sendable {
+            let uri: String
+            let text: String
+            let language: String
+            let baselineSentiment: Double
+        }
+        let queue: [PendingClassify] = pending.map { post in
+            let baseline = post.nlTaggerAnnotation
+            return PendingClassify(
+                uri: post.uri,
+                text: post.text,
+                language: baseline?.detectedLanguage ?? "other",
+                baselineSentiment: baseline?.sentimentScore ?? 0.0
+            )
+        }
+
+        struct Outcome: Sendable {
+            let item: PendingClassify
+            let result: Result<LLMAnnotation, Error>
+        }
+
+        let modelName = client.modelName
+        let modelVersion = client.modelVersion
+        let promptHashValue = client.promptHash
         var processed = 0
         var errors = 0
         let saveEvery = 20
         var sinceSave = 0
 
-        for post in pending {
-            if cancel.isSet { break }
-
-            let baseline = post.nlTaggerAnnotation
-            let language = baseline?.detectedLanguage ?? "other"
-            let baselineSentiment = baseline?.sentimentScore ?? 0.0
-
-            do {
-                let result = try await client.classify(text: post.text, language: language)
+        // Persist one completed classification (called on the controller actor after
+        // a task returns). Re-find the post by URI so we never carry a Sendable-violating
+        // @Model reference across the await boundary.
+        func persist(_ outcome: Outcome) {
+            guard let post = postsByURI[outcome.item.uri] else { return }
+            switch outcome.result {
+            case .success(let result):
                 let annotation = Annotation(
                     speechClass: result.speechClass,
-                    sentimentScore: baselineSentiment,
-                    detectedLanguage: language,
-                    modelName: client.modelName,
-                    modelVersion: client.modelVersion,
-                    promptHash: client.promptHash,
+                    sentimentScore: outcome.item.baselineSentiment,
+                    detectedLanguage: outcome.item.language,
+                    modelName: modelName,
+                    modelVersion: modelVersion,
+                    promptHash: promptHashValue,
                     rawResponse: result.rawResponse,
                     stage: "llm",
                     severity: result.severity,
@@ -243,26 +287,66 @@ func runCLI() async {
                     try? context.save()
                     sinceSave = 0
                 }
-            } catch {
+            case .failure:
                 errors += 1
             }
+        }
 
-            let thermal = ProcessInfo.processInfo.thermalState
-            let elapsed = Date().timeIntervalSince(runStart)
-            writeProgress(progressLine(
-                processed: processed, total: total, errors: errors,
-                elapsed: elapsed, thermal: thermal,
-                modelID: cfg.modelID, paceLabel: args.pace.rawValue
-            ))
+        // Bounded-concurrency TaskGroup. Keep `concurrency` classify() calls in flight;
+        // as each completes we look it up by URI, write the Annotation, and (if we
+        // still have work + we're not cancelled) submit the next one.
+        //
+        // Pace and thermal back-off apply BETWEEN task submissions, not inside the
+        // classify() body. At concurrency 1 the cadence matches the old sequential
+        // path exactly; at higher concurrency the back-off becomes a global throttle
+        // — the system catches up at the same rate, the work just spreads across more
+        // workers in between.
+        let pace = args.pace
+        let concurrency = max(1, args.concurrency)
+        var queueIter = queue.makeIterator()
+        await withTaskGroup(of: Outcome.self) { group in
+            var inflight = 0
 
-            // Pace + thermal back-off. Both sleeps are cancellable via Task.sleep
-            // throwing CancellationError if our async context gets cancelled — but
-            // CLI doesn't cancel its own Task. The cancel flag is checked at the
-            // top of the next iteration.
-            let cooldown = args.pace.baseDelayNanoseconds
-                + ThermalBackoff.extraDelayNanoseconds(for: thermal)
-            if cooldown > 0 {
-                try? await Task.sleep(nanoseconds: cooldown)
+            // Helper: submit the next queue item if any.
+            func submitNext() -> Bool {
+                guard !cancel.isSet, let item = queueIter.next() else { return false }
+                let clientRef = client
+                group.addTask {
+                    do {
+                        let r = try await clientRef.classify(text: item.text, language: item.language)
+                        return Outcome(item: item, result: .success(r))
+                    } catch {
+                        return Outcome(item: item, result: .failure(error))
+                    }
+                }
+                inflight += 1
+                return true
+            }
+
+            // Initial fill.
+            for _ in 0..<concurrency { if !submitNext() { break } }
+
+            while inflight > 0 {
+                guard let outcome = await group.next() else { break }
+                inflight -= 1
+                persist(outcome)
+
+                let thermal = ProcessInfo.processInfo.thermalState
+                let elapsed = Date().timeIntervalSince(runStart)
+                writeProgress(progressLine(
+                    processed: processed, total: total, errors: errors,
+                    elapsed: elapsed, thermal: thermal,
+                    modelID: cfg.modelID, paceLabel: args.pace.rawValue
+                ))
+
+                // Pace + thermal back-off — applied at task-submission time so it
+                // throttles the rate of new work, not each classify() call.
+                let cooldown = pace.baseDelayNanoseconds
+                    + ThermalBackoff.extraDelayNanoseconds(for: thermal)
+                if cooldown > 0 {
+                    try? await Task.sleep(nanoseconds: cooldown)
+                }
+                _ = submitNext()
             }
         }
 

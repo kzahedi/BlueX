@@ -49,37 +49,40 @@ final class AccountSeederTests: XCTestCase {
         XCTAssertEqual(configs.count, AccountSeeder.modelPresets.count)
         let defaults = configs.filter { $0.isDefault }
         XCTAssertEqual(defaults.count, 1, "exactly one ModelConfig should be marked default")
-        // After the 2026-05-29 evening change, default is Apple Foundation Models —
-        // smaller, faster, free, doesn't blow up the M4's unified memory like the
-        // 27B Ollama presets did.
-        XCTAssertEqual(defaults.first?.modelID, "apple-foundation")
-        XCTAssertEqual(defaults.first?.endpoint, "apple-foundation",
-                       "Apple Foundation Models uses the sentinel endpoint so ModelClientFactory picks the right transport")
+        // After 2026-05-29 evening: default is Gemma 3 4B. Apple Foundation Models
+        // turned out to refuse hate-content classification under its guardrails
+        // (even .permissiveContentTransformations), so we de-defaulted it. Gemma 3
+        // 4B is the speed/quality/memory sweet spot on an M4.
+        XCTAssertEqual(defaults.first?.modelID, "gemma3:4b")
     }
 
     func testEnsureModelConfigsMigratesDeprecatedDefaults() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        // Simulate a store that was last touched by the previous seeder version,
-        // where qwen3.6:27b was the default. The migration must move the default
-        // off it onto Apple Foundation Models.
-        let stale = ModelConfig(
-            name: "Qwen 3.6 27B",
-            endpoint: "http://localhost:11434",
-            modelID: "qwen3.6:27b",
-            promptTemplate: ModelConfig.defaultPromptTemplate,
-            isDefault: true
-        )
-        context.insert(stale)
-        try context.save()
+        // Simulate a store with each of the deprecated defaults in turn: the
+        // migration must move all of them onto gemma3:4b.
+        for staleID in ["qwen2.5:7b", "qwen3.6:27b", "apple-foundation"] {
+            // Fresh container per loop iteration to avoid clobbering.
+            let perRunContainer = try makeContainer()
+            let perRunContext = ModelContext(perRunContainer)
+            let stale = ModelConfig(
+                name: "stale",
+                endpoint: staleID == "apple-foundation" ? "apple-foundation" : "http://localhost:11434",
+                modelID: staleID,
+                promptTemplate: ModelConfig.defaultPromptTemplate,
+                isDefault: true
+            )
+            perRunContext.insert(stale)
+            try perRunContext.save()
 
-        try AccountSeeder.ensureModelConfigs(in: context)
-        let after = try context.fetch(FetchDescriptor<ModelConfig>())
-        let defaults = after.filter { $0.isDefault }
-        XCTAssertEqual(defaults.count, 1)
-        XCTAssertEqual(defaults.first?.modelID, "apple-foundation")
-        XCTAssertTrue(after.contains { $0.modelID == "qwen3.6:27b" && !$0.isDefault },
-                      "the previously-default qwen3.6:27b is preserved as a non-default option")
+            try AccountSeeder.ensureModelConfigs(in: perRunContext)
+            let after = try perRunContext.fetch(FetchDescriptor<ModelConfig>())
+            let defaults = after.filter { $0.isDefault }
+            XCTAssertEqual(defaults.count, 1, "exactly one default after migration from \(staleID)")
+            XCTAssertEqual(defaults.first?.modelID, "gemma3:4b", "migration target is gemma3:4b for stale=\(staleID)")
+            XCTAssertTrue(after.contains { $0.modelID == staleID && !$0.isDefault },
+                          "the previously-default \(staleID) is preserved as a non-default option")
+        }
     }
 
     func testEnsureModelConfigsSeedsAllNewPresets() throws {

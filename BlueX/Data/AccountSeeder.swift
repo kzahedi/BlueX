@@ -88,27 +88,28 @@ struct AccountSeeder {
         let isDefault: Bool
     }
 
-    /// Preset model configurations seeded on first launch. Apple Foundation Models is
-    /// the default after 2026-05-29 — the 24-32B Ollama variants used 16+ GB of
-    /// unified memory and pushed the M4 into swap. Apple's on-device 3B model fits
-    /// in ~2 GB, runs on the Neural Engine, has native @Generable structured output,
-    /// and is free. The Ollama presets stay as comparison points and as a fallback
-    /// on macOS <26 (where Apple's framework isn't available).
+    /// Preset model configurations seeded on first launch.
+    ///
+    /// Default is Gemma 3 4B over Ollama: it processes hateful content (which is the
+    /// whole point of this app) without refusing, fits in ~3 GB resident memory, and
+    /// classifies at ~2.4 s/post at concurrency 4 on an M4 — the best speed/quality/
+    /// memory trade-off we've measured.
+    ///
+    /// Apple Foundation Models is included but NOT default. It returned
+    /// `.guardrailViolation` on nearly every Bluesky reply containing slurs, threats,
+    /// or political invective — exactly the content this app needs to classify — even
+    /// under `.permissiveContentTransformations` (the most relaxed guardrail Apple
+    /// exposes). The client is kept around for other analyses (translation, summary,
+    /// neutral topic classification) where the inputs don't trip its safety filter.
     ///
     /// Research backing: Research/LLM_Hate_Counter_Speech_Classification_from_CC.md
     /// in the vault.
     static let modelPresets: [ModelPreset] = [
         ModelPreset(
-            name: "Apple Foundation Models (on-device, recommended)",
-            modelID: "apple-foundation",
-            endpoint: "apple-foundation",  // sentinel — ModelClientFactory dispatches on this
-            isDefault: true
-        ),
-        ModelPreset(
-            name: "Qwen 3.6 27B (Ollama, heavy)",
-            modelID: "qwen3.6:27b",
+            name: "Gemma 3 4B (Ollama, recommended)",
+            modelID: "gemma3:4b",
             endpoint: "http://localhost:11434",
-            isDefault: false
+            isDefault: true
         ),
         ModelPreset(
             name: "Qwen 3 8B (Ollama, mid)",
@@ -117,14 +118,14 @@ struct AccountSeeder {
             isDefault: false
         ),
         ModelPreset(
-            name: "Gemma 3 4B (Ollama, fast multilingual)",
-            modelID: "gemma3:4b",
+            name: "Phi 4 14B (Ollama, reasoning)",
+            modelID: "phi4:14b",
             endpoint: "http://localhost:11434",
             isDefault: false
         ),
         ModelPreset(
-            name: "Phi 4 14B (Ollama, reasoning)",
-            modelID: "phi4:14b",
+            name: "Qwen 3.6 27B (Ollama, heavy)",
+            modelID: "qwen3.6:27b",
             endpoint: "http://localhost:11434",
             isDefault: false
         ),
@@ -138,6 +139,12 @@ struct AccountSeeder {
             name: "Qwen 2.5 7B (Ollama, baseline)",
             modelID: "qwen2.5:7b",
             endpoint: "http://localhost:11434",
+            isDefault: false
+        ),
+        ModelPreset(
+            name: "Apple Foundation Models (on-device, BLOCKED by guardrails on hate content)",
+            modelID: "apple-foundation",
+            endpoint: "apple-foundation",
             isDefault: false
         ),
     ]
@@ -181,16 +188,17 @@ struct AccountSeeder {
         }
         try context.save()
 
-        // Default-migration policy. We have a small set of deprecated defaults to
-        // migrate off of as research has progressed:
-        //   - "qwen2.5:7b"  (pre-2026-05-29) over-flagged political anger as hate
-        //   - "qwen3.6:27b" (2026-05-29 → 2026-05-29 evening) ate all of unified RAM
-        // Current preferred default is Apple Foundation Models — small, fast, free,
-        // memory-light. Fall back to qwen3:8b (more reasoning headroom than 2.5:7b)
-        // if Apple's framework isn't seeded for some reason.
-        let deprecatedDefaults: Set<String> = ["qwen2.5:7b", "qwen3.6:27b"]
+        // Default-migration policy. We have a sequence of deprecated defaults as the
+        // research has progressed:
+        //   - "qwen2.5:7b"     (pre-2026-05-29)         over-flagged political anger
+        //   - "qwen3.6:27b"    (2026-05-29 morning)     ate all of unified RAM
+        //   - "apple-foundation" (2026-05-29 afternoon) blocked by guardrails on hate
+        // Current preferred default is Gemma 3 4B — small, fast, no guardrails, runs
+        // ~2.4 s/post at concurrency 4 on the M4. Fall back to qwen3:8b if Gemma's
+        // not seeded yet for some reason.
+        let deprecatedDefaults: Set<String> = ["qwen2.5:7b", "qwen3.6:27b", "apple-foundation"]
         let refreshed = try context.fetch(FetchDescriptor<ModelConfig>())
-        let preferredDefault = refreshed.first { $0.modelID == "apple-foundation" }
+        let preferredDefault = refreshed.first { $0.modelID == "gemma3:4b" }
                               ?? refreshed.first { $0.modelID == "qwen3:8b" }
                               ?? refreshed.first
 
@@ -207,7 +215,7 @@ struct AccountSeeder {
         let after = try context.fetch(FetchDescriptor<ModelConfig>())
         if after.first(where: { $0.isDefault }) == nil {
             for cfg in after { cfg.isDefault = false }
-            (after.first(where: { $0.modelID == "apple-foundation" })
+            (after.first(where: { $0.modelID == "gemma3:4b" })
              ?? after.first(where: { $0.modelID == "qwen3:8b" })
              ?? after.first)?.isDefault = true
             try context.save()

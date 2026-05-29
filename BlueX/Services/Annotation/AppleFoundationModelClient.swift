@@ -28,10 +28,16 @@ final class AppleFoundationModelClient: LocalModelClient {
 
     init(promptTemplate: String) throws {
         #if canImport(FoundationModels)
-        let model = SystemLanguageModel.default
-        // .availability is an enum with .available and several .unavailable(reason:)
-        // cases (model still downloading, device unsupported, Apple Intelligence off).
-        // Treat anything not-available as a hard error so the user can act.
+        // The default Apple Foundation Model has aggressive content guardrails — it
+        // refuses to classify anything containing slurs, threats, or hateful language
+        // and surfaces .guardrailViolation. For a hate-speech classifier that's a
+        // total non-starter; the very inputs we need to label are the ones the model
+        // refuses. Apple provides `.permissiveContentTransformations` on
+        // `SystemLanguageModel.Guardrails` specifically for content-moderation /
+        // research use cases — it lets the model PROCESS content with mature themes
+        // (analyse, classify, summarise) while still refusing to GENERATE harmful
+        // content. That's exactly the right semantics for us.
+        let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
         switch model.availability {
         case .available:
             break
@@ -46,11 +52,16 @@ final class AppleFoundationModelClient: LocalModelClient {
                 userInfo: [NSLocalizedDescriptionKey: "unknown availability state"]
             )
         }
+        self.foundationModel = model
         #endif
         self.promptTemplate = promptTemplate
-        self.modelVersion = "1.0"
+        self.modelVersion = "1.0-permissive"
         self.promptHash = ModelConfig.promptHash(of: promptTemplate)
     }
+
+    #if canImport(FoundationModels)
+    private let foundationModel: SystemLanguageModel
+    #endif
 
     func classify(text: String, language: String) async throws -> LLMAnnotation {
         #if canImport(FoundationModels)
@@ -64,7 +75,7 @@ final class AppleFoundationModelClient: LocalModelClient {
             .replacingOccurrences(of: "{{text}}", with: text)
             .replacingOccurrences(of: "{{language}}", with: language)
 
-        let session = LanguageModelSession()
+        let session = LanguageModelSession(model: foundationModel)
         let response = try await session.respond(
             to: prompt,
             generating: AppleClassification.self
