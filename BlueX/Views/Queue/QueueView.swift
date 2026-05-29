@@ -379,18 +379,20 @@ struct QueueView: View {
         viewModel.isRunning = true
         viewModel.lastError = nil
         Task {
-            // Build an Ollama client directly: ModelClientFactory uses the config's
-            // own prompt template, but for the sentiment pass we need a *different*
-            // template + class set. So we sidestep the factory and construct here.
-            // (The Apple Foundation Models path is hate-only via guardrails anyway,
-            //  so this branching only matters for Ollama-backed configs.)
-            let client = OllamaClient(
-                modelName: cfg.modelID,
-                endpoint: cfg.endpoint,
-                promptTemplate: ModelConfig.defaultSentimentPromptTemplate,
-                validClasses: LLMResponseParser.positiveNeutralNegative
-            )
-            await coordinator.runLLMSentimentAnnotation(using: client, pace: pace)
+            // Dispatch through the factory with the sentiment prompt + class set
+            // injected. The factory routes Apple-foundation / Cerebras / Ollama
+            // identically, so the same button works whether the active model is
+            // local Gemma or Cerebras Llama 3.3 70B.
+            do {
+                let client = try ModelClientFactory.make(
+                    from: cfg,
+                    promptOverride: ModelConfig.defaultSentimentPromptTemplate,
+                    validClasses: LLMResponseParser.positiveNeutralNegative
+                )
+                await coordinator.runLLMSentimentAnnotation(using: client, pace: pace)
+            } catch {
+                await MainActor.run { viewModel.lastError = error.localizedDescription }
+            }
             await MainActor.run {
                 viewModel.isRunning = false
                 viewModel.loadQueue(from: modelContext, activeModelName: activeModel?.modelID)

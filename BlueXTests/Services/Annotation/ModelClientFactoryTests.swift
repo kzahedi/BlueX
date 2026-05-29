@@ -50,6 +50,8 @@ final class ModelClientFactoryTests: XCTestCase {
             switch error {
             case .appleFoundationUnavailable:
                 throw XCTSkip("Apple Foundation Models not available on this machine — skipping")
+            case .missingAPIKey:
+                XCTFail("apple-foundation endpoint should not route through the API-key path")
             }
         }
     }
@@ -58,5 +60,76 @@ final class ModelClientFactoryTests: XCTestCase {
         let err = ModelClientFactory.FactoryError.appleFoundationUnavailable(reason: "test reason")
         XCTAssertTrue(err.localizedDescription.contains("test reason"))
         XCTAssertTrue(err.localizedDescription.contains("macOS 26"))
+    }
+
+    func testMissingAPIKeyErrorMessageNamesProvider() {
+        let err = ModelClientFactory.FactoryError.missingAPIKey(provider: "cerebras")
+        XCTAssertTrue(err.localizedDescription.contains("cerebras"))
+        XCTAssertTrue(err.localizedDescription.contains("Settings"))
+    }
+
+    // MARK: - Cerebras / hosted OpenAI-compat dispatch
+
+    func testCerebrasEndpointRequiresAPIKey() throws {
+        // No key in Keychain → factory throws missingAPIKey(provider: "cerebras")
+        // rather than silently building a client that will 401 on the first call.
+        KeychainAPIKey.delete(provider: "cerebras")
+        let cfg = ModelConfig(
+            name: "Cerebras Llama 3.3 70B",
+            endpoint: "https://api.cerebras.ai",
+            modelID: "llama-3.3-70b",
+            promptTemplate: ModelConfig.defaultPromptTemplate
+        )
+        XCTAssertThrowsError(try ModelClientFactory.make(from: cfg)) { err in
+            guard case ModelClientFactory.FactoryError.missingAPIKey(let provider) = err else {
+                return XCTFail("expected .missingAPIKey, got \(err)")
+            }
+            XCTAssertEqual(provider, "cerebras")
+        }
+    }
+
+    func testCerebrasEndpointDispatchesToOpenAICompatClientWhenKeyPresent() throws {
+        // Plant a fake key just for this test. Cleanup in defer so other tests
+        // (and the user's actual key, if any) aren't disturbed.
+        let hadRealKey = KeychainAPIKey.load(provider: "cerebras")
+        defer {
+            if let real = hadRealKey {
+                KeychainAPIKey.save(provider: "cerebras", key: real)
+            } else {
+                KeychainAPIKey.delete(provider: "cerebras")
+            }
+        }
+        XCTAssertTrue(KeychainAPIKey.save(provider: "cerebras", key: "csk-test-key"))
+
+        let cfg = ModelConfig(
+            name: "Cerebras Llama 3.3 70B",
+            endpoint: "https://api.cerebras.ai",
+            modelID: "llama-3.3-70b",
+            promptTemplate: ModelConfig.defaultPromptTemplate
+        )
+        let client = try ModelClientFactory.make(from: cfg)
+        XCTAssertEqual(client.modelName, "llama-3.3-70b")
+        XCTAssertTrue(client is MLXClient, "hosted OpenAI-compat clients use MLXClient")
+    }
+
+    // MARK: - Sentiment-mode overrides
+
+    func testSentimentOverridePassesThroughPromptAndClassesToOllama() throws {
+        let cfg = ModelConfig(
+            name: "Gemma 3 4B",
+            endpoint: "http://localhost:11434",
+            modelID: "gemma3:4b",
+            promptTemplate: ModelConfig.defaultPromptTemplate  // hate/counter/neutral
+        )
+        let client = try ModelClientFactory.make(
+            from: cfg,
+            promptOverride: ModelConfig.defaultSentimentPromptTemplate,
+            validClasses: LLMResponseParser.positiveNeutralNegative
+        )
+        guard let ollama = client as? OllamaClient else {
+            return XCTFail("expected OllamaClient, got \(type(of: client))")
+        }
+        XCTAssertEqual(ollama.promptTemplate, ModelConfig.defaultSentimentPromptTemplate)
+        XCTAssertEqual(ollama.validClasses, LLMResponseParser.positiveNeutralNegative)
     }
 }

@@ -8,6 +8,11 @@ struct CredentialsSettingsView: View {
     @State private var connectionResult: String? = nil
     @State private var isTesting: Bool = false
 
+    // Per-provider API keys. Each one lives under its own Keychain item via
+    // KeychainAPIKey so adding a new provider doesn't disturb existing ones.
+    @State private var cerebrasKey: String = ""
+    @State private var cerebrasSaved: Bool = false
+
     enum SaveStatus {
         case idle, saved, error
     }
@@ -128,11 +133,81 @@ struct CredentialsSettingsView: View {
                         .foregroundStyle(Color.secondaryText)
                 }
             }
+
+            Divider().padding(.vertical, 8)
+
+            // MARK: - LLM Provider API Keys
+            //
+            // Optional keys for hosted OpenAI-compatible LLM providers. Only the
+            // selected ModelConfig's endpoint determines which key is consulted
+            // at run time — having a key here doesn't cost anything if you don't
+            // pick the matching model.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("LLM Provider API Keys")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.primaryText)
+                Text("For hosted LLM providers (Cerebras, etc.). Get a key from the provider's console and paste it here. Keys are stored in the macOS Keychain.")
+                    .font(.caption)
+                    .foregroundStyle(Color.secondaryText)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cerebras API Key")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.secondaryText)
+                Text("Free tier: ~1M tokens/day on Llama 3.3 70B. Sign up: cloud.cerebras.ai")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+                SecureField("csk-…", text: $cerebrasKey)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.primaryText)
+                    .padding(8)
+                    .background(Color.panelBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.neutralBorder, lineWidth: 1)
+                    )
+            }
+
+            HStack(spacing: 10) {
+                Button("Save Cerebras Key") {
+                    cerebrasSaved = KeychainAPIKey.save(provider: "cerebras", key: cerebrasKey)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(cerebrasKey.isEmpty ? Color.panelBackground : Color.selectedBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .disabled(cerebrasKey.isEmpty)
+
+                Button("Clear") {
+                    KeychainAPIKey.delete(provider: "cerebras")
+                    cerebrasKey = ""
+                    cerebrasSaved = false
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.mutedText)
+
+                if cerebrasSaved {
+                    Label("Saved", systemImage: "checkmark.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.counterBorder)
+                }
+            }
         }
         .onAppear {
             if let stored = KeychainCredentials.load() {
                 handle = stored.handle
                 password = stored.password
+            }
+            if let key = KeychainAPIKey.load(provider: "cerebras") {
+                cerebrasKey = key
+                cerebrasSaved = true
             }
         }
     }

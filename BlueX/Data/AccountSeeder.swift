@@ -147,6 +147,23 @@ struct AccountSeeder {
             endpoint: "apple-foundation",
             isDefault: false
         ),
+        // Cerebras Cloud — free tier gives ~1 M tokens/day on Llama 3.3 70B (≈ 1500
+        // posts/day at this prompt size). API key goes in Settings → Credentials.
+        // Particularly useful for the SENTIMENT pass where you want a bigger
+        // model than what fits on the M4. ModelClientFactory recognises the
+        // cerebras.ai host and attaches the bearer token automatically.
+        ModelPreset(
+            name: "Cerebras · Llama 3.3 70B (cloud free tier, sentiment)",
+            modelID: "llama-3.3-70b",
+            endpoint: "https://api.cerebras.ai",
+            isDefault: false
+        ),
+        ModelPreset(
+            name: "Cerebras · Qwen 3 32B (cloud free tier)",
+            modelID: "qwen-3-32b",
+            endpoint: "https://api.cerebras.ai",
+            isDefault: false
+        ),
     ]
 
     /// Idempotently ensure every preset ModelConfig exists, replace any stale "llama3.2"

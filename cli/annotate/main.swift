@@ -205,12 +205,19 @@ func runCLI() async {
         let signedSentimentScore: Bool
         switch args.pass {
         case .llmSentiment:
-            client = OllamaClient(
-                modelName: cfg.modelID,
-                endpoint: cfg.endpoint,
-                promptTemplate: ModelConfig.defaultSentimentPromptTemplate,
-                validClasses: LLMResponseParser.positiveNeutralNegative
-            )
+            // Sentiment uses a different prompt + class set, but every other
+            // dispatch concern (Apple? Cerebras? Ollama? auth header?) is the
+            // same as the classification pass, so route through the factory
+            // with the overrides applied.
+            do {
+                client = try ModelClientFactory.make(
+                    from: cfg,
+                    promptOverride: ModelConfig.defaultSentimentPromptTemplate,
+                    validClasses: LLMResponseParser.positiveNeutralNegative
+                )
+            } catch {
+                fail("blueX-annotate", "could not build sentiment client for \(cfg.modelID): \(error.localizedDescription)")
+            }
             stageTag = "llm-sentiment"
             signedSentimentScore = true
         case .llm:
