@@ -4,7 +4,8 @@ import Foundation
 // This is better than throwing raw Error or String — callers switch on BlueskyError
 // and handle each case explicitly, without string matching.
 enum BlueskyError: Error {
-    case authFailed
+    case authFailed                          // 401 — token expired or wrong credentials; the user needs to re-auth
+    case badRequest(message: String)         // 400 — malformed request; programmer error or stale URI we shouldn't retry
     case rateLimited(retryAfter: TimeInterval)
     case networkError(underlying: String)   // String (not Error) so we can conform to Equatable
     case decodingError(underlying: String)
@@ -21,6 +22,7 @@ extension BlueskyError: Equatable {
         case let (.rateLimited(a), .rateLimited(b)): return a == b
         case let (.networkError(a), .networkError(b)): return a == b
         case let (.decodingError(a), .decodingError(b)): return a == b
+        case let (.badRequest(a), .badRequest(b)): return a == b
         default: return false
         }
     }
@@ -31,6 +33,8 @@ extension BlueskyError: LocalizedError {
         switch self {
         case .authFailed:
             return "Bluesky authentication failed. Check credentials in Settings."
+        case .badRequest(let message):
+            return "Bluesky API rejected request: \(message)"
         case .rateLimited(let retryAfter):
             return "Rate limited. Retry in \(Int(retryAfter))s."
         case .networkError(let msg):

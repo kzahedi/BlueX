@@ -156,7 +156,14 @@ struct QueueView: View {
                 .padding(.vertical, 4)
                 .background(Color.counterBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
-                .disabled(viewModel.totalQueued == 0 || activeModel == nil)
+                // viewModel.isRunning catches the sentiment pass (Run Sentiment sets it);
+                // without that check, the user could fire an LLM pass concurrently with
+                // the in-flight NLTagger pass and collide on the same ModelContext.
+                .disabled(
+                    viewModel.totalQueued == 0
+                    || activeModel == nil
+                    || viewModel.isRunning
+                )
             }
 
             Button("Refresh") {

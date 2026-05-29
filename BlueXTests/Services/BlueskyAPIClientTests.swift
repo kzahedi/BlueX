@@ -55,17 +55,20 @@ final class BlueskyAPIClientTests: XCTestCase {
         }
     }
 
-    func testCreateSessionReturnsAuthFailedOn400() async throws {
+    func testCreateSessionReturnsBadRequestOn400() async throws {
+        // 400 is a programmer-error / stale-URI signal — distinct from 401, where the
+        // user needs to re-auth. Previously this returned .authFailed and pushed users
+        // to Settings even when their credentials were fine.
         let mock = MockURLSession()
         mock.mockStatusCode = 400
 
         let client = BlueskyAPIClient(session: mock)
         let result = await client.createSession(handle: "test", password: "wrong")
 
-        if case .failure(let e) = result {
-            XCTAssertEqual(e, .authFailed)
+        if case .failure(.badRequest) = result {
+            // ok
         } else {
-            XCTFail("Expected failure(.authFailed), got \(result)")
+            XCTFail("Expected failure(.badRequest), got \(result)")
         }
     }
 

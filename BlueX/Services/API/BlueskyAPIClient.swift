@@ -145,7 +145,14 @@ struct BlueskyAPIClient {
                 } catch {
                     return .failure(.decodingError(underlying: error.localizedDescription))
                 }
-            case 400, 401:
+            case 400:
+                // Bluesky returns 400 for malformed requests, deleted/blocked posts, or
+                // unknown DIDs. Surfacing it as authFailed sent the user to Settings
+                // even when their credentials were fine. Keep the body text so the
+                // caller can decide whether to skip or escalate.
+                let body = String(data: data, encoding: .utf8) ?? "<unparseable>"
+                return .failure(.badRequest(message: body))
+            case 401:
                 return .failure(.authFailed)
             case 404:
                 return .failure(.notFound)

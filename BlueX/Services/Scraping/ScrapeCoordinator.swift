@@ -135,9 +135,12 @@ final class ScrapeCoordinator {
         // Depth-first per post: for each account we first refresh the reply trees of
         // previously-stored posts still inside the rescrape window, then feed-scrape new
         // posts — scraping each new post's full reply tree before moving to the next post.
+        // Snapshot DIDs before the MainActor hop so the closure only touches Strings,
+        // not @Model instances.
+        let accountDIDs = accounts.map(\.did)
         await MainActor.run {
             phase = .feed
-            for account in accounts { accountStatuses[account.did] = .queued }
+            for did in accountDIDs { accountStatuses[did] = .queued }
         }
         let feedScraper = FeedScraper(api: api, context: context)
         let threadScraper = ThreadScraper(api: api, context: context)
@@ -148,10 +151,15 @@ final class ScrapeCoordinator {
 
         for (index, account) in accounts.enumerated() {
             guard !isCancelled else { break }
+            // Snapshot the @Model's identity off the model actor before hopping to
+            // MainActor — SwiftData @Model instances aren't Sendable and can fault
+            // properties on the wrong actor if read inside a MainActor closure.
+            let accountHandle = account.handle
+            let accountDID = account.did
             await MainActor.run {
-                currentAccountHandle = account.handle
+                currentAccountHandle = accountHandle
                 progress = Double(index) / Double(max(accounts.count, 1))
-                accountStatuses[account.did] = .scraping
+                accountStatuses[accountDID] = .scraping
             }
 
             do {
@@ -170,19 +178,19 @@ final class ScrapeCoordinator {
                 }
                 await MainActor.run {
                     totalPostsThisRun += newPosts + refreshed
-                    accountStatuses[account.did] = .done
+                    accountStatuses[accountDID] = .done
                 }
             } catch let error as BlueskyError {
                 if case .rateLimited(let retryAfter) = error {
-                    await MainActor.run { accountStatuses[account.did] = .failed }
+                    await MainActor.run { accountStatuses[accountDID] = .failed }
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                 } else {
-                    await MainActor.run { lastError = error; accountStatuses[account.did] = .failed }
+                    await MainActor.run { lastError = error; accountStatuses[accountDID] = .failed }
                 }
             } catch {
                 await MainActor.run {
                     lastError = .networkError(underlying: error.localizedDescription)
-                    accountStatuses[account.did] = .failed
+                    accountStatuses[accountDID] = .failed
                 }
             }
 

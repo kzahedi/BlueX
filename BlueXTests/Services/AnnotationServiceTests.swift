@@ -13,16 +13,26 @@ final class AnnotationServiceTests: XCTestCase {
             for: Post.self, Annotation.self, TrackedAccount.self, AccountGroup.self,
             configurations: config
         )
-        // Why: use mainContext so test objects and service objects share the same context.
-        // AnnotationService.runNLTaggerPass() is @MainActor and uses mainContext.
-        // Using a separate ModelContext(container) would cause cross-context relationship
-        // visibility issues where post.annotations would not reflect service-added annotations.
         context = container.mainContext
     }
 
     override func tearDownWithError() throws {
         container = nil
         context = nil
+    }
+
+    /// AnnotationService writes annotations on a detached Task with its own
+    /// `ModelContext(container)`. Those rows hit the store, but the test's main-context
+    /// Post instance doesn't auto-fault them in — so we re-fetch through a fresh
+    /// context to observe what was actually persisted. Older versions of these tests
+    /// read `post.annotations` from the captured instance and silently saw 0.
+    private func annotations(forURI uri: String) throws -> [Annotation] {
+        let fresh = ModelContext(container)
+        let posts = try fresh.fetch(FetchDescriptor<Post>(
+            predicate: #Predicate<Post> { $0.uri == uri }
+        ))
+        guard let post = posts.first else { return [] }
+        return post.annotations
     }
 
     func testNLTaggerPassCreatesAnnotations() async throws {
@@ -41,9 +51,11 @@ final class AnnotationServiceTests: XCTestCase {
         let service = AnnotationService(modelContainer: container)
         try await service.runNLTaggerPass()
 
-        XCTAssertEqual(post1.annotations.count, 1)
-        XCTAssertEqual(post1.annotations[0].stage, "nltagger")
-        XCTAssertEqual(post2.annotations.count, 1)
+        let post1Annotations = try annotations(forURI: "at://1")
+        XCTAssertEqual(post1Annotations.count, 1)
+        let firstAnnotation = try XCTUnwrap(post1Annotations.first)
+        XCTAssertEqual(firstAnnotation.stage, "nltagger")
+        XCTAssertEqual(try annotations(forURI: "at://2").count, 1)
         XCTAssertEqual(service.processedCount, 2)
     }
 
@@ -66,7 +78,7 @@ final class AnnotationServiceTests: XCTestCase {
         let service = AnnotationService(modelContainer: container)
         try await service.runNLTaggerPass()
 
-        XCTAssertEqual(post.annotations.count, 1)
+        XCTAssertEqual(try annotations(forURI: "at://1").count, 1)
     }
 
     func testQueueSizeReflectsUnannotatedCount() async throws {

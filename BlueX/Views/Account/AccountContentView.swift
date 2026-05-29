@@ -8,6 +8,7 @@ struct AccountContentView: View {
     var onScrapeAccount: ((TrackedAccount) -> Void)? = nil
 
     @State private var viewModel = AccountViewModel()
+    @Environment(\.modelContext) private var modelContext
     @Query private var allPosts: [Post]
 
     init(account: TrackedAccount, selection: Binding<SidebarItem?>,
@@ -16,6 +17,9 @@ struct AccountContentView: View {
         self._selection = selection
         self.onScrapeAccount = onScrapeAccount
         let did = account.did
+        // `allPosts` are this account's root posts only (replies have account == nil).
+        // The list view shows roots — replies live in the thread view. Stat chips need
+        // BOTH roots and replies, so we fetch replies separately in refreshCounts().
         self._allPosts = Query(
             filter: #Predicate<Post> { $0.account?.did == did },
             sort: \Post.createdAt,
@@ -79,12 +83,28 @@ struct AccountContentView: View {
             }
         }
         .background(Color.appBackground)
-        .onChange(of: allPosts) { _, newPosts in
-            viewModel.updateCounts(from: newPosts)
+        .onChange(of: allPosts) { _, _ in
+            refreshCounts()
         }
-        .onAppear {
+        .onAppear { refreshCounts() }
+    }
+
+    /// Roots + replies for stat chips. The reply fetch is one query that scoops every
+    /// non-root post whose `rootURI` belongs to one of this account's roots; small
+    /// per-account, and cached by SwiftData.
+    private func refreshCounts() {
+        let rootURIs = Set(allPosts.map(\.uri))
+        if rootURIs.isEmpty {
             viewModel.updateCounts(from: allPosts)
+            return
         }
+        let descriptor = FetchDescriptor<Post>(
+            predicate: #Predicate<Post> { post in
+                !post.isRootPost && rootURIs.contains(post.rootURI)
+            }
+        )
+        let replies = (try? modelContext.fetch(descriptor)) ?? []
+        viewModel.updateCounts(from: allPosts + replies)
     }
 
     private var statsRow: some View {

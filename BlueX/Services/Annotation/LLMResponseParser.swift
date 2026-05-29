@@ -5,11 +5,9 @@ import Foundation
 // A shared static function avoids duplication and cross-client coupling.
 enum LLMResponseParser {
     static func parse(_ raw: String) throws -> LLMAnnotation {
-        guard let jsonStart = raw.range(of: "{"),
-              let jsonEnd = raw.range(of: "}", options: .backwards) else {
+        guard let jsonString = extractBalancedJSONObject(from: raw) else {
             throw BlueskyError.decodingError(underlying: "No JSON object found in: \(raw)")
         }
-        let jsonString = String(raw[jsonStart.lowerBound...jsonEnd.lowerBound])
 
         struct LLMResponse: Codable {
             let `class`: String
@@ -48,5 +46,53 @@ enum LLMResponseParser {
             reasoning: decoded.reasoning,
             rawResponse: raw
         )
+    }
+
+    /// Scans `raw` left-to-right and returns the first balanced JSON object substring.
+    /// Tracks string literals (handling `\"` escapes) so braces inside strings don't
+    /// throw off the depth count. The earlier first-`{` / last-`}` approach went wrong
+    /// when models prepended reasoning containing `{...}` or wrapped the JSON in
+    /// ```json fences with a trailing brace from a different structure.
+    static func extractBalancedJSONObject(from raw: String) -> String? {
+        var depth = 0
+        var startIdx: String.Index?
+        var inString = false
+        var prevWasBackslash = false
+
+        var i = raw.startIndex
+        while i < raw.endIndex {
+            let ch = raw[i]
+            if inString {
+                if prevWasBackslash {
+                    prevWasBackslash = false
+                } else if ch == "\\" {
+                    prevWasBackslash = true
+                } else if ch == "\"" {
+                    inString = false
+                }
+            } else {
+                switch ch {
+                case "\"":
+                    inString = true
+                case "{":
+                    if depth == 0 { startIdx = i }
+                    depth += 1
+                case "}":
+                    depth -= 1
+                    if depth == 0, let start = startIdx {
+                        return String(raw[start...i])
+                    }
+                    if depth < 0 {
+                        // Stray closing brace before any open — reset.
+                        depth = 0
+                        startIdx = nil
+                    }
+                default:
+                    break
+                }
+            }
+            i = raw.index(after: i)
+        }
+        return nil
     }
 }
