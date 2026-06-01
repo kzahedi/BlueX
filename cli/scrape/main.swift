@@ -197,6 +197,33 @@ func runCLI() async {
     for (idx, account) in accounts.enumerated() {
         if cancel.isSet { break }
 
+        // ---- snapshot (once per calendar day per account) --------------------
+        // getProfile failure is silent — don't abort a scrape over missing stats.
+        let alreadySnapshotted = account.snapshots.contains {
+            Calendar.current.isDateInToday($0.timestamp)
+        }
+        if !alreadySnapshotted,
+           case .success(let profile) = await api.getProfile(did: account.did, token: currentToken) {
+            let accountDID = account.did
+            let rootPosts = (try? context.fetch(FetchDescriptor<Post>(
+                predicate: #Predicate<Post> { $0.account?.did == accountDID }
+            ))) ?? []
+            let snapshot = AccountSnapshot(
+                timestamp: Date(),
+                followerCount: profile.followersCount ?? 0,
+                followingCount: profile.followsCount  ?? 0,
+                postCount:      profile.postsCount    ?? 0,
+                totalLikes:   rootPosts.reduce(0) { $0 + $1.likeCount },
+                totalReplies: rootPosts.reduce(0) { $0 + $1.replyCount },
+                totalReposts: rootPosts.reduce(0) { $0 + $1.repostCount },
+                totalQuotes:  rootPosts.reduce(0) { $0 + $1.quoteCount }
+            )
+            snapshot.account = account
+            context.insert(snapshot)
+            try? context.save()
+        }
+        // -----------------------------------------------------------------------
+
         let accountStart = Date()
         var accountNewPosts = 0
         var accountNewReplies = 0
