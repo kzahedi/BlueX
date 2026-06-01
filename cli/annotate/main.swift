@@ -28,8 +28,29 @@ struct CLIArgs {
     var limit: Int?
     var concurrency: Int = 1
     var pass: AnnotatePass = .llm
+    /// Posts whose text is below this many characters (after whitespace trim) are
+    /// not sent to the LLM — small models like gemma3:4b respond "please provide
+    /// the reply text" when the prompt's text slot is empty/near-empty, blowing
+    /// up the error count. Instead we write a sentinel annotation (confidence 0,
+    /// reasoning notes the length) so the post is counted as processed but
+    /// downstream charts can filter on `confidence < 0.1` to exclude them.
+    /// Default 10 — empirically: filters ~8% of posts on this store and avoids
+    /// the "please provide text" failure mode reliably while keeping multi-word
+    /// replies like "I love it" classifiable. 0 disables the filter.
+    var minTextLength: Int = 10
     var listModels = false
+    var resetAnnotations: ResetScope? = nil
     var help = false
+
+    /// Selects which annotation stages to wipe via `--reset-annotations`. The
+    /// reset writes through SwiftData (not raw SQL — that corrupts CoreData
+    /// metadata) so the store stays openable afterwards.
+    enum ResetScope: String {
+        case all                 // every Annotation (nltagger + llm + llm-sentiment + …)
+        case llm                 // only stage == "llm"
+        case llmSentiment        // only stage == "llm-sentiment"
+        case llmAndSentiment     // stage == "llm" OR stage == "llm-sentiment" (keep nltagger)
+    }
 
     static func parse(_ args: [String]) -> CLIArgs {
         var a = CLIArgs()
@@ -69,6 +90,24 @@ struct CLIArgs {
                         fail("blueX-annotate", "invalid --pass value '\(args[i])'. Valid: llm, llm-sentiment")
                     }
                 }
+            case "--min-text-length":
+                i += 1
+                if i < args.count, let n = Int(args[i]), n >= 0, n <= 1000 { a.minTextLength = n }
+                else if i < args.count {
+                    fail("blueX-annotate", "invalid --min-text-length value '\(args[i])' (must be 0–1000; 0 disables)")
+                }
+            case "--reset-annotations":
+                i += 1
+                if i < args.count {
+                    switch args[i] {
+                    case "all":              a.resetAnnotations = .all
+                    case "llm":              a.resetAnnotations = .llm
+                    case "llm-sentiment":    a.resetAnnotations = .llmSentiment
+                    case "llm+sentiment":    a.resetAnnotations = .llmAndSentiment
+                    default:
+                        fail("blueX-annotate", "invalid --reset-annotations value '\(args[i])'. Valid: all | llm | llm-sentiment | llm+sentiment")
+                    }
+                }
             default:
                 fail("blueX-annotate", "unknown argument: \(arg). Run --help for usage.")
             }
@@ -100,6 +139,24 @@ usage: blueX-annotate [options]
                                        set; writes stage="llm-sentiment" so it
                                        sits alongside the NLTagger sentiment
                                        and the hate/counter annotation.
+  --min-text-length <n>
+                     Skip posts whose text is below N characters after
+                     whitespace trim. Default 10. Such posts are marked with
+                     a sentinel annotation (confidence 0, reasoning notes the
+                     length) so they aren't retried every run, and downstream
+                     charts can filter on `confidence < 0.1`. Set to 0 to
+                     disable. Without this filter, small models like
+                     gemma3:4b return "please provide the reply text" on
+                     near-empty inputs, blowing up the error count.
+  --reset-annotations <scope>
+                     DESTRUCTIVE — deletes existing Annotation rows so the
+                     next run re-classifies from scratch.
+                       all            — every annotation (nltagger + llm + …)
+                       llm            — only stage="llm"
+                       llm-sentiment  — only stage="llm-sentiment"
+                       llm+sentiment  — both LLM stages (keeps nltagger)
+                     The CLI exits after the wipe; pass `--pass` on a
+                     separate invocation to re-run.
   --list-models      Print available ModelConfigs and exit.
   --help, -h         This help.
 
@@ -173,6 +230,39 @@ func runCLI() async {
         do { container = try BlueXStore.openContainer() }
         catch { fail("blueX-annotate", "failed to open store: \(error)") }
         let context = ModelContext(container)
+
+        // ---- reset mode — deletes Annotations through SwiftData (NOT raw SQL,
+        // which corrupts CoreData metadata; see earlier incident in vault).
+        if let scope = args.resetAnnotations {
+            let allAnn: [Annotation]
+            do { allAnn = try context.fetch(FetchDescriptor<Annotation>()) }
+            catch { fail("blueX-annotate", "failed to fetch annotations: \(error)") }
+            let stagesToWipe: Set<String>?
+            switch scope {
+            case .all:              stagesToWipe = nil   // delete every row
+            case .llm:              stagesToWipe = ["llm"]
+            case .llmSentiment:     stagesToWipe = ["llm-sentiment"]
+            case .llmAndSentiment:  stagesToWipe = ["llm", "llm-sentiment"]
+            }
+            var deleted = 0
+            for ann in allAnn {
+                if let stages = stagesToWipe, !stages.contains(ann.stage) { continue }
+                context.delete(ann)
+                deleted += 1
+            }
+            do { try context.save() }
+            catch { fail("blueX-annotate", "save failed after delete: \(error)") }
+            let scopeLabel: String = {
+                switch scope {
+                case .all:              return "all"
+                case .llm:              return "stage=llm"
+                case .llmSentiment:     return "stage=llm-sentiment"
+                case .llmAndSentiment:  return "stages llm + llm-sentiment"
+                }
+            }()
+            print("Reset complete — deleted \(deleted) annotation\(deleted == 1 ? "" : "s") (\(scopeLabel)).")
+            return
+        }
 
         // ---- list-models mode
         if args.listModels {
@@ -256,7 +346,50 @@ func runCLI() async {
         if let limit = args.limit, pending.count > limit {
             pending = Array(pending.prefix(limit))
         }
+
+        // Split pending into "too short" (sentinel-mark and skip the LLM) and
+        // "processable" (send through the LLM loop below). The sentinel write
+        // counts as the annotation for this (stage, model), so the post won't
+        // come up again on the next run.
+        let minLen = args.minTextLength
+        let tooShort: [Post]
+        if minLen > 0 {
+            tooShort = pending.filter { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).count < minLen }
+            pending = pending.filter { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).count >= minLen }
+        } else {
+            tooShort = []
+        }
         let total = pending.count
+
+        // Write sentinels in one batch up front. confidence=0 marks them as
+        // "skipped, not classified"; reasoning records why.
+        if !tooShort.isEmpty {
+            let modelName = client.modelName
+            let modelVersion = client.modelVersion
+            let promptHashValue = client.promptHash
+            for post in tooShort {
+                let language = post.nlTaggerAnnotation?.detectedLanguage ?? "other"
+                let trimmedLen = post.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+                let sentinel = Annotation(
+                    speechClass: "neutral",
+                    sentimentScore: 0.0,
+                    detectedLanguage: language,
+                    modelName: modelName,
+                    modelVersion: modelVersion,
+                    promptHash: promptHashValue,
+                    rawResponse: "",
+                    stage: currentStage,
+                    severity: nil,
+                    confidence: 0.0,
+                    reasoning: "text below \(minLen) chars (\(trimmedLen)) — not classified"
+                )
+                sentinel.post = post
+                context.insert(sentinel)
+                post.needsReAnnotation = false
+            }
+            try? context.save()
+            print("Marked \(tooShort.count) post\(tooShort.count == 1 ? "" : "s") as too-short (< \(minLen) chars) — sentinel annotation written, skipping LLM.")
+        }
 
         if total == 0 {
             print("Nothing to do — every post already has a \(cfg.modelID) annotation.")
@@ -348,8 +481,15 @@ func runCLI() async {
                     try? context.save()
                     sinceSave = 0
                 }
-            case .failure:
+            case .failure(let err):
                 errors += 1
+                // Surface the first 3 errors to stderr so the user can diagnose
+                // recurring failures (prompt mismatch, network, etc.) without
+                // having to spelunk in the SwiftData store. After 3 we go quiet
+                // to keep the progress line readable.
+                if errors <= 3 {
+                    FileHandle.standardError.write(Data("\n[err \(errors)] \(outcome.item.uri.suffix(40)): \(err.localizedDescription)\n".utf8))
+                }
             }
         }
 
