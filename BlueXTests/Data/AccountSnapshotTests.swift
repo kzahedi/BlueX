@@ -61,10 +61,15 @@ final class AccountSnapshotTests: XCTestCase {
             timestamp: Date(), followerCount: 0,
             followingCount: 0, postCount: 0
         )
-        XCTAssertEqual(snap.totalLikes, 0)
-        XCTAssertEqual(snap.totalReplies, 0)
-        XCTAssertEqual(snap.totalReposts, 0)
-        XCTAssertEqual(snap.totalQuotes, 0)
+        context.insert(snap)
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<AccountSnapshot>())
+        XCTAssertEqual(fetched.count, 1)
+        XCTAssertEqual(fetched[0].totalLikes, 0)
+        XCTAssertEqual(fetched[0].totalReplies, 0)
+        XCTAssertEqual(fetched[0].totalReposts, 0)
+        XCTAssertEqual(fetched[0].totalQuotes, 0)
     }
 
     func testDedupCheckDetectsTodaysSnapshot() throws {
