@@ -206,7 +206,7 @@ func runCLI() async {
            case .success(let profile) = await api.getProfile(did: account.did, token: currentToken) {
             let accountDID = account.did
             let rootPosts = (try? context.fetch(FetchDescriptor<Post>(
-                predicate: #Predicate<Post> { $0.account?.did == accountDID }
+                predicate: #Predicate<Post> { $0.account?.did == accountDID && $0.isRootPost == true }
             ))) ?? []
             let snapshot = AccountSnapshot(
                 timestamp: Date(),
