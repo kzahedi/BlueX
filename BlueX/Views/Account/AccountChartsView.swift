@@ -11,6 +11,10 @@ struct AccountChartsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var posts: [Post]      // account's authored root posts
 
+    private var sortedSnapshots: [AccountSnapshot] {
+        account.snapshots.sorted { $0.timestamp < $1.timestamp }
+    }
+
     init(account: TrackedAccount) {
         self.account = account
         let did = account.did
@@ -424,18 +428,19 @@ struct AccountChartsView: View {
 
     // MARK: - Account Growth Chart
 
+    // Why: snapshot charts show full history — weekly window would defeat the
+    // purpose of a long-horizon growth trend.
     private var accountGrowthChart: some View {
-        let snapshots = account.snapshots.sorted { $0.timestamp < $1.timestamp }
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Account growth")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.secondaryText)
 
-            if snapshots.count < 2 {
+            if sortedSnapshots.count < 2 {
                 noDataPlaceholder(height: 150)
             } else {
                 Chart {
-                    ForEach(snapshots) { snap in
+                    ForEach(sortedSnapshots) { snap in
                         LineMark(
                             x: .value("Date", snap.timestamp),
                             y: .value("Count", snap.followerCount)
@@ -491,9 +496,10 @@ struct AccountChartsView: View {
 
     // MARK: - Engagement Totals Chart
 
+    // Why: snapshot charts show full history — weekly window would defeat the
+    // purpose of a long-horizon engagement trend.
     private var engagementTotalsChart: some View {
-        let snapshots = account.snapshots.sorted { $0.timestamp < $1.timestamp }
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Engagement totals")
                     .font(.system(size: 12, weight: .medium))
@@ -504,11 +510,11 @@ struct AccountChartsView: View {
                     .foregroundStyle(Color.mutedText)
             }
 
-            if snapshots.count < 2 {
+            if sortedSnapshots.count < 2 {
                 noDataPlaceholder(height: 150)
             } else {
                 Chart {
-                    ForEach(snapshots) { snap in
+                    ForEach(sortedSnapshots) { snap in
                         LineMark(
                             x: .value("Date", snap.timestamp),
                             y: .value("Count", snap.totalLikes)
