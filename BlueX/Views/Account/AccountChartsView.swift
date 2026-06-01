@@ -76,6 +76,14 @@ struct AccountChartsView: View {
                 hateRatioChart
                     .padding(.horizontal, 16)
 
+                // Account growth (followers / following / posts over time)
+                accountGrowthChart
+                    .padding(.horizontal, 16)
+
+                // Engagement totals (likes / replies / reposts / quotes over time)
+                engagementTotalsChart
+                    .padding(.horizontal, 16)
+
                 // Window selector
                 windowSelector
                     .padding(.horizontal, 16)
@@ -407,6 +415,154 @@ struct AccountChartsView: View {
                     }
                 }
                 .frame(height: 120)
+            }
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Account Growth Chart
+
+    private var accountGrowthChart: some View {
+        let snapshots = account.snapshots.sorted { $0.timestamp < $1.timestamp }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Account growth")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.secondaryText)
+
+            if snapshots.count < 2 {
+                noDataPlaceholder(height: 150)
+            } else {
+                Chart {
+                    ForEach(snapshots) { snap in
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.followerCount)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Followers"))
+
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.followingCount)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Following"))
+
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.postCount)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Posts"))
+                    }
+                }
+                .chartForegroundStyleScale([
+                    "Followers": Color.accentColor,
+                    "Following": Color.secondaryText,
+                    "Posts":     Color.orange,
+                ])
+                .chartLegend(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            .foregroundStyle(Color.mutedText)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel().foregroundStyle(Color.mutedText)
+                    }
+                }
+                .frame(height: 150)
+
+                HStack(spacing: 12) {
+                    legendDot(color: .accentColor,    label: "Followers")
+                    legendDot(color: .secondaryText,  label: "Following")
+                    legendDot(color: .orange,         label: "Posts")
+                    Spacer()
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Engagement Totals Chart
+
+    private var engagementTotalsChart: some View {
+        let snapshots = account.snapshots.sorted { $0.timestamp < $1.timestamp }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Engagement totals")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.secondaryText)
+                Spacer()
+                Text("Computed from scraped posts")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+            }
+
+            if snapshots.count < 2 {
+                noDataPlaceholder(height: 150)
+            } else {
+                Chart {
+                    ForEach(snapshots) { snap in
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.totalLikes)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Likes"))
+
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.totalReplies)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Replies"))
+
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.totalReposts)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Reposts"))
+
+                        LineMark(
+                            x: .value("Date", snap.timestamp),
+                            y: .value("Count", snap.totalQuotes)
+                        )
+                        .foregroundStyle(by: .value("Metric", "Quotes"))
+                    }
+                }
+                .chartForegroundStyleScale([
+                    "Likes":   Color.counterBorder,
+                    "Replies": Color.secondaryText,
+                    "Reposts": Color.neutralBorder,
+                    "Quotes":  Color.hateBorder.opacity(0.6),
+                ])
+                .chartLegend(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            .foregroundStyle(Color.mutedText)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks {
+                        AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
+                        AxisValueLabel().foregroundStyle(Color.mutedText)
+                    }
+                }
+                .frame(height: 150)
+
+                HStack(spacing: 12) {
+                    legendDot(color: .counterBorder,           label: "Likes")
+                    legendDot(color: .secondaryText,           label: "Replies")
+                    legendDot(color: .neutralBorder,           label: "Reposts")
+                    legendDot(color: .hateBorder.opacity(0.6), label: "Quotes")
+                    Spacer()
+                }
             }
         }
         .padding(12)
