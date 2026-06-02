@@ -58,6 +58,16 @@ final class ModelConfig {
 
     - "neutral": everything else. Default to neutral when in doubt.
 
+    GERMAN POLITICAL VOCABULARY (critical for correct classification)
+
+    In German discourse these terms refer to POLITICAL GROUPS, not protected
+    racial or ethnic groups. Criticising them is political speech, NOT hate speech:
+    - "die Braunen" / "Braune" = neo-Nazis / far-right (brown = Nazi uniform colour)
+    - "Faschisten", "Nazis", "Rechtsextreme", "Neonazis" = far-right political actors
+    - "Bullen" = police (slang, critical but not targeting a protected group)
+    - "Islamisten" = islamist extremists (political actors, not Muslims as a group)
+    Saying "Nazis raus" or "Faschisten müssen weg" is political opposition, not hate.
+
     EXAMPLES — NOT HATE (classify as "neutral")
 
     - "Trump weaponized the DOJ. They should be held accountable."          → political criticism
@@ -65,11 +75,14 @@ final class ModelConfig {
     - "Diese Politik ist unverantwortlich und gehört vor Gericht."           → political criticism
     - "Yeah" / emoji-only replies                                            → not a substantive claim
     - "I disagree with that policy, it harms working families."              → mere disagreement
+    - "die Braunen wollen dieses Land zerstören"                             → criticising neo-Nazis
+    - "Nazis raus!" / "Faschisten haben hier nichts zu suchen"               → political opposition
 
     EXAMPLES — HATE
 
     - "[slur] like them shouldn't be in this country."                       → slur + identity targeting
     - "Send them all back, they are vermin."                                 → dehumanization + identity
+    - "Alle [ethnicity] sind Kriminelle und gehören abgeschoben."            → ethnic dehumanization
     - Sustained pejorative attack tied to a religion or sexual orientation
 
     EXAMPLES — COUNTER
@@ -77,6 +90,7 @@ final class ModelConfig {
     - "Calling immigrants 'invaders' is dehumanizing. They are people."       → refutes hate framing
     - "You're wrong about Muslims; here are the actual statistics."           → fact-checks hate
     - "Solidarität mit allen Betroffenen dieser Hetze."                       → solidarity with targets
+    - "Antisemiten haben Pech beim Denken."                                   → counters antisemitism
 
     OUTPUT
 
