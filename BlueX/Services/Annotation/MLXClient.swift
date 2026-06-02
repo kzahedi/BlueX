@@ -77,29 +77,6 @@ struct MLXClient: LocalModelClient {
         request.httpBody = bodyData
         request.timeoutInterval = timeoutSeconds
 
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw BlueskyError.networkError(underlying: "Non-HTTP response")
-        }
-        // Surface auth / rate-limit failures with their actual codes so the caller
-        // can decide whether to retry or escalate. Cerebras returns 401 for bad
-        // keys, 429 for rate-limit hit, 5xx for transient capacity errors.
-        switch http.statusCode {
-        case 200...299:
-            break
-        case 401, 403:
-            throw BlueskyError.authFailed
-        case 429:
-            let retry = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
-            throw BlueskyError.rateLimited(retryAfter: retry)
-        case 400:
-            let body = String(data: data, encoding: .utf8) ?? "<unparseable>"
-            throw BlueskyError.badRequest(message: body)
-        default:
-            throw BlueskyError.networkError(underlying: "HTTP \(http.statusCode)")
-        }
-
         struct ChatResponse: Codable {
             struct Choice: Codable {
                 struct Message: Codable { let content: String }
@@ -108,10 +85,34 @@ struct MLXClient: LocalModelClient {
             let choices: [Choice]
         }
 
-        let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let content = chatResponse.choices.first?.message.content else {
-            throw BlueskyError.decodingError(underlying: "Empty choices in chat response")
+        // Retry on 429 up to 3 times, honouring Retry-After. Cerebras free tier
+        // enforces per-minute token budgets; a single wait cycle is usually enough.
+        var retriesLeft = 3
+        while true {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BlueskyError.networkError(underlying: "Non-HTTP response")
+            }
+            switch http.statusCode {
+            case 200...299:
+                let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
+                guard let content = chatResponse.choices.first?.message.content else {
+                    throw BlueskyError.decodingError(underlying: "Empty choices in chat response")
+                }
+                return try LLMResponseParser.parse(content, validClasses: validClasses)
+            case 401, 403:
+                throw BlueskyError.authFailed
+            case 429:
+                let retryAfter = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
+                retriesLeft -= 1
+                if retriesLeft <= 0 { throw BlueskyError.rateLimited(retryAfter: retryAfter) }
+                try await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+            case 400:
+                let msg = String(data: data, encoding: .utf8) ?? "<unparseable>"
+                throw BlueskyError.badRequest(message: msg)
+            default:
+                throw BlueskyError.networkError(underlying: "HTTP \(http.statusCode)")
+            }
         }
-        return try LLMResponseParser.parse(content, validClasses: validClasses)
     }
 }
