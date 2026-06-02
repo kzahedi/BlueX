@@ -147,20 +147,19 @@ struct AccountSeeder {
             endpoint: "apple-foundation",
             isDefault: false
         ),
-        // Cerebras Cloud — free tier gives ~1 M tokens/day on Llama 3.3 70B (≈ 1500
-        // posts/day at this prompt size). API key goes in Settings → Credentials.
-        // Particularly useful for the SENTIMENT pass where you want a bigger
-        // model than what fits on the M4. ModelClientFactory recognises the
-        // cerebras.ai host and attaches the bearer token automatically.
+        // Cerebras Cloud — free tier, fast inference. API key goes in Settings → Credentials.
+        // ModelClientFactory recognises the cerebras.ai host and attaches the bearer token.
+        // Model IDs reflect what the /v1/models endpoint returns — update here when Cerebras
+        // rotates their fleet.
         ModelPreset(
-            name: "Cerebras · Llama 3.3 70B (cloud free tier, sentiment)",
-            modelID: "llama-3.3-70b",
+            name: "Cerebras · GPT-OSS 120B (cloud free tier)",
+            modelID: "gpt-oss-120b",
             endpoint: "https://api.cerebras.ai",
             isDefault: false
         ),
         ModelPreset(
-            name: "Cerebras · Qwen 3 32B (cloud free tier)",
-            modelID: "qwen-3-32b",
+            name: "Cerebras · ZAI GLM 4.7 (cloud free tier)",
+            modelID: "zai-glm-4.7",
             endpoint: "https://api.cerebras.ai",
             isDefault: false
         ),
@@ -173,8 +172,9 @@ struct AccountSeeder {
         let existing = try context.fetch(FetchDescriptor<ModelConfig>())
         let existingIDs = Set(existing.map { $0.modelID })
 
-        // Drop the stale llama3.2 seed if it's still around — that model isn't installed.
-        for cfg in existing where cfg.modelID == "llama3.2" {
+        // Drop stale model IDs that no longer exist on their backends.
+        let staleIDs: Set<String> = ["llama3.2", "llama-3.3-70b", "qwen-3-32b"]
+        for cfg in existing where staleIDs.contains(cfg.modelID) {
             context.delete(cfg)
         }
 

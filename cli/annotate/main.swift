@@ -230,6 +230,7 @@ func runCLI() async {
         do { container = try BlueXStore.openContainer() }
         catch { fail("blueX-annotate", "failed to open store: \(error)") }
         let context = ModelContext(container)
+        try? AccountSeeder.ensureModelConfigs(in: context)
 
         // ---- reset mode — deletes Annotations through SwiftData (NOT raw SQL,
         // which corrupts CoreData metadata; see earlier incident in vault).
