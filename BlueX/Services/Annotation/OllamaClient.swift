@@ -11,6 +11,9 @@ struct OllamaClient: LocalModelClient {
     /// hate/counter/neutral set used by the LLM classification pass; the LLM
     /// sentiment pass overrides this with positive/neutral/negative.
     let validClasses: Set<String>
+    /// Per-request timeout in seconds. Default 300 s covers cold-start model
+    /// loading (e.g. phi4:14b needs ~90 s to load 9 GB from disk on first use).
+    let timeoutSeconds: TimeInterval
     private let session: URLSessionProtocol
 
     var promptHash: String { ModelConfig.promptHash(of: promptTemplate) }
@@ -21,6 +24,7 @@ struct OllamaClient: LocalModelClient {
         endpoint: String = "http://localhost:11434",
         promptTemplate: String = ModelConfig.defaultPromptTemplate,
         validClasses: Set<String> = LLMResponseParser.hateCounterNeutral,
+        timeoutSeconds: TimeInterval = 300,
         session: URLSessionProtocol = URLSession.shared
     ) {
         self.modelName = modelName
@@ -28,6 +32,7 @@ struct OllamaClient: LocalModelClient {
         self.endpoint = endpoint
         self.promptTemplate = promptTemplate
         self.validClasses = validClasses
+        self.timeoutSeconds = timeoutSeconds
         self.session = session
     }
 
@@ -47,7 +52,7 @@ struct OllamaClient: LocalModelClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = bodyData
-        request.timeoutInterval = 60
+        request.timeoutInterval = timeoutSeconds
 
         let (data, response) = try await session.data(for: request)
 
