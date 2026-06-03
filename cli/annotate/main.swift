@@ -26,6 +26,8 @@ struct CLIArgs {
     var modelID: String?
     var pace: LLMPace = .steady
     var limit: Int?
+    var coverage = false
+    var backfill: Int = 5000
     var concurrency: Int = 1
     var pass: AnnotatePass = .llm
     /// Posts whose text is below this many characters (after whitespace trim) are
@@ -73,6 +75,14 @@ struct CLIArgs {
                 if i < args.count, let n = Int(args[i]), n > 0 { a.limit = n }
                 else if i < args.count {
                     fail("blueX-annotate", "invalid --limit value '\(args[i])'")
+                }
+            case "--coverage":
+                a.coverage = true
+            case "--backfill":
+                i += 1
+                if i < args.count, let n = Int(args[i]), n > 0 { a.backfill = n }
+                else if i < args.count {
+                    fail("blueX-annotate", "invalid --backfill value '\(args[i])' (must be a positive integer)")
                 }
             case "--concurrency", "-j":
                 i += 1
@@ -126,6 +136,13 @@ usage: blueX-annotate [options]
                      steady  — 0.5 s pause (default)
                      gentle  — 2 s pause; recommended for overnight runs
   --limit <n>        Stop after N posts. Default: process every pending post.
+  --coverage         Two-phase coverage run: fully annotate every post created
+                     after the newest already-annotated post (the forward edge),
+                     then stratified-by-week sample the older backlog up to
+                     --backfill posts. Designed for scheduled nightly runs that
+                     keep new data complete while progressively filling history.
+                     Ignores --limit.
+  --backfill <n>     Backfill sample budget for --coverage (default 5000).
   --concurrency <n>, -j <n>
                      Number of classify() calls in flight at once. Default 1
                      (sequential). For Apple Foundation Models the Neural
@@ -225,6 +242,10 @@ func formatPerPost(_ seconds: TimeInterval) -> String {
 func runCLI() async {
         let args = CLIArgs.parse(CommandLine.arguments)
         if args.help { print(usage); return }
+
+        if args.coverage && args.limit != nil {
+            fail("blueX-annotate", "--coverage and --limit are mutually exclusive (coverage manages its own selection).")
+        }
 
         let container: ModelContainer
         do { container = try BlueXStore.openContainer() }
@@ -343,9 +364,44 @@ func runCLI() async {
         do { allPosts = try context.fetch(allDesc) }
         catch { fail("blueX-annotate","failed to fetch posts: \(error)") }
 
-        var pending = allPosts.filter { !alreadyDone.contains($0.uri) }
-        if let limit = args.limit, pending.count > limit {
-            pending = Array(pending.prefix(limit))
+        let allPending = allPosts.filter { !alreadyDone.contains($0.uri) }
+        var pending: [Post]
+
+        if args.coverage {
+            // Watermark = newest createdAt among posts already annotated for this
+            // (stage, model). Everything newer is the "forward edge" and is fully
+            // annotated; everything at/older than the watermark is the backlog,
+            // which we stratified-sample by week up to --backfill.
+            let annotatedPosts = allPosts.filter { alreadyDone.contains($0.uri) }
+            let watermark = annotatedPosts.map { $0.createdAt }.max() ?? Date.distantPast
+
+            let forward = allPending.filter { $0.createdAt > watermark }
+            let backlog = allPending.filter { $0.createdAt <= watermark }
+
+            // Bucket the backlog by ISO week-start date and allocate the backfill budget.
+            let cal = Calendar(identifier: .iso8601)
+            func weekStart(_ d: Date) -> Date { cal.dateInterval(of: .weekOfYear, for: d)?.start ?? d }
+            var byWeek: [Date: [Post]] = [:]
+            for post in backlog { byWeek[weekStart(post.createdAt), default: []].append(post) }
+            let counts = byWeek.mapValues { $0.count }
+            let allocation = StratifiedSampler.allocate(counts: counts, total: args.backfill)
+
+            // Within each week, deterministically shuffle and take the allocated count.
+            var rng = SeededRNG(seed: 0xB1E_2026)   // fixed seed → documentable methodology
+            var sampled: [Post] = []
+            for (week, posts) in byWeek {
+                let take = allocation[week] ?? 0
+                guard take > 0 else { continue }
+                sampled.append(contentsOf: posts.shuffled(using: &rng).prefix(take))
+            }
+
+            pending = forward + sampled
+            print("Coverage: \(forward.count) new (forward) + \(sampled.count) backfill (of \(backlog.count) backlog across \(counts.count) weeks).")
+        } else {
+            pending = allPending
+            if let limit = args.limit, pending.count > limit {
+                pending = Array(pending.prefix(limit))
+            }
         }
 
         // Split pending into "too short" (sentinel-mark and skip the LLM) and
