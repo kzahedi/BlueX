@@ -68,6 +68,12 @@ final class ModelConfig {
     - "Islamisten" = islamist extremists (political actors, not Muslims as a group)
     Saying "Nazis raus" or "Faschisten müssen weg" is political opposition, not hate.
 
+    NOT HATE by definition:
+    - Insults directed at countries, governments, or institutions ("China ist korrupt",
+      "die USA sind Imperialisten", "ARD lügt") — countries are not protected groups.
+    - Insults directed at political parties, movements, or ideologies — not protected groups.
+    - Vulgarity or rudeness without identity targeting ("Kackhaufen", "Arschloch") alone.
+
     EXAMPLES — NOT HATE (classify as "neutral")
 
     - "Trump weaponized the DOJ. They should be held accountable."          → political criticism
