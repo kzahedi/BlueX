@@ -74,4 +74,46 @@ final class StratifiedSamplerTests: XCTestCase {
         XCTAssertEqual(Set(picked).count, 10, "no duplicates")
         XCTAssertTrue(picked.allSatisfy { pool.contains($0) })
     }
+
+    func testBudgetSmallerThanStrataCount() {
+        // Case A: total (2) < number of non-empty weeks (3). The 2 largest-count
+        // weeks each get 1; the smallest gets 0. Tie-break: larger count first,
+        // then smaller key. Here counts are equal, so keys 1 and 2 win over 3.
+        let counts = [1: 10, 2: 10, 3: 10]
+        let alloc = StratifiedSampler.allocate(counts: counts, total: 2)
+        XCTAssertEqual(alloc.values.reduce(0, +), 2)
+        XCTAssertEqual(alloc[1], 1)
+        XCTAssertEqual(alloc[2], 1)
+        XCTAssertEqual(alloc[3], 0)
+    }
+
+    func testMultipleLeftoverUnitsToSameWeek() {
+        // Caps force several leftover units onto one week. counts [1:2, 2:100],
+        // total 60: floor 1 each (remaining 58); week 1 caps at 2, week 2 absorbs
+        // the rest → 2 + 58 = 60.
+        let counts = [1: 2, 2: 100]
+        let alloc = StratifiedSampler.allocate(counts: counts, total: 60)
+        XCTAssertEqual(alloc[1], 2, "capped at available count")
+        XCTAssertEqual(alloc[2], 58)
+        XCTAssertEqual(alloc.values.reduce(0, +), 60)
+    }
+
+    func testSingleStratum() {
+        let counts = [1: 100]
+        let alloc = StratifiedSampler.allocate(counts: counts, total: 30)
+        XCTAssertEqual(alloc[1], 30)
+        XCTAssertEqual(alloc.values.reduce(0, +), 30)
+    }
+
+    func testSeededShuffleIsReproducibleAcrossInstances() {
+        // Two independent RNGs with the same seed must produce the identical shuffle,
+        // pinning the reproducibility contract (not just distinctness).
+        var rngA = SeededRNG(seed: 12345)
+        var rngB = SeededRNG(seed: 12345)
+        let pool = Array(0..<50)
+        let shuffledA = pool.shuffled(using: &rngA)
+        let shuffledB = pool.shuffled(using: &rngB)
+        XCTAssertEqual(shuffledA, shuffledB, "same seed → identical shuffle")
+        XCTAssertNotEqual(shuffledA, pool, "shuffle should reorder (sanity)")
+    }
 }

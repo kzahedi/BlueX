@@ -78,8 +78,9 @@ enum StratifiedSampler {
             remaining -= add
         }
 
-        // Distribute leftover one unit at a time by largest remainder, skipping
-        // capped-out weeks. Recompute eligibility each pass.
+        // Distribute leftover one unit at a time in largest-remainder order, skipping
+        // capped-out weeks (degrades to round-robin over that order once caps force
+        // multiple units onto a week — the sum stays exact either way).
         fracs.sort { lhs, rhs in
             lhs.remainder != rhs.remainder ? lhs.remainder > rhs.remainder
                                            : (nonEmpty[lhs.key]! > nonEmpty[rhs.key]!)
