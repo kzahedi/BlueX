@@ -141,7 +141,7 @@ usage: blueX-annotate [options]
                      then stratified-by-week sample the older backlog up to
                      --backfill posts. Designed for scheduled nightly runs that
                      keep new data complete while progressively filling history.
-                     Ignores --limit.
+                     Incompatible with --limit.
   --backfill <n>     Backfill sample budget for --coverage (default 5000).
   --concurrency <n>, -j <n>
                      Number of classify() calls in flight at once. Default 1
@@ -386,13 +386,18 @@ func runCLI() async {
             let counts = byWeek.mapValues { $0.count }
             let allocation = StratifiedSampler.allocate(counts: counts, total: args.backfill)
 
-            // Within each week, deterministically shuffle and take the allocated count.
-            var rng = SeededRNG(seed: 0xB1E_2026)   // fixed seed → documentable methodology
+            // Within each week, shuffle with an INDEPENDENT per-week RNG seeded from
+            // the week itself. This makes the sample fully reproducible and order-
+            // independent: Swift dictionary iteration order is not stable across runs,
+            // so a single shared RNG would select different posts each run. Iterating
+            // sorted keys also makes the resulting `sampled` order deterministic.
+            let baseSeed: UInt64 = 0xB1E_2026
             var sampled: [Post] = []
-            for (week, posts) in byWeek {
+            for week in byWeek.keys.sorted() {
                 let take = allocation[week] ?? 0
-                guard take > 0 else { continue }
-                sampled.append(contentsOf: posts.shuffled(using: &rng).prefix(take))
+                guard take > 0, let posts = byWeek[week] else { continue }
+                var weekRNG = SeededRNG(seed: baseSeed ^ UInt64(bitPattern: Int64(week.timeIntervalSince1970)))
+                sampled.append(contentsOf: posts.shuffled(using: &weekRNG).prefix(take))
             }
 
             pending = forward + sampled
