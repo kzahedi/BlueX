@@ -28,7 +28,12 @@ def gold_labels(entries):
 
 
 def score(gold, preds):
-    """preds: {uri: {model: class}}. Returns {model: metrics}."""
+    """preds: {uri: {model: class}}. Returns {model: metrics}.
+
+    macro_f1 averages F1 over all three fixed classes (hate/counter/neutral);
+    a class with zero gold support contributes F1=0.0 by design, so a model
+    can score macro_f1 < 1.0 even when perfect on the classes actually present.
+    """
     models = sorted({m for d in preds.values() for m in d})
     results = {}
     for model in models:
@@ -69,16 +74,17 @@ def load_preds(conn, uris):
     placeholders = ",".join("?" * len(uris))
     rows = conn.execute(
         f"""
-        SELECT p.ZURI, a.ZMODELNAME, a.ZSPEECHCLASS, a.ZCONFIDENCE, a.ZCREATEDAT
+        SELECT p.ZURI, a.ZMODELNAME, a.ZSPEECHCLASS, a.ZCREATEDAT
         FROM ZANNOTATION a JOIN ZPOST p ON a.ZPOST = p.Z_PK
         WHERE a.ZSTAGE='llm' AND a.ZCONFIDENCE > 0 AND p.ZURI IN ({placeholders})
+        ORDER BY a.ZCREATEDAT, a.Z_PK
         """,
         list(uris),
     ).fetchall()
     preds, newest = {}, {}
-    for uri, model, cls, conf, created in rows:
+    for uri, model, cls, created in rows:
         key = (uri, model)
-        if key not in newest or (created or 0) > newest[key]:
+        if key not in newest or (created or 0) >= newest[key]:
             newest[key] = created or 0
             preds.setdefault(uri, {})[model] = cls
     return preds
@@ -97,6 +103,8 @@ def render(entries, gold, results, agree, preds):
         "| Model | n | Acc | macro-F1 | hate F1 | counter F1 | neutral F1 |",
         "|---|---|---|---|---|---|---|",
     ]
+    if not gold:
+        lines += ["> ⚠ No gold labels yet — score table is empty until the set is labeled.", ""]
     for model in sorted(results):
         m = results[model]
         pc = m["per_class"]
@@ -117,9 +125,9 @@ def render(entries, gold, results, agree, preds):
         if uri not in gold:
             continue
         per_model = preds.get(uri, {})
-        if all(c == gold[uri] for c in per_model.values()):
-            continue
-        calls = ", ".join(f"{m}={c}" for m, c in sorted(per_model.items()))
+        if per_model and all(c == gold[uri] for c in per_model.values()):
+            continue  # every model that predicted this agrees with gold
+        calls = ", ".join(f"{m}={c}" for m, c in sorted(per_model.items())) or "(no predictions)"
         text = (e["text"] or "").replace("\n", " ")[:140]
         lines.append(f"- **[{e['tag']}]** gold=`{gold[uri]}` · {calls}\n  > {text}")
     return "\n".join(lines) + "\n"
