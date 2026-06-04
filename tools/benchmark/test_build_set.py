@@ -31,6 +31,27 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(merged[0]["uri"], "at://x")
         self.assertFalse(merged[0]["reviewed"])
 
+    def test_dedup_prefers_hard_regardless_of_order(self):
+        core_first = [
+            {"uri": "at://dup", "text": "t", "tag": "core"},
+            {"uri": "at://dup", "text": "t", "tag": "hard"},
+            {"uri": "at://only", "text": "t", "tag": "core"},
+        ]
+        out = build_set.dedup_prefer_hard(core_first)
+        by = {e["uri"]: e for e in out}
+        self.assertEqual(by["at://dup"]["tag"], "hard")
+        self.assertEqual(by["at://only"]["tag"], "core")
+        self.assertEqual(len(out), 2)
+
+    def test_dedup_prefers_hard_when_hard_first(self):
+        hard_first = [
+            {"uri": "at://dup", "text": "t", "tag": "hard"},
+            {"uri": "at://dup", "text": "t", "tag": "core"},
+        ]
+        out = build_set.dedup_prefer_hard(hard_first)
+        self.assertEqual(out[0]["tag"], "hard")
+        self.assertEqual(len(out), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

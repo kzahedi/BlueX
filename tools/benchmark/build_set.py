@@ -88,23 +88,32 @@ def merge(existing, fresh):
     return out
 
 
+def dedup_prefer_hard(entries):
+    """Collapse duplicate URIs to one entry, preferring the 'hard' tag regardless
+    of input order."""
+    by_uri = {}
+    for e in entries:
+        existing = by_uri.get(e["uri"])
+        if existing is None or e["tag"] == "hard":
+            by_uri[e["uri"]] = e
+    return list(by_uri.values())
+
+
 def main():
     if not os.path.exists(STORE):
         sys.exit(f"store not found: {STORE}")
     conn = sqlite3.connect(f"file:{STORE}?mode=ro", uri=True)
-    fresh = select_core(conn) + select_hard(conn)
-    # Dedup by uri (a hard case might also be in core); prefer the 'hard' tag.
-    by_uri = {}
-    for e in fresh:
-        if e["uri"] in by_uri and e["tag"] == "core":
-            continue
-        by_uri[e["uri"]] = e
-    fresh = list(by_uri.values())
+    fresh = dedup_prefer_hard(select_core(conn) + select_hard(conn))
 
     existing = []
     if os.path.exists(OUT):
-        with open(OUT) as fh:
-            existing = json.load(fh)
+        try:
+            with open(OUT) as fh:
+                existing = json.load(fh)
+        except (json.JSONDecodeError, OSError) as e:
+            sys.exit(f"existing {OUT} is unreadable ({e}); refusing to overwrite curated labels — fix or remove it.")
+        if not isinstance(existing, list):
+            sys.exit(f"existing {OUT} is not a JSON list; refusing to overwrite curated labels.")
     merged = merge(existing, fresh)
     with open(OUT, "w") as fh:
         json.dump(merged, fh, ensure_ascii=False, indent=2)
