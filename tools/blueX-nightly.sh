@@ -13,6 +13,16 @@ SCRAPE="$BIN_DIR/blueX-scrape"
 ANNOTATE="$BIN_DIR/blueX-annotate"
 MODEL="phi4:14b"
 
+# Overlap guard: a run can outlast 24h (large backfill + slow Ollama + thermal
+# back-off). Two annotators against the same SwiftData store risk corruption, so
+# refuse to start if a previous run still holds the lock. mkdir is atomic.
+LOCK="$LOG_DIR/nightly.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "$(date): previous nightly run still active ($LOCK exists) — skipping." >> "$LOG"
+  exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
 {
   echo "=== BlueX nightly $(date) ==="
 
@@ -23,9 +33,21 @@ MODEL="phi4:14b"
 
   echo "--- scrape ---"
   "$SCRAPE" --pace gentle
+  scrape_rc=$?
+  if [ "$scrape_rc" -ne 0 ]; then
+    # Don't annotate against a half-scraped or stale store on scrape failure —
+    # fail loudly so a log check (or launchd) sees the non-zero exit.
+    echo "✗ scrape failed (exit $scrape_rc) — skipping annotate."
+    exit 1
+  fi
 
   echo "--- coverage annotate ---"
   "$ANNOTATE" --coverage --backfill 5000 --pass llm --model "$MODEL" --pace steady
+  annotate_rc=$?
+  if [ "$annotate_rc" -ne 0 ]; then
+    echo "✗ coverage annotate failed (exit $annotate_rc)."
+    exit 1
+  fi
 
   echo "=== done $(date) ==="
 } >> "$LOG" 2>&1
