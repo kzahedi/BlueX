@@ -42,7 +42,10 @@ trap 'rmdir "$LOCK" 2>/dev/null' EXIT
   fi
 
   echo "--- coverage annotate ---"
-  "$ANNOTATE" --coverage --backfill 5000 --pass llm --model "$MODEL" --pace steady
+  # --pace gentle (2s between posts) + a smaller backfill keep the run short and
+  # the GPU cool: it finishes in fewer hours and idles the rest of the day. The
+  # CLI also self-throttles via ProcessInfo.thermalState back-off.
+  "$ANNOTATE" --coverage --backfill 2500 --pass llm --model "$MODEL" --pace gentle
   annotate_rc=$?
   if [ "$annotate_rc" -ne 0 ]; then
     echo "✗ coverage annotate failed (exit $annotate_rc)."
