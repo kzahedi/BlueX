@@ -27,6 +27,7 @@ struct CLIArgs {
     var pace: LLMPace = .steady
     var limit: Int?
     var coverage = false
+    var benchmarkFile: String? = nil
     var backfill: Int = 5000
     var concurrency: Int = 1
     var pass: AnnotatePass = .llm
@@ -78,6 +79,10 @@ struct CLIArgs {
                 }
             case "--coverage":
                 a.coverage = true
+            case "--benchmark":
+                i += 1
+                if i < args.count { a.benchmarkFile = args[i] }
+                else { fail("blueX-annotate", "--benchmark requires a path to a benchmark-set JSON file") }
             case "--backfill":
                 i += 1
                 if i < args.count, let n = Int(args[i]), n > 0 { a.backfill = n }
@@ -143,6 +148,10 @@ usage: blueX-annotate [options]
                      keep new data complete while progressively filling history.
                      Incompatible with --limit.
   --backfill <n>     Backfill sample budget for --coverage (default 5000).
+  --benchmark <file> Annotate exactly the posts whose URIs are listed in the
+                     given benchmark-set JSON (an array of objects with a "uri"
+                     field), bypassing the pending/newest selection. For model
+                     benchmarking. Incompatible with --coverage and --limit.
   --concurrency <n>, -j <n>
                      Number of classify() calls in flight at once. Default 1
                      (sequential). For Apple Foundation Models the Neural
@@ -245,6 +254,9 @@ func runCLI() async {
 
         if args.coverage && args.limit != nil {
             fail("blueX-annotate", "--coverage and --limit are mutually exclusive (coverage manages its own selection).")
+        }
+        if args.benchmarkFile != nil && (args.coverage || args.limit != nil) {
+            fail("blueX-annotate", "--benchmark is incompatible with --coverage and --limit.")
         }
 
         let container: ModelContainer
@@ -367,7 +379,21 @@ func runCLI() async {
         let allPending = allPosts.filter { !alreadyDone.contains($0.uri) }
         var pending: [Post]
 
-        if args.coverage {
+        if let benchmarkFile = args.benchmarkFile {
+            // Annotate exactly the URIs in the benchmark set (minus any this model
+            // already did — alreadyDone filtering already applied to allPending).
+            struct BenchmarkEntry: Decodable { let uri: String }
+            let url = URL(fileURLWithPath: benchmarkFile)
+            let data: Data
+            do { data = try Data(contentsOf: url) }
+            catch { fail("blueX-annotate", "cannot read benchmark file \(benchmarkFile): \(error)") }
+            let entries: [BenchmarkEntry]
+            do { entries = try JSONDecoder().decode([BenchmarkEntry].self, from: data) }
+            catch { fail("blueX-annotate", "benchmark file is not a JSON array of {\"uri\": …}: \(error)") }
+            let wanted = Set(entries.map { $0.uri })
+            pending = allPending.filter { wanted.contains($0.uri) }
+            print("Benchmark: \(pending.count) of \(wanted.count) set posts pending for \(cfg.modelID) (rest already done).")
+        } else if args.coverage {
             // Watermark = newest createdAt among posts already annotated for this
             // (stage, model). Everything newer is the "forward edge" and is fully
             // annotated; everything at/older than the watermark is the backlog,
