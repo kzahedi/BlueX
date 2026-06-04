@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>net.pulsschlag.bluex.nightly</string>
+    <string>net.pulsschlag.bluex.annotate</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Volumes/Eregion/projects/bluex-v2/tools/blueX-nightly.sh</string>
+        <string>/Volumes/Eregion/projects/bluex-v2/tools/blueX-annotate-job.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -16,9 +16,9 @@
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/zahedi/Library/Logs/BlueX/launchd.out.log</string>
+    <string>/Users/zahedi/Library/Logs/BlueX/launchd.annotate.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/zahedi/Library/Logs/BlueX/launchd.err.log</string>
+    <string>/Users/zahedi/Library/Logs/BlueX/launchd.annotate.err.log</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>
