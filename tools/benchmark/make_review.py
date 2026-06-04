@@ -19,6 +19,16 @@ def _verdict(entry):
     return label.get("class", "")
 
 
+def _bsky_url(uri):
+    """at://<did>/app.bsky.feed.post/<rkey> -> https://bsky.app/profile/<did>/post/<rkey>.
+    Returns the raw uri unchanged if it isn't a recognizable post AT-URI."""
+    parts = uri.split("/")
+    # ['at:', '', '<did>', 'app.bsky.feed.post', '<rkey>']
+    if len(parts) >= 5 and parts[0] == "at:" and parts[3] == "app.bsky.feed.post":
+        return f"https://bsky.app/profile/{parts[2]}/post/{parts[-1]}"
+    return uri
+
+
 def render(entries):
     # Hard cases first (highest value), then core; stable order within each.
     ordered = sorted(enumerate(entries), key=lambda iz: (iz[1]["tag"] != "hard", iz[0]))
@@ -39,6 +49,8 @@ def render(entries):
         lines += [
             f"<!-- bm: {e['uri']} -->",
             f"### [{n}] · {e['tag']}",
+            f"[open in Bluesky ↗]({_bsky_url(e['uri'])})",
+            "",
             quoted,
             "",
             f"**Claude:** {cl.get('class','?')}{sev_str} — {cl.get('rationale','')}",
