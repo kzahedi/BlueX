@@ -6,6 +6,8 @@ Gold posts: 0  ·  user-reviewed: 0/185 (0%)  ·  rest fall back to Claude's lab
 
 | Model | n | Acc | macro-F1 | hate F1 | counter F1 | neutral F1 |
 |---|---|---|---|---|---|---|
+> ⚠ No gold labels yet — score table is empty until the set is labeled.
+
 | gpt-oss-120b | 0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | phi4:14b | 0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | qwen2.5:7b | 0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |

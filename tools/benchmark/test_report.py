@@ -34,6 +34,45 @@ class ScoreTest(unittest.TestCase):
         agree = report.agreement(preds)
         self.assertAlmostEqual(agree[("m1", "m2")], 0.5, places=3)
 
+    def test_macro_f1_penalizes_zero_support_class(self):
+        # Perfect on the 2 present classes, but 'counter' has zero support -> macro avg over 3.
+        gold = {"a": "hate", "b": "neutral"}
+        preds = {"a": {"m": "hate"}, "b": {"m": "neutral"}}
+        m = report.score(gold, preds)["m"]
+        self.assertEqual(m["accuracy"], 1.0)
+        self.assertAlmostEqual(m["macro_f1"], 2 / 3, places=3)  # (1+1+0)/3
+
+    def test_empty_inputs_do_not_crash(self):
+        self.assertEqual(report.score({}, {}), {})
+        self.assertEqual(report.agreement({}), {})
+
+    def test_agreement_three_models_all_pairs(self):
+        preds = {"a": {"m1": "hate", "m2": "hate", "m3": "neutral"}}
+        agree = report.agreement(preds)
+        self.assertEqual(set(agree.keys()), {("m1", "m2"), ("m1", "m3"), ("m2", "m3")})
+        self.assertEqual(agree[("m1", "m2")], 1.0)
+        self.assertEqual(agree[("m1", "m3")], 0.0)
+
+    def test_load_preds_keeps_latest_per_model(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(
+            '''
+            CREATE TABLE ZPOST (Z_PK INTEGER PRIMARY KEY, ZURI TEXT);
+            CREATE TABLE ZANNOTATION (Z_PK INTEGER PRIMARY KEY, ZPOST INTEGER,
+              ZMODELNAME TEXT, ZSPEECHCLASS TEXT, ZSTAGE TEXT, ZCONFIDENCE REAL, ZCREATEDAT REAL);
+            INSERT INTO ZPOST VALUES (1, 'at://u1');
+            -- two annotations for the same (uri, model); the later ZCREATEDAT must win
+            INSERT INTO ZANNOTATION VALUES (10, 1, 'm', 'hate',    'llm', 0.9, 100.0);
+            INSERT INTO ZANNOTATION VALUES (11, 1, 'm', 'neutral', 'llm', 0.9, 200.0);
+            -- a confidence-0 sentinel must be excluded
+            INSERT INTO ZANNOTATION VALUES (12, 1, 'm2', 'neutral','llm', 0.0, 300.0);
+            '''
+        )
+        preds = report.load_preds(conn, ['at://u1'])
+        self.assertEqual(preds['at://u1']['m'], 'neutral')  # latest wins
+        self.assertNotIn('m2', preds['at://u1'])             # sentinel excluded
+
 
 if __name__ == "__main__":
     unittest.main()
