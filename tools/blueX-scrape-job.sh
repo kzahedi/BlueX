@@ -26,7 +26,9 @@ trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 {
   echo "=== scrape $(date) ==="
-  "$SCRAPE" --pace gentle
+  # --max-window-days 7: freeze complete reply trees a week after the root post,
+  # shrinking the steady-state refresh set (faster runs; misses replies >7d late).
+  "$SCRAPE" --pace gentle --max-window-days 7
   scrape_rc=$?
   if [ "$scrape_rc" -ne 0 ]; then
     echo "✗ scrape failed (exit $scrape_rc)."
