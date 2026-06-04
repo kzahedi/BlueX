@@ -28,16 +28,27 @@ def parse_review(text):
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         block = text[start:end]
         verdict = ""
-        notes = ""
+        notes_lines = []
         reviewed = False
+        in_notes = False
         for line in block.splitlines():
             s = line.strip()
             if s.startswith("**Verdict:**"):
                 verdict = s[len("**Verdict:**"):].strip()
+                in_notes = False
             elif s.startswith("**Notes:**"):
-                notes = s[len("**Notes:**"):].strip()
+                notes_lines = [s[len("**Notes:**"):].strip()]
+                in_notes = True
             elif s.startswith("- [x] reviewed") or s.startswith("- [X] reviewed"):
                 reviewed = True
+                in_notes = False
+            elif s.startswith("- [ ] reviewed"):
+                in_notes = False
+            elif s == "---":
+                in_notes = False
+            elif in_notes:
+                notes_lines.append(line.rstrip())
+        notes = "\n".join(notes_lines).strip()
         out[uri] = {"verdict": verdict, "notes": notes, "reviewed": reviewed}
     return out
 
@@ -56,6 +67,8 @@ def apply(entries, parsed):
             cl = e.get("claude_label") or {}
             sev = cl.get("severity") if p["verdict"] == cl.get("class") else None
             e["user_label"] = {"class": p["verdict"], "severity": sev}
+        else:
+            e["user_label"] = None
     return entries
 
 
