@@ -51,3 +51,7 @@ Carthage/Build/
 # IDE
 .idea/
 *.iml
+
+# Python
+__pycache__/
+*.pyc
