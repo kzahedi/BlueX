@@ -61,6 +61,25 @@ class RenderTest(unittest.TestCase):
         anchors = re.findall(r"(?m)^<!-- bm: (\S+) -->$", md)
         self.assertEqual(anchors, ["at://real"])
 
+    def test_bsky_url_conversion(self):
+        uri = "at://did:plc:sfb2pra2ecreus5dacwz2pzf/app.bsky.feed.post/3mnakt57res2g"
+        self.assertEqual(
+            make_review._bsky_url(uri),
+            "https://bsky.app/profile/did:plc:sfb2pra2ecreus5dacwz2pzf/post/3mnakt57res2g",
+        )
+
+    def test_bsky_url_passthrough_on_unrecognized(self):
+        self.assertEqual(make_review._bsky_url("not-an-aturi"), "not-an-aturi")
+
+    def test_render_includes_clickable_link(self):
+        entries = [{
+            "uri": "at://did:plc:abc/app.bsky.feed.post/xyz", "text": "t", "tag": "core",
+            "claude_label": {"class": "neutral", "severity": None, "rationale": "x"},
+            "user_label": None, "notes": "", "reviewed": False,
+        }]
+        md = make_review.render(entries)
+        self.assertIn("[open in Bluesky ↗](https://bsky.app/profile/did:plc:abc/post/xyz)", md)
+
     def test_empty_text_renders_single_blockquote_line(self):
         entries = [{
             "uri": "at://empty", "text": "", "tag": "core",
