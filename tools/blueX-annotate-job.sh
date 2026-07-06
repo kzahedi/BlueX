@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Coverage-annotate job (runs daily ~07:00, rides the 6:55 wakepoweron).
+# Coverage-annotate job (runs daily ~08:35, rides the 6:55 wakepoweron;
+# retimed from 07:00 on 2026-07-06 for consistency with other morning jobs).
 # Shares a store-lock with the scrape job so the two never write the SwiftData
 # store concurrently (Core Data is not safe for multi-process writes).
 set -u
