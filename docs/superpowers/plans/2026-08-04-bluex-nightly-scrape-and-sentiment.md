@@ -4,7 +4,7 @@
 
 **Goal:** Restore unattended nightly Bluesky scraping on `macmini.local` and replace the phi4:14b LLM annotation pass with Apple's free on-device NLTagger sentiment.
 
-**Architecture:** Nothing on the runtime path may live on `/Volumes/Eregion` — launchd fires these jobs during DarkWake, when that external volume is unmounted (the cause of the 61-day outage from 2026-06-04). The repo stays the source of truth; `install-jobs.sh` copies job scripts to the internal disk. A root LaunchDaemon at 07:00 arms a one-shot `pmset` wake for 03:30 (`pmset` requires root); a user LaunchAgent at 03:31 does the work, keeping Keychain and notification access.
+**Architecture:** Nothing on the runtime path may live on `/Volumes/Eregion` — launchd fires these jobs during DarkWake, when that external volume is unmounted (the cause of the 61-day outage from 2026-06-04). The repo stays the source of truth; `install-jobs.sh` copies job scripts to the internal disk. Two user LaunchAgents do everything — nightly at 03:31, watchdog at 06:56. No privileged component: the mini is set to never idle-sleep (`sleep 0`), so launchd fires the agent while it is awake and no `pmset` wake is needed.
 
 **Tech Stack:** Swift 5.9 / SwiftData / `NaturalLanguage` (macOS 14 deployment target, running on macOS 26.5.1), zsh job scripts, launchd, `pmset`, XcodeGen 2.46.0, pytest for the guard tests.
 
@@ -39,7 +39,6 @@
 | `tools/jobs/lib-bluex-job.sh` | **new** — shared paths, notifications, file-age helper |
 | `tools/jobs/bluex-nightly.sh` | **new** — the nightly run + `--preflight` |
 | `tools/jobs/bluex-watchdog.sh` | **new** — staleness notification |
-| `tools/jobs/bluex-arm-wake.sh` | **new** — the only privileged component; arms the next wake |
 | `tools/jobs/test_jobs.py` | **new** — guard tests |
 | `tools/install-jobs.sh` | **new** — installs everything, retires the old agents |
 | `tools/blueX-scrape-job.sh`, `tools/blueX-annotate-job.sh` | **delete** — superseded |
@@ -1193,15 +1192,19 @@ distinguishes a run that found nothing from a run that never happened; the
 
 ---
 
-### Task 7: Arm-wake daemon, installer, and the regression guard
+### Task 7: Installer and the regression guard
+
+The root arm-wake daemon was **removed from this plan on 2026-08-04**: the mini is set to `sleep 0` (never idle-sleep), so launchd fires the 03:31 agent while the machine is awake and no `pmset` wake is needed. That deletes the only privileged component and the only `sudo` step.
 
 **Files:**
-- Create: `tools/jobs/bluex-arm-wake.sh`, `tools/jobs/test_jobs.py`, `tools/install-jobs.sh`
-- Delete: `tools/blueX-scrape-job.sh`, `tools/blueX-annotate-job.sh`
+- Create: `tools/jobs/test_jobs.py`, `tools/install-jobs.sh`
+- Delete: `tools/blueX-scrape-job.sh`, `tools/blueX-annotate-job.sh`, `tools/net.pulsschlag.bluex.scrape.plist`, `tools/net.pulsschlag.bluex.annotate.plist`
 
 **Interfaces:**
-- Consumes: everything from Tasks 3-6
-- Produces: installed agents `net.pulsschlag.bluex.{nightly,watchdog}`, daemon `net.pulsschlag.bluex.armwake`
+- Consumes: everything from Tasks 3-6 — `~/.local/bin/blueX-{scrape,annotate}`, `tools/jobs/lib-bluex-job.sh`, `tools/jobs/bluex-nightly.sh`, `tools/jobs/bluex-watchdog.sh`
+- Produces: `tools/install-jobs.sh`, which installs the job scripts to `~/Library/Application Support/BlueX/jobs/` and writes two user LaunchAgents, `net.pulsschlag.bluex.nightly` (03:31) and `net.pulsschlag.bluex.watchdog` (06:56)
+
+**Do NOT run `tools/install-jobs.sh` in this task.** A multi-hour initial scrape is writing to the store; bootstrapping the 03:31 agent could start a second scrape and put two CoreData writers on the same store. Write it, syntax-check it, commit it. The controller runs it later, once the initial scrape has converged.
 
 - [ ] **Step 1: Write the failing guard tests**
 
@@ -1230,7 +1233,6 @@ RUNTIME_SCRIPTS = [
     "lib-bluex-job.sh",
     "bluex-nightly.sh",
     "bluex-watchdog.sh",
-    "bluex-arm-wake.sh",
 ]
 AGENTS_DIR = Path.home() / "Library/LaunchAgents"
 NIGHTLY_PLIST = AGENTS_DIR / "net.pulsschlag.bluex.nightly.plist"
@@ -1275,6 +1277,21 @@ def test_runtime_script_parses(name):
     assert result.returncode == 0, result.stderr
 
 
+def test_installer_needs_no_privilege_escalation():
+    """The design deliberately has no privileged component.
+
+    The mini never idle-sleeps, so no pmset wake is needed, so nothing requires root.
+    A sudo call reappearing here means someone reintroduced the daemon.
+    """
+    text = (JOBS_SRC.parent / "install-jobs.sh").read_text()
+    offenders = [
+        line
+        for line in text.splitlines()
+        if "sudo" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, f"install-jobs.sh must not require sudo: {offenders}"
+
+
 @pytest.mark.parametrize("plist_path", [NIGHTLY_PLIST, WATCHDOG_PLIST])
 def test_installed_agent_points_at_an_existing_internal_script(plist_path):
     if not plist_path.exists():
@@ -1298,52 +1315,9 @@ def test_superseded_agents_are_removed():
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd /Volumes/Eregion/projects/bluex-v2/tools/jobs && python -m pytest test_jobs.py -v 2>&1 | tail -20`
-Expected: FAIL — `bluex-arm-wake.sh` does not exist yet; installed-plist tests skip
+Expected: FAIL — `install-jobs.sh` does not exist yet, so `test_installer_needs_no_privilege_escalation` errors. The two installed-plist tests and `test_superseded_agents_are_removed` SKIP (nothing installed yet) — that is correct, not a failure.
 
-- [ ] **Step 3: Create the arm-wake daemon script**
-
-Create `tools/jobs/bluex-arm-wake.sh`:
-
-```zsh
-#!/bin/zsh
-# tools/jobs/bluex-arm-wake.sh — arms the next BlueX nightly wake.
-# Root LaunchDaemon, 07:00.
-#
-# Why root: `pmset schedule` refuses to run otherwise ("This operation must be run
-# as root"). Why one-shot rather than repeating: `man pmset` allows only ONE pair of
-# repeating events per machine, and the user's `wakepoweron at 6:55AM` already
-# occupies it.
-#
-# Why 07:00: just after that wakepoweron, when the machine is reliably awake. Arming
-# therefore never depends on the previous night's job having succeeded — there is no
-# chain a single failure can break.
-#
-# This is the ONLY privileged component. It holds no credentials and never opens the
-# SwiftData store.
-set -u
-
-LOG=/var/log/bluex-armwake.log
-WAKE_TIME="03:30:00"
-OWNER="BlueX"
-
-# Cancel today's already-fired event before arming tomorrow's, so one-shot events
-# cannot pile up if the machine is off for a stretch. Scoped to our owner string so
-# the user's own pmset events are never touched.
-stale="$(date "+%m/%d/%y") $WAKE_TIME"
-pmset schedule cancel wake "$stale" "$OWNER" >>"$LOG" 2>&1 || true
-
-target="$(date -v+1d "+%m/%d/%y") $WAKE_TIME"
-
-if pmset schedule wake "$target" "$OWNER" >>"$LOG" 2>&1; then
-  echo "$(date): armed wake for $target" >>"$LOG"
-  exit 0
-fi
-
-echo "$(date): FAILED to arm wake for $target" >>"$LOG"
-exit 1
-```
-
-- [ ] **Step 4: Create the installer**
+- [ ] **Step 3: Create the installer**
 
 Create `tools/install-jobs.sh`:
 
@@ -1354,7 +1328,11 @@ Create `tools/install-jobs.sh`:
 # Runtime artefacts must NOT live on /Volumes/Eregion: launchd fires these jobs
 # during DarkWake, when that external volume is unmounted. That is exactly what
 # broke scraping for 61 days from 2026-06-04. Everything the jobs need is copied
-# to the internal disk here.
+# to the internal disk here. Only the STORE DATA lives on Eregion.
+#
+# No privileged component: the mini is set to never idle-sleep (`sleep 0`), so
+# launchd fires the 03:31 agent while it is awake and no pmset wake — and therefore
+# no root daemon — is needed. This script must never call sudo; a test enforces that.
 #
 # Idempotent — safe to re-run after every rebuild.
 set -euo pipefail
@@ -1363,8 +1341,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOBS_SRC="$REPO_ROOT/tools/jobs"
 JOBS_DEST="$HOME/Library/Application Support/BlueX/jobs"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
-DAEMON_PLIST="/Library/LaunchDaemons/net.pulsschlag.bluex.armwake.plist"
-LIBEXEC="/usr/local/libexec/bluex"
 UID_NUM="$(id -u)"
 
 echo "==> building CLIs"
@@ -1420,75 +1396,28 @@ echo "==> installing user agents"
 write_agent net.pulsschlag.bluex.nightly  bluex-nightly.sh  3 31
 write_agent net.pulsschlag.bluex.watchdog bluex-watchdog.sh 6 56
 
-echo "==> installing the root arm-wake daemon (sudo: pmset requires root)"
-sudo mkdir -p "$LIBEXEC"
-sudo install -m 755 -o root -g wheel "$JOBS_SRC/bluex-arm-wake.sh" "$LIBEXEC/"
-sudo tee "$DAEMON_PLIST" >/dev/null <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>net.pulsschlag.bluex.armwake</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/zsh</string>
-        <string>$LIBEXEC/bluex-arm-wake.sh</string>
-    </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key><integer>7</integer>
-        <key>Minute</key><integer>0</integer>
-    </dict>
-    <key>StandardErrorPath</key>
-    <string>/var/log/bluex-armwake.log</string>
-    <key>RunAtLoad</key>
-    <false/>
-</dict>
-</plist>
-PLIST
-sudo chown root:wheel "$DAEMON_PLIST"
-sudo chmod 644 "$DAEMON_PLIST"
-sudo launchctl bootout system/net.pulsschlag.bluex.armwake 2>/dev/null || true
-sudo launchctl bootstrap system "$DAEMON_PLIST"
-echo "  ✓ net.pulsschlag.bluex.armwake"
-
-echo "==> arming tonight's wake now, so the first run does not wait a day"
-sudo "$LIBEXEC/bluex-arm-wake.sh"
-
 echo
 echo "Installed. Verify with:"
 echo "  \"$JOBS_DEST/bluex-nightly.sh\" --preflight"
-echo "  pmset -g sched"
 echo "  launchctl print gui/$UID_NUM/net.pulsschlag.bluex.nightly | head -20"
+echo
+echo "NOTE: pmset is deliberately untouched. This relies on the mini never"
+echo "idle-sleeping (pmset -g custom | grep '^ sleep'). If sleep is re-enabled,"
+echo "launchd replays a missed 03:31 event on the next wake."
 ```
 
-- [ ] **Step 5: Run the installer**
+- [ ] **Step 4: Syntax-check and run the guard tests**
 
 Run:
 ```bash
 cd /Volumes/Eregion/projects/bluex-v2
-chmod +x tools/install-jobs.sh tools/jobs/bluex-arm-wake.sh
-tools/install-jobs.sh
+chmod +x tools/install-jobs.sh
+bash -n tools/install-jobs.sh && echo "installer syntax ok"
+cd tools/jobs && python -m pytest test_jobs.py -v 2>&1 | tail -20
 ```
-Expected: builds, installs, removes both old agents, bootstraps two agents and one daemon, and arms a wake. It will prompt for the sudo password.
+Expected: `installer syntax ok`, and pytest passes with **3 skips** — the two installed-plist tests and `test_superseded_agents_are_removed`, because nothing is installed yet. Those skips are expected and must not be "fixed" by installing.
 
-- [ ] **Step 6: Run the guard tests to verify they pass**
-
-Run: `cd /Volumes/Eregion/projects/bluex-v2/tools/jobs && python -m pytest test_jobs.py -v 2>&1 | tail -20`
-Expected: PASS — no skips now that the agents are installed
-
-- [ ] **Step 7: Verify launchd and pmset state**
-
-Run:
-```bash
-launchctl print "gui/$(id -u)/net.pulsschlag.bluex.nightly" | grep -E "state|program|last exit"
-sudo launchctl print system/net.pulsschlag.bluex.armwake | grep -E "state|program"
-pmset -g sched
-```
-Expected: both loaded; `pmset -g sched` lists a `wake at …03:30:00` event owned by `BlueX`, alongside the untouched `wakepoweron at 6:55AM every day`.
-
-- [ ] **Step 8: Remove the superseded job scripts**
+- [ ] **Step 5: Remove the superseded job scripts and plists**
 
 Run:
 ```bash
@@ -1496,27 +1425,26 @@ cd /Volumes/Eregion/projects/bluex-v2
 git rm tools/blueX-scrape-job.sh tools/blueX-annotate-job.sh
 git rm tools/net.pulsschlag.bluex.scrape.plist tools/net.pulsschlag.bluex.annotate.plist
 ```
-Expected: four files staged for deletion
+Expected: four files staged for deletion.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /Volumes/Eregion/projects/bluex-v2
-git add tools/install-jobs.sh tools/jobs/bluex-arm-wake.sh tools/jobs/test_jobs.py
-git commit -m "feat(jobs): arm-wake daemon, installer, and /Volumes guard test
+git add tools/install-jobs.sh tools/jobs/test_jobs.py
+git commit -m "feat(jobs): installer and /Volumes regression guard
 
-pmset schedule requires root and the single pmset repeat slot is taken by the
-user's 06:55 wakepoweron, so a root LaunchDaemon arms a one-shot 03:30 wake at
-07:00 while the working agent stays unprivileged and keeps Keychain and
-notification access.
+install-jobs.sh copies the job scripts onto the internal disk, writes the two
+user LaunchAgents (nightly 03:31, watchdog 06:56) and retires the two old
+agents. No sudo and no privileged component: the mini never idle-sleeps, so
+launchd fires the agent while it is awake and no pmset wake is needed.
 
-install-jobs.sh copies everything onto the internal disk and retires the two old
-agents. test_jobs.py fails if any runtime artefact ever references /Volumes
-again — the exact fault that hid for 61 days."
+test_jobs.py fails if any runtime script uses a /Volumes path for anything but
+the store data directory — the exact fault that hid for 61 days — and fails if
+sudo ever reappears in the installer."
 ```
 
 ---
-
 ### Task 8: Phase 1 attended rollout
 
 **Attended — do not run unsupervised.** Nothing here is irreversible: the old corpus is archived, so the worst case is scraping again. But the initial scrape is a multi-day job and Step 3 is the first real test of unattended Keychain access.
@@ -1608,12 +1536,10 @@ Expected: `exit=0`, no notification, log line ends `fresh.`
 
 The morning after, run:
 ```bash
-pmset -g log | grep -Ei "Wake from" | grep "03:3" | tail -3
 cat ~/Library/Logs/BlueX/last-run.json
-tail -20 /var/log/bluex-armwake.log
-grep -ci "Thermal" <(pmset -g log) || true
+pmset -g custom | grep -E "^ sleep"
 ```
-Expected: a full wake near 03:30, a heartbeat with both exits `0`, a fresh arm-wake line, and no thermal emergency during the run window.
+Expected: a heartbeat with both exits `0`, `sleep 0` still in force, and a fresh `nightly_*.log`. There is no wake event to check for — the mini stays awake.
 
 - [ ] **Step 8: Commit the measured numbers**
 
