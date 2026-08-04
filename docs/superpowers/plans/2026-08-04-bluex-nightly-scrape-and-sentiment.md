@@ -1112,6 +1112,15 @@ acquisition. Holds a power assertion because pmset sleep is 1 minute. Adds
 
 The outage went unnoticed for 61 days. This is the part that would have caught it.
 
+**Amendment (2026-08-04, after first implementation).** The notification text below is
+**superseded**. As written it derives the day count from `store_age` only, so when the
+heartbeat is missing but the store is fresh — the normal state after any scrape-only run
+— it announces "No successful run in 0d", which undermines the very alert it exists to
+raise. The implemented script instead names which signal tripped and reports "never
+completed a run" for a missing heartbeat rather than dividing the `999999999` sentinel
+into days. The committed script is the source of truth for the message; the rest of this
+task's text stands.
+
 **Files:**
 - Create: `tools/jobs/bluex-watchdog.sh`
 
