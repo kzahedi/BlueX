@@ -96,4 +96,46 @@ final class AnnotationServiceTests: XCTestCase {
         try await service.runNLTaggerPass()
         XCTAssertEqual(service.processedCount, 5)
     }
+
+    /// The GUI's Stop button calls `cancel()`, which cancels `runningTask`. That must
+    /// propagate all the way into `NLTaggerPass.run`'s `isCancelled` polling — this is
+    /// the wiring that was previously missing (the capability existed on
+    /// `NLTaggerPass` but had no caller passing `isCancelled`).
+    ///
+    /// Rather than race a wall-clock sleep against the pass, this waits for the
+    /// deterministic hand-off point: `runNLTaggerPass` publishes the initial
+    /// `queueSize` (from `NLTaggerPass`'s `progress(0, estimatedTotal)` call) before
+    /// any page is fetched. Once that's observed, cancel() is guaranteed to race
+    /// against real per-page work (context creation + save), not against pass setup,
+    /// which is enough margin with a large post count and a small batchSize.
+    func testCancelStopsTheNLTaggerPass() async throws {
+        let account = TrackedAccount(did: "did:1", handle: "test.bsky.social", displayName: "Test", startAt: Date())
+        let total = 400
+        for i in 0..<total {
+            let uri = "at://cancel/\(i)"
+            let post = Post(uri: uri, text: "Post number \(i)", createdAt: Date(), authorDID: "did:1",
+                            authorHandle: "user", parentURI: nil, rootURI: uri, isRootPost: false, depth: 1)
+            post.account = account
+            context.insert(post)
+        }
+        context.insert(account)
+        try context.save()
+
+        let service = AnnotationService(modelContainer: container)
+
+        let runTask = Task {
+            try await service.runNLTaggerPass(batchSize: 5)
+        }
+
+        while service.queueSize == 0 {
+            await Task.yield()
+        }
+        service.cancel()
+
+        try await runTask.value
+
+        XCTAssertFalse(service.isRunning)
+        XCTAssertLessThan(service.processedCount, total,
+                          "cancel() should stop the pass before it finishes the full backlog")
+    }
 }

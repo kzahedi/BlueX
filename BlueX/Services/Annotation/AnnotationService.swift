@@ -46,6 +46,7 @@ final class AnnotationService {
             isRunning = false
             passLabel = ""
             etaSeconds = nil
+            runningTask = nil
         }
 
         // Capture only Sendable values for the detached task — @Model instances are
@@ -53,11 +54,14 @@ final class AnnotationService {
         let container = modelContainer
 
         let stream = AsyncThrowingStream<(Int, Int, Double?), Error> { continuation in
-            Task.detached(priority: .userInitiated) {
+            let task = Task.detached(priority: .userInitiated) {
                 do {
                     let runStart = Date()
                     let pass = NLTaggerPass(container: container)
-                    _ = try pass.run(batchSize: batchSize, limit: limit) { done, total in
+                    // `Task.isCancelled` here reflects THIS detached task's own
+                    // cancellation flag, which `onTermination` below flips when the
+                    // GUI calls cancel() — the same wiring runLLMPass already uses.
+                    _ = try pass.run(batchSize: batchSize, limit: limit, isCancelled: { Task.isCancelled }) { done, total in
                         let eta = Self.etaFromRunningAverage(
                             start: runStart, processed: done, total: total
                         )
@@ -68,13 +72,26 @@ final class AnnotationService {
                     continuation.finish(throwing: error)
                 }
             }
+            // AsyncThrowingStream calls onTermination when its consumer (the
+            // `for try await` loop below, running inside `runningTask`) is
+            // cancelled — including via cancel() -> runningTask?.cancel(). That
+            // propagates cancellation into the detached task doing the actual work.
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
         }
 
-        for try await (processed, total, eta) in stream {
-            queueSize = total
-            processedCount = processed
-            etaSeconds = eta
+        // Track the task so cancel() can stop this pass from outside, same as runLLMPass.
+        runningTask = Task<Void, Error> {
+            for try await (processed, total, eta) in stream {
+                await MainActor.run {
+                    queueSize = total
+                    processedCount = processed
+                    etaSeconds = eta
+                }
+            }
         }
+        try await runningTask?.value
     }
 
     /// Linear ETA from the running per-post average since the current pass started.
@@ -282,11 +299,6 @@ final class AnnotationService {
         case start(total: Int)
         case tick(processed: Int, currentText: String, errors: Int, etaSeconds: Double?, thermal: ProcessInfo.ThermalState)
         case error(message: String)
-    }
-
-    private func fetchPostsWithoutNLTaggerAnnotation(context: ModelContext) throws -> [Post] {
-        let posts = try context.fetch(FetchDescriptor<Post>())
-        return posts.filter { !$0.hasNLTaggerAnnotation }
     }
 
 }
