@@ -31,7 +31,11 @@ MAX_WINDOW_DAYS=7
 # watchdog looks, so its heartbeat is from the previous night and is not judged
 # until the following morning. That is fine: an immediate failure is notified
 # directly by this script, so the watchdog is the backstop, not the first line.
-DEADLINE_TIME="07:00"
+#
+# Overridable purely so the regression tests in test_jobs.py can put the deadline a
+# few seconds away instead of sleeping until 07:00. Unset in production (launchd
+# passes no environment), so the effective value there is still exactly 07:00.
+DEADLINE_TIME="${DEADLINE_TIME:-07:00}"
 
 # Budget reserved for the sentiment pass out of the run's total. Without it the
 # scrape eats the whole night on a multi-day backfill and NLTagger annotation never
@@ -48,7 +52,16 @@ DEADLINE_TIME="07:00"
 #
 # That is tolerated only because NLTagger is microseconds per post, so the overrun
 # is small in practice. It is a reason, not a guarantee.
-SENTIMENT_RESERVE_SECONDS=$(( 20 * 60 ))
+#
+# Overridable for the same reason as DEADLINE_TIME: it is the only knob that lets a
+# test give the scrape a budget of a few seconds. Unset in production, so 20 minutes.
+SENTIMENT_RESERVE_SECONDS="${SENTIMENT_RESERVE_SECONDS:-$(( 20 * 60 ))}"
+
+# Poll interval of the deadline timer in run_bounded. It bounds two things: how long
+# after the deadline the SIGINT is delivered, and how long the run lingers after a
+# child exits early (the timer notices on its next poll). Overridable only so the
+# regression tests do not pay 5s per step; unset in production, so 5 seconds.
+TIMER_POLL_SECONDS="${TIMER_POLL_SECONDS:-5}"
 
 preflight() {
   local problems=0
@@ -209,7 +222,7 @@ run_bounded() {
     (
       while [ "$(date +%s)" -lt "$stop_at" ]; do
         kill -0 "$child" 2>/dev/null || exit 0
-        sleep 5
+        sleep "$TIMER_POLL_SECONDS"
       done
       kill -INT "$child" 2>/dev/null && : >"$DEADLINE_FLAG"
     ) &
