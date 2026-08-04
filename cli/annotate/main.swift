@@ -20,6 +20,7 @@ import SwiftData
 enum AnnotatePass: String {
     case llm                // hate / counter / neutral classification (default)
     case llmSentiment       // positive / neutral / negative sentiment
+    case nltagger           // Apple on-device sentiment — no LLM, no network
 }
 
 struct CLIArgs {
@@ -101,8 +102,9 @@ struct CLIArgs {
                     switch args[i] {
                     case "llm": a.pass = .llm
                     case "llm-sentiment", "sentiment": a.pass = .llmSentiment
+                    case "nltagger": a.pass = .nltagger
                     default:
-                        fail("blueX-annotate", "invalid --pass value '\(args[i])'. Valid: llm, llm-sentiment")
+                        fail("blueX-annotate", "invalid --pass value '\(args[i])'. Valid: llm, llm-sentiment, nltagger")
                     }
                 }
             case "--min-text-length":
@@ -165,6 +167,12 @@ usage: blueX-annotate [options]
                                        set; writes stage="llm-sentiment" so it
                                        sits alongside the NLTagger sentiment
                                        and the hate/counter annotation.
+                     nltagger       — Apple's on-device NLTagger sentiment.
+                                       Free, no network, no Ollama, no
+                                       ModelConfig. Writes stage="nltagger".
+                                       This is the pass the nightly job runs.
+                                       Honours --limit; ignores --model, --pace
+                                       and --concurrency.
   --min-text-length <n>
                      Skip posts whose text is below N characters after
                      whitespace trim. Default 10. Such posts are marked with
@@ -309,6 +317,45 @@ func runCLI() async {
             return
         }
 
+        // ---- nltagger pass — Apple's on-device sentiment. Deliberately handled
+        // before model selection: it needs no ModelConfig, no client and no
+        // network, so it must not fail on a machine where Ollama is absent.
+        if args.pass == .nltagger {
+            if args.coverage || args.benchmarkFile != nil {
+                fail("blueX-annotate", "--pass nltagger supports --limit only (not --coverage or --benchmark).")
+            }
+            let cancel = installSIGINTHandler(notice: "\n\nstopping after current page — please wait…\n")
+            let runStart = Date()
+            let annotated: Int
+            do {
+                annotated = try NLTaggerPass(container: container).run(
+                    limit: args.limit,
+                    isCancelled: { cancel.isSet },
+                    progress: { done, total in
+                        let pct = total == 0 ? 0.0 : Double(done) / Double(total)
+                        let filled = Int((Double(barWidth) * pct).rounded())
+                        let bar = String(repeating: "█", count: filled)
+                                + String(repeating: "░", count: barWidth - filled)
+                        let elapsed = Date().timeIntervalSince(runStart)
+                        let rate = elapsed > 0 ? Double(done) / elapsed : 0
+                        writeProgress(String(
+                            format: "%@ %d/%d  %.0f posts/s  %@",
+                            bar, done, total, rate, formatDuration(elapsed)
+                        ))
+                    }
+                )
+            } catch {
+                fail("blueX-annotate", "nltagger pass failed: \(error)")
+            }
+            let elapsed = Date().timeIntervalSince(runStart)
+            let rate = elapsed > 0 ? Double(annotated) / elapsed : 0
+            writeFinalLine(String(
+                format: "Apple NLTagger sentiment — %d post%@ in %@ (%.1f posts/s)",
+                annotated, annotated == 1 ? "" : "s", formatDuration(elapsed), rate
+            ))
+            return
+        }
+
         // ---- pick model
         let configs = (try? context.fetch(FetchDescriptor<ModelConfig>())) ?? []
         let modelCfg: ModelConfig?
@@ -352,6 +399,11 @@ func runCLI() async {
             }
             stageTag = "llm"
             signedSentimentScore = false
+        case .nltagger:
+            // Unreachable: the nltagger dispatch block above returns before
+            // model selection. Kept exhaustive so the compiler catches any
+            // future AnnotatePass case that forgets to handle this switch.
+            fail("blueX-annotate", "internal error: nltagger pass reached model selection")
         }
 
         // ---- cancel handler (Ctrl-C)
