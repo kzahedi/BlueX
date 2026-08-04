@@ -173,9 +173,9 @@ already marked `.complete`, so it is irrelevant to the initial run.
 
 **Account data survives at zero cost.** `AccountSeeder.seeds` hardcodes all six
 accounts (DIDs, handles, display names, groups) and `seed(into:)` populates any store
-with no accounts. `ensureModelConfigs` does the same for model settings. The one
-casualty is the user-created **"All Media"** group, which is not in `seeds` and will
-not be recreated — trivially re-added in the GUI.
+with no accounts. `ensureModelConfigs` does the same for model settings. Verified on the rebuilt store: all three groups (All Media, German Media,
+International Media) and 9 ModelConfigs are recreated identically to the archive.
+Nothing is lost from the configuration.
 
 **Accepted trade-off, recorded because it is real and non-obvious.** A fresh scrape
 returns what exists *today*. Replies deleted, deauthored or moderated away since 2018
