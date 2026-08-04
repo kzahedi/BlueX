@@ -6,11 +6,28 @@ volume that is not mounted during DarkWake — so every run died with
 
 The store data was later moved onto that same volume deliberately, so the rule is
 not "no /Volumes anywhere". It is: the DATA may live there, the CODE may not.
+
+The second half of this file guards the SAFETY LOGIC added while fixing that outage:
+exit-code propagation, the rule that a deadline stop may never mask a failure, the
+heartbeat contract between bluex-nightly.sh (writer) and bluex-watchdog.sh (reader),
+the watchdog's decision table, and bluex_wait_for_store. All of that had been verified
+once by hand and then thrown away, which is how the original bug survived 61 days:
+nothing executable disagreed with it.
+
+Those tests drive the REAL scripts in a subprocess with the whole environment
+redirected into a pytest tmp_path (see _sandbox). They must never touch the real
+~/Library/Logs/BlueX or the real store on /Volumes/Eregion: a stray real heartbeat
+would make the watchdog report healthy while nothing runs, and a stray real lock
+would make the next genuine nightly run skip silently. Both are worse than the
+outage this branch exists to remove.
 """
 
+import json
 import os
 import plistlib
+import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -97,3 +114,628 @@ def test_superseded_agents_are_removed():
         assert not (
             AGENTS_DIR / f"{old}.plist"
         ).exists(), f"{old}.plist should have been removed by install-jobs.sh"
+
+
+# ---------------------------------------------------------------------------
+# Sandbox: run the real scripts with every filesystem effect inside tmp_path.
+# ---------------------------------------------------------------------------
+# lib-bluex-job.sh derives BLUEX_LOG_DIR, BLUEX_HEARTBEAT, BLUEX_LOCK and BLUEX_BIN
+# from $HOME, and BLUEX_STORE_DIR is already overridable. Overriding just those two
+# variables therefore redirects *everything* — logs, heartbeat, lock, and the location
+# the scrape/annotate binaries are looked up in — with no production change at all.
+#
+# osascript and caffeinate are shadowed by stubs on PATH rather than suppressed: a
+# notification that silently fails to fire is the one thing this whole design cannot
+# tolerate, so the tests must be able to assert the notification actually happened.
+
+NIGHTLY = JOBS_SRC / "bluex-nightly.sh"
+WATCHDOG = JOBS_SRC / "bluex-watchdog.sh"
+LIB = JOBS_SRC / "lib-bluex-job.sh"
+
+_STUB_OSASCRIPT = """#!/bin/sh
+# Records the notification instead of displaying it. Exit 0 so bluex_notify does not
+# take its "notification FAILED" branch.
+printf '%s\\n' "$*" >>"$BLUEX_TEST_NOTIFY_LOG"
+exit 0
+"""
+
+# Real caffeinate would take a power assertion for the length of the test run. The
+# nightly script's cleanup kills this pid, and killing an already-dead pid is
+# explicitly harmless there.
+_STUB_CAFFEINATE = "#!/bin/sh\nexit 0\n"
+
+# Exits with a chosen code. --check-credentials must succeed or preflight aborts
+# before the code under test is ever reached.
+_STUB_CLI = """#!/bin/sh
+if [ "$1" = "--check-credentials" ]; then exit 0; fi
+echo "stub {name}: $*"
+exit {code}
+"""
+
+# Long-running variant that mirrors the real CLIs under the deadline SIGINT: it stops
+# at the next "boundary" and reports SUCCESS, because a deadline stop is not a failure.
+#
+# Python rather than sh, and this is not a stylistic choice. run_bounded starts the CLI
+# with `"$@" &`, and a non-interactive zsh sets SIGINT to SIG_IGN in background
+# children; POSIX then forbids a shell script from trapping a signal that was already
+# ignored on entry, so an `sh` stub silently cannot react to the deadline at all and
+# runs to completion. The real Swift CLIs are unaffected because installSIGINTHandler
+# installs its own disposition after exec — and so does this stub.
+_STUB_CLI_INTERRUPTIBLE = """#!/usr/bin/env python3
+import signal, sys, time
+if "--check-credentials" in sys.argv:
+    raise SystemExit(0)
+print("stub {name}:", *sys.argv[1:], flush=True)
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+time.sleep(120)
+raise SystemExit(0)
+"""
+
+
+def _write_exec(path: Path, text: str) -> None:
+    path.write_text(text)
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+class _Sandbox:
+    def __init__(self, tmp_path: Path, scrape_exit=0, sentiment_exit=0, slow_scrape=False):
+        self.root = tmp_path
+        self.home = tmp_path / "home"
+        self.bin = self.home / ".local/bin"
+        self.stubs = tmp_path / "stubs"
+        # A stand-in for the external volume: the store dir's PARENT existing is what
+        # "the volume is mounted" means (see bluex_wait_for_store).
+        self.volume = tmp_path / "volume"
+        self.store_dir = self.volume / "bluex-data"
+        self.store = self.store_dir / "default.store"
+        self.log_dir = self.home / "Library/Logs/BlueX"
+        self.heartbeat = self.log_dir / "last-run.json"
+        self.lock = self.log_dir / "bluex-store.lock"
+        self.notify_log = tmp_path / "notifications.log"
+
+        for d in (self.bin, self.stubs, self.store_dir, self.log_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        self.store.write_text("stub store\n")
+        self.notify_log.write_text("")
+
+        _write_exec(self.stubs / "osascript", _STUB_OSASCRIPT)
+        _write_exec(self.stubs / "caffeinate", _STUB_CAFFEINATE)
+        template = _STUB_CLI_INTERRUPTIBLE if slow_scrape else _STUB_CLI
+        _write_exec(
+            self.bin / "blueX-scrape",
+            template.format(name="scrape", code=scrape_exit),
+        )
+        _write_exec(
+            self.bin / "blueX-annotate",
+            _STUB_CLI.format(name="annotate", code=sentiment_exit),
+        )
+
+        env = {k: v for k, v in os.environ.items() if not k.startswith("BLUEX_")}
+        for leaked in ("DEADLINE_TIME", "SENTIMENT_RESERVE_SECONDS", "TIMER_POLL_SECONDS"):
+            env.pop(leaked, None)
+        # The deadline timer polls every 5s in production, which costs ~10s of pure
+        # waiting per nightly run here. 1s keeps the suite in seconds; the production
+        # default is asserted separately by test_the_testability_knobs_keep_their_
+        # production_defaults, since launchd passes no environment at all.
+        env["TIMER_POLL_SECONDS"] = "1"
+        env["HOME"] = str(self.home)
+        env["BLUEX_STORE_DIR"] = str(self.store_dir)
+        env["BLUEX_TEST_NOTIFY_LOG"] = str(self.notify_log)
+        env["PATH"] = f"{self.stubs}:{env.get('PATH', '/usr/bin:/bin')}"
+        self.env = env
+
+    def run(self, script: Path, *args, extra_env=None, timeout=120):
+        env = dict(self.env)
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            ["zsh", str(script), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(self.root),
+            timeout=timeout,
+        )
+
+    @property
+    def notifications(self) -> str:
+        return self.notify_log.read_text()
+
+    def nightly_log(self) -> str:
+        logs = sorted(self.log_dir.glob("nightly_*.log"))
+        return "\n".join(p.read_text() for p in logs)
+
+    def watchdog_log(self) -> str:
+        p = self.log_dir / "watchdog.log"
+        return p.read_text() if p.exists() else ""
+
+    def write_heartbeat(self, age_seconds=0, **fields):
+        self.heartbeat.write_text(json.dumps(fields, indent=2) + "\n")
+        self._age(self.heartbeat, age_seconds)
+
+    def age_store(self, age_seconds):
+        self._age(self.store, age_seconds)
+
+    @staticmethod
+    def _age(path: Path, age_seconds):
+        when = time.time() - age_seconds
+        os.utime(path, (when, when))
+
+
+@pytest.fixture
+def sandbox(tmp_path):
+    """Default sandbox: both stub CLIs succeed immediately."""
+    return _Sandbox(tmp_path)
+
+
+def _near_deadline(offset_minutes=5, budget_seconds=8):
+    """A DEADLINE_TIME a few minutes out, plus the reserve that leaves `budget_seconds`.
+
+    The scrape's stop is DEADLINE_EPOCH - SENTIMENT_RESERVE_SECONDS, so sizing the
+    reserve is the only way to give the scrape a budget of seconds rather than hours.
+
+    Two pieces of BSD `date` behaviour make the arithmetic exact:
+
+    * `date -j -f "%Y-%m-%d %H:%M"` leaves the SECONDS field unspecified, and BSD date
+      fills it from the current clock rather than zeroing it. The script's deadline
+      epoch is therefore (its own now) with HH:MM replaced — i.e. exactly
+      offset_minutes ahead of the moment we sampled the clock here, not truncated to
+      the minute. So the reserve is simply offset*60 - budget, with no correction, and
+      the small delay before the script reads its own clock cancels out.
+    * A time already past is rolled forward a day by the script, which is what makes
+      this correct across midnight: at 23:58 "+5M" yields "00:03", which the script
+      reads as today-00:03 (past), adds 86400 to, and lands ~5 minutes ahead.
+
+    The one thing that would break it is the minute rolling over between our sample and
+    the script's, which would shift the deadline by a whole minute and could make the
+    budget negative (silently turning the deadline test into the no-budget shortcut).
+    Hence the wait out of the last few seconds of a minute.
+    """
+    while time.localtime().tm_sec > 50:
+        time.sleep(0.5)
+    hhmm = subprocess.run(
+        ["date", f"-v+{offset_minutes}M", "+%H:%M"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return hhmm, offset_minutes * 60 - budget_seconds
+
+
+# ---------------------------------------------------------------------------
+# 1. Exit-code propagation — the bug this whole branch exists to eliminate.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "scrape_exit,sentiment_exit,expect_in_message",
+    [
+        (2, 0, "scrape=2 sentiment=0"),
+        (0, 3, "scrape=0 sentiment=3"),
+        (2, 3, "scrape=2 sentiment=3"),
+    ],
+)
+def test_a_failing_step_is_notified_and_exits_nonzero(
+    tmp_path, scrape_exit, sentiment_exit, expect_in_message
+):
+    """A nonzero step must ALWAYS produce a notification and a nonzero script exit.
+
+    The 2026-06-04 outage was exactly this going missing: the jobs failed every night
+    for 61 days while nothing reported it. Whole-script run, because the thing being
+    tested is the wiring between run_bounded's return value, the heartbeat and the
+    final exit — not any single function.
+    """
+    sb = _Sandbox(tmp_path, scrape_exit=scrape_exit, sentiment_exit=sentiment_exit)
+    result = sb.run(NIGHTLY)
+
+    assert result.returncode != 0, (
+        f"a failing step exited 0 — silent failure reintroduced.\n{result.stdout}\n{result.stderr}"
+    )
+    assert "BlueX nightly failed" in sb.notifications, (
+        f"no failure notification was sent. notifications={sb.notifications!r}"
+    )
+    assert expect_in_message in sb.notifications
+    heartbeat = json.loads(sb.heartbeat.read_text())
+    assert heartbeat["scrapeExit"] == scrape_exit
+    assert heartbeat["sentimentExit"] == sentiment_exit
+
+
+def test_a_clean_run_exits_zero_and_sends_no_failure_notification(sandbox):
+    result = sandbox.run(NIGHTLY)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "failed" not in sandbox.notifications.lower(), sandbox.notifications
+    heartbeat = json.loads(sandbox.heartbeat.read_text())
+    assert heartbeat["scrapeExit"] == 0 and heartbeat["sentimentExit"] == 0
+    assert heartbeat["stoppedAtDeadline"] is False
+    assert heartbeat["sentimentSkipped"] is False
+
+
+# ---------------------------------------------------------------------------
+# 2. A deadline stop must never mask a failure.
+# ---------------------------------------------------------------------------
+
+
+def test_a_deadline_stop_does_not_mask_a_failure(tmp_path):
+    """Hitting the deadline AND failing must still report the failure.
+
+    A fix wave once suppressed the failure notification on any deadline night, which
+    hid every real failure for the whole length of a multi-day backfill — the same
+    silent-failure class as the original outage, reintroduced by a fix for it. Only a
+    human-directed reviewer caught it, which is why this test exists.
+
+    Whole-script run, and deliberately through the REAL timer/SIGINT path rather than
+    the cheaper "no budget left" shortcut: the deadline flag file written by the timer
+    subshell is the mechanism a future edit is most likely to break. The scrape stub is
+    interruptible and reports exit 0 on SIGINT, mirroring the real CLIs — so the
+    failure here comes solely from the sentiment step, and the deadline is the only
+    thing that could excuse it.
+    """
+    deadline, reserve = _near_deadline()
+    sb = _Sandbox(tmp_path, sentiment_exit=4, slow_scrape=True)
+    result = sb.run(
+        NIGHTLY,
+        extra_env={
+            "DEADLINE_TIME": deadline,
+            "SENTIMENT_RESERVE_SECONDS": str(reserve),
+        },
+    )
+
+    log = sb.nightly_log()
+    heartbeat = json.loads(sb.heartbeat.read_text())
+    assert heartbeat["stoppedAtDeadline"] is True, (
+        f"the deadline never fired, so this test proved nothing.\nlog:\n{log}"
+    )
+    assert "stopped at the" in log, (
+        f"expected the timer/SIGINT branch, not the no-budget shortcut.\nlog:\n{log}"
+    )
+    assert result.returncode != 0, (
+        f"deadline night masked a failing step — regression.\nlog:\n{log}"
+    )
+    assert "BlueX nightly failed" in sb.notifications, sb.notifications
+    assert "sentiment=4" in sb.notifications
+    assert "deadline" in sb.notifications, (
+        "the notification should say the deadline was also hit"
+    )
+
+
+def test_a_deadline_stop_on_its_own_is_not_a_failure(tmp_path):
+    """The converse guard: a deadline stop with both exits 0 is "ran short", not failed.
+
+    Without this, someone fixing the test above could make every backfill night alarm.
+    Uses the "no budget left before the deadline" path — the deadline is inside the
+    sentiment reserve, so the scrape never starts — which needs no waiting at all.
+    """
+    deadline, _ = _near_deadline()
+    sb = _Sandbox(tmp_path)
+    result = sb.run(NIGHTLY, extra_env={"DEADLINE_TIME": deadline})
+
+    log = sb.nightly_log()
+    heartbeat = json.loads(sb.heartbeat.read_text())
+    assert heartbeat["stoppedAtDeadline"] is True, f"log:\n{log}"
+    assert heartbeat["scrapeExit"] == 0 and heartbeat["sentimentExit"] == 0
+    assert result.returncode == 0, f"a mere deadline stop alarmed.\nlog:\n{log}"
+    assert "BlueX nightly failed" not in sb.notifications, sb.notifications
+    assert "ran short, not failed" in log
+
+
+# ---------------------------------------------------------------------------
+# 3. Heartbeat contract between the writer and the reader.
+# ---------------------------------------------------------------------------
+
+HEARTBEAT_FIELDS = [
+    "finishedAt",
+    "scrapeExit",
+    "sentimentExit",
+    "stoppedAtDeadline",
+    "sentimentSkipped",
+    "log",
+]
+
+
+def test_heartbeat_written_by_nightly_is_valid_json_with_every_contract_field(sandbox):
+    """The heartbeat is hand-assembled with a here-doc, so nothing else validates it.
+
+    An unescaped value or a stray comma would produce a file the watchdog silently
+    reads as "no fields present" — which its own design reads as *not a failure*. So a
+    malformed heartbeat is indistinguishable from a healthy one. Parse it strictly.
+    """
+    assert sandbox.run(NIGHTLY).returncode == 0
+    data = json.loads(sandbox.heartbeat.read_text())
+    assert sorted(data) == sorted(HEARTBEAT_FIELDS), f"contract drifted: {sorted(data)}"
+    assert data["log"].startswith(str(sandbox.log_dir))
+
+
+def test_the_watchdogs_reader_can_read_every_field_the_writer_writes(sandbox):
+    """Writer and reader must agree — they share no code, only a format.
+
+    bluex_json_field is grep+sed by design (no dependencies under launchd), so it is the
+    pair most likely to drift apart silently, and a field the reader cannot see reads as
+    "absent", which the watchdog treats as *not a failure*.
+
+    Mixed approach on purpose: the heartbeat is produced by the real writer (one whole
+    nightly run) and then read back through the real reader function sourced in a
+    zsh subprocess, because bluex_json_field's output cannot be observed any other way.
+    One nightly run for all fields — each one costs wall-clock time.
+    """
+    assert sandbox.run(NIGHTLY).returncode == 0
+    written = json.loads(sandbox.heartbeat.read_text())
+    for field in HEARTBEAT_FIELDS:
+        expected = written[field]
+        result = subprocess.run(
+            [
+                "zsh",
+                "-c",
+                f'source "{LIB}"; bluex_json_field "$1" "$2"',
+                "_",
+                str(sandbox.heartbeat),
+                field,
+            ],
+            capture_output=True,
+            text=True,
+            env=sandbox.env,
+        )
+        assert result.returncode == 0, f"reader could not find {field}: {result.stderr}"
+        raw = result.stdout.strip()
+        assert raw, f"reader returned nothing for {field}"
+        if isinstance(expected, bool):
+            assert raw == ("true" if expected else "false"), field
+        elif isinstance(expected, int):
+            assert int(raw) == expected, field
+        else:
+            # Paths and timestamps contain colons; the reader must split on the FIRST
+            # colon only, or a log path comes back truncated to "/Users/…/Library/Logs".
+            assert raw == str(expected).replace(" ", ""), field
+
+
+def test_watchdog_tolerates_an_older_heartbeat_without_the_boolean_fields(sandbox):
+    """An older heartbeat predates stoppedAtDeadline/sentimentSkipped.
+
+    An absent field must read as "unknown", never as a failure and never as a crash
+    under `set -u`. The staleness checks already cover a heartbeat that has stopped
+    being rewritten, so a fresh old-format heartbeat with zero exits is healthy.
+    """
+    sandbox.write_heartbeat(
+        finishedAt="2026-08-03T02:11:00Z",
+        scrapeExit=0,
+        sentimentExit=0,
+        log=str(sandbox.log_dir / "nightly_old.log"),
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert result.stderr == "", f"unset-variable crash: {result.stderr}"
+    assert sandbox.notifications == "", sandbox.notifications
+    assert "fresh." in sandbox.watchdog_log()
+
+
+# ---------------------------------------------------------------------------
+# 4. Watchdog decision table.
+# ---------------------------------------------------------------------------
+
+_FRESH = 60
+_STALE = 72 * 3600  # > the 48h threshold
+
+
+@pytest.mark.parametrize(
+    "case,hb_age,store_age,hb_fields,rc,expect,forbid",
+    [
+        (
+            # No notification at all is the correct output here — hence the empty
+            # expectation and the log assertion at the end of the test body.
+            "fresh and clean",
+            _FRESH,
+            _FRESH,
+            dict(scrapeExit=0, sentimentExit=0, sentimentSkipped=False),
+            0,
+            [],
+            ["BlueX"],
+        ),
+        (
+            "punctual but scrape failed",
+            _FRESH,
+            _FRESH,
+            dict(scrapeExit=2, sentimentExit=0, sentimentSkipped=False),
+            1,
+            ["BlueX nightly failing", "scrape (exit 2)"],
+            ["sentiment (exit", "and data is stale"],
+        ),
+        (
+            "punctual but sentiment failed",
+            _FRESH,
+            _FRESH,
+            dict(scrapeExit=0, sentimentExit=9, sentimentSkipped=False),
+            1,
+            ["BlueX nightly failing", "sentiment (exit 9)"],
+            ["scrape (exit"],
+        ),
+        (
+            "failed and stale",
+            _STALE,
+            _STALE,
+            dict(scrapeExit=2, sentimentExit=0, sentimentSkipped=False),
+            1,
+            ["BlueX nightly failing", "scrape (exit 2)", "and data is stale"],
+            [],
+        ),
+        (
+            "store stale only",
+            _FRESH,
+            _STALE,
+            dict(scrapeExit=0, sentimentExit=0, sentimentSkipped=False),
+            1,
+            ["BlueX is stale", "Store hasn't updated in 3d"],
+            ["No successful run"],
+        ),
+        (
+            "both stale",
+            _STALE,
+            _STALE,
+            dict(scrapeExit=0, sentimentExit=0, sentimentSkipped=False),
+            1,
+            ["BlueX is stale", "No successful run and no new data in 3d"],
+            [],
+        ),
+        (
+            "fresh but sentiment skipped",
+            _FRESH,
+            _FRESH,
+            dict(scrapeExit=0, sentimentExit=0, sentimentSkipped=True),
+            0,
+            ["BlueX sentiment skipped"],
+            ["BlueX is stale", "BlueX nightly failing"],
+        ),
+    ],
+)
+def test_watchdog_decision_table(
+    sandbox, case, hb_age, store_age, hb_fields, rc, expect, forbid
+):
+    """Each of the watchdog's three signals has a blind spot the others cover.
+
+    A "simplification" that collapses two branches would silently restore one of those
+    blind spots — a failing-but-punctual job reading as healthy is how 61 days passed.
+    The forbidden strings matter as much as the expected ones: a message must name the
+    signal that actually tripped and nothing else.
+    """
+    sandbox.write_heartbeat(
+        age_seconds=hb_age,
+        finishedAt="2026-08-03T02:11:00Z",
+        log=str(sandbox.log_dir / "nightly_x.log"),
+        stoppedAtDeadline=False,
+        **hb_fields,
+    )
+    sandbox.age_store(store_age)
+
+    result = sandbox.run(WATCHDOG)
+    notifications = sandbox.notifications
+    assert result.returncode == rc, (
+        f"{case}: exit {result.returncode} != {rc}\n{result.stdout}\n{result.stderr}"
+    )
+    for needle in expect:
+        assert needle in notifications, f"{case}: missing {needle!r} in {notifications!r}"
+    for needle in forbid:
+        assert needle not in notifications, f"{case}: unexpected {needle!r} in {notifications!r}"
+    if not expect:
+        assert "fresh." in sandbox.watchdog_log(), (
+            f"{case}: silence must still be recorded in the log"
+        )
+
+
+@pytest.mark.parametrize("missing_heartbeat", [True, False])
+def test_a_stale_heartbeat_is_never_reported_as_a_day_count_from_the_store(
+    sandbox, missing_heartbeat
+):
+    """The "No successful run in 0d" bug: a day count from the wrong signal.
+
+    When the heartbeat is the stale/absent signal and the store is fresh (a scrape-only
+    run that never completes the nightly job — exactly what this watchdog exists to
+    catch), any "Nd" figure derived from store_age reads 0d and looks like nothing is
+    wrong. The message must name the tripped signal instead of guessing a number.
+    """
+    if missing_heartbeat:
+        assert not sandbox.heartbeat.exists()
+    else:
+        sandbox.write_heartbeat(
+            age_seconds=_STALE,
+            finishedAt="2026-07-30T02:11:00Z",
+            scrapeExit=0,
+            sentimentExit=0,
+            stoppedAtDeadline=False,
+            sentimentSkipped=False,
+            log="x",
+        )
+    sandbox.age_store(_FRESH)
+
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1, f"{result.stdout}\n{result.stderr}"
+    assert "Nightly job hasn't completed a run recently" in sandbox.notifications
+    assert "0d" not in sandbox.notifications, (
+        f"day count derived from the wrong signal: {sandbox.notifications!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. bluex_wait_for_store — must mirror Swift's BlueXStore.isAvailable.
+# ---------------------------------------------------------------------------
+
+
+def _wait_for_store(sandbox, store_dir, timeout):
+    """Sourced-function approach: a whole-script run cannot isolate the timeout=0 path."""
+    started = time.monotonic()
+    result = subprocess.run(
+        ["zsh", "-c", f'source "{LIB}"; bluex_wait_for_store "$1"', "_", str(timeout)],
+        capture_output=True,
+        text=True,
+        env={**sandbox.env, "BLUEX_STORE_DIR": str(store_dir)},
+    )
+    return result.returncode, time.monotonic() - started
+
+
+def test_wait_for_store_checks_the_parent_not_the_store_directory(sandbox, tmp_path):
+    """"Available" means the VOLUME is mounted, which is the PARENT existing.
+
+    BlueXStore.isAvailable in Swift checks the parent for the same reason: on a first
+    run the store directory itself does not exist yet, and checking it would make the
+    nightly job exit 75 forever on a perfectly mounted drive.
+    """
+    mounted_but_empty = tmp_path / "volume/not-created-yet"
+    assert not mounted_but_empty.exists()
+    rc, _ = _wait_for_store(sandbox, mounted_but_empty, 0)
+    assert rc == 0, "reported unavailable although the parent (the volume) exists"
+
+    unmounted = tmp_path / "no-such-volume/bluex-data"
+    rc, _ = _wait_for_store(sandbox, unmounted, 0)
+    assert rc == 1, "reported available although the parent does not exist"
+
+
+def test_wait_for_store_with_timeout_zero_returns_immediately(sandbox, tmp_path):
+    """Timeout 0 must check once and return — preflight calls it in the foreground.
+
+    The loop sleeps BEFORE re-checking the timeout, so an off-by-one here turns
+    `bluex_wait_for_store 0` into a 5-second stall on every preflight, and any larger
+    regression into a 180-second one.
+    """
+    rc, elapsed = _wait_for_store(sandbox, tmp_path / "no-such-volume/bluex-data", 0)
+    assert rc == 1
+    assert elapsed < 2, f"timeout 0 slept for {elapsed:.1f}s"
+
+
+@pytest.mark.parametrize(
+    "default",
+    [
+        'DEADLINE_TIME="${DEADLINE_TIME:-07:00}"',
+        'SENTIMENT_RESERVE_SECONDS="${SENTIMENT_RESERVE_SECONDS:-$(( 20 * 60 ))}"',
+        'TIMER_POLL_SECONDS="${TIMER_POLL_SECONDS:-5}"',
+    ],
+)
+def test_the_testability_knobs_keep_their_production_defaults(default):
+    """The three env overrides exist only for these tests and must change nothing live.
+
+    launchd starts these agents with no environment, so the default is what production
+    always gets — which also means an accidentally changed default would never show up
+    in any test that sets the variable. Pin the literals instead.
+    """
+    assert default in NIGHTLY.read_text(), f"production default changed: {default}"
+
+
+# ---------------------------------------------------------------------------
+# 6. The lock must never outlive the run.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("scrape_exit", [0, 2])
+def test_the_store_lock_is_released_even_when_the_run_fails(tmp_path, scrape_exit):
+    """A leftover lock makes the NEXT night skip silently for 18h — the outage pattern."""
+    sb = _Sandbox(tmp_path, scrape_exit=scrape_exit)
+    sb.run(NIGHTLY)
+    assert not sb.lock.exists(), f"{sb.lock} survived the run"
+    assert not list(sb.log_dir.glob(".deadline-fired.*")), "deadline flag left behind"
+
+
+def test_a_second_concurrent_run_skips_instead_of_touching_the_store(sandbox):
+    """Nightly-vs-nightly exclusion: a launchd replay must not open a second writer."""
+    sandbox.lock.mkdir()
+    result = sandbox.run(NIGHTLY)
+    assert result.returncode == 0
+    assert not sandbox.heartbeat.exists(), (
+        "a skipped run wrote a heartbeat — the watchdog would read it as a real run"
+    )
+    assert "store busy" in sandbox.nightly_log()
