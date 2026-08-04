@@ -21,8 +21,11 @@ Two independent faults, both verified:
 Aggravating factor: repeated `Dark Wake Thermal Emergency` sleeps (08:36, 09:01, 09:22)
 cut DarkWake windows short, so a long job cannot live in one.
 
-The SwiftData store at `~/Library/Application Support/BlueX/default.store` is on the
-internal disk and unaffected. Only scripts and binaries sit on the volume that vanishes.
+At the time of the outage the SwiftData store was at
+`~/Library/Application Support/BlueX/default.store`, on the internal disk and
+unaffected — only scripts and binaries sat on the volume that vanishes. The store has
+since been moved to Eregion by request; see "Store on the external volume" below, which
+is why the mount state now matters to the job as well as to the scripts.
 
 ## Constraints
 
@@ -50,6 +53,7 @@ internal disk and unaffected. Only scripts and binaries sit on the volume that v
 | Wake mechanism | Root LaunchDaemon at 07:00 arms a one-shot `pmset schedule wake` for 03:30 | `pmset` needs root; `pmset repeat` slot is taken by 06:55; privilege split keeps Keychain + notifications in the user session |
 | Alerting | Notification on failure + staleness watchdog at 06:56 | Watchdog catches the "never even started" mode that caused the 61-day gap |
 | Gap handling | One-off attended `--max-window-days 70` catch-up first | First normal run permanently freezes gap-era reply trees; one-way door |
+| Store location | `/Volumes/Eregion/bluex-data/default.store` | Internal disk at 96% (18Gi free); Eregion has 627Gi. The reply-tree corpus grows without bound |
 | Sentiment model | Apple NLTagger (`stage: "nltagger"`) | Only viable option at 795k posts; already implemented and tested |
 | Semantic checker | Deferred; Apple Foundation Models is the candidate | Confirmed `AVAILABLE` on macOS 26.5.1 with permissive guardrails |
 
@@ -127,7 +131,8 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
 
 ```
 03:30  one-shot pmset full wake (armed yesterday at 07:00 by the daemon)
-03:31  launchd fires bluex-nightly.sh (user agent, internal disk)
+03:31  launchd fires bluex-nightly.sh (user agent, script on internal disk)
+       wait for /Volumes/Eregion to mount (bounded; notify + exit if it never does)
        preflight: binaries, store, Keychain credentials
        caffeinate -i -s held for the whole run
        acquire store lock (atomic mkdir, existing 18h stale reclaim)
@@ -142,6 +147,34 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
 ```
 
 ## Code changes
+
+### Store on the external volume
+
+Added 2026-08-04 on request: the reply-tree corpus must live on Eregion. The internal
+disk is at **96% (18Gi free)** and holds a 456MB store about to gain ~795k annotation
+rows plus 61 days of recovered reply trees; Eregion has **627Gi free**.
+
+New location: `/Volumes/Eregion/bluex-data/default.store`, matching the existing
+top-level `mbsr-data/` naming convention. `BlueXStore` is the single point of change —
+the GUI and both CLIs already route through `BlueXStore.openContainer()`.
+
+**This makes the mount state load-bearing**, which needs care given the outage:
+
+- The 03:30 wake is a **full** wake, where external volumes mount normally. The outage
+  was specific to DarkWake, so the nightly path is sound.
+- `BlueXStore.openContainer()` throws a named `volumeNotMounted` error rather than
+  silently creating an empty store at a path that happens to be absent. Creating a
+  second, empty store would be the worst outcome — it looks like success.
+- `bluex-nightly.sh` waits for the mount with a bounded timeout, then notifies and
+  exits rather than hanging a launchd job indefinitely.
+- The **job scripts themselves stay on the internal disk.** That part of the original
+  fix is unchanged and non-negotiable: launchd execs them, and launchd can fire during
+  DarkWake. Only the *data* moves.
+- The GUI cannot open the store while the drive is detached. Accepted: this is a Mac
+  mini with a permanently attached drive.
+
+The path is overridable via the `BLUEX_STORE_DIR` environment variable, which keeps the
+location testable and lets it move again without a rebuild.
 
 ### 0. Extract `NLTaggerPass` so the CLI can reuse it
 
@@ -236,14 +269,19 @@ Two phases, because backfill and steady-state have different shapes.
 
 **Phase 1 — once, attended.** Measure before committing to durations.
 
-1. `install-jobs.sh` — build CLIs, install scripts and plists. Prompts for `sudo` once,
+1. **Migrate the store to Eregion.** Move
+   `~/Library/Application Support/BlueX/default.store` to
+   `/Volumes/Eregion/bluex-data/default.store` with the GUI closed and no job running.
+   A pre-move backup already exists at `default.store.pre-sdd-2026-08-04`. Verify by
+   comparing post and annotation counts before and after.
+2. `install-jobs.sh` — build CLIs, install scripts and plists. Prompts for `sudo` once,
    to install the root arm-wake daemon.
-2. `bluex-nightly.sh --preflight` — verify binaries, store, and Keychain credentials.
-3. `blueX-annotate --pass nltagger --limit 2000` — measure real throughput.
-4. `blueX-scrape --pace gentle --max-window-days 70` — reply-tree catch-up for the
+3. `bluex-nightly.sh --preflight` — verify binaries, store, and Keychain credentials.
+4. `blueX-annotate --pass nltagger --limit 2000` — measure real throughput.
+5. `blueX-scrape --pace gentle --max-window-days 70` — reply-tree catch-up for the
    61-day gap. **One-way door:** a normal run freezes these trees permanently, so this
    must precede any `--max-window-days 7` run.
-5. Full NLTagger backfill over the ~795k backlog.
+6. Full NLTagger backfill over the ~795k backlog.
 
 **Phase 2 — nightly.** Enable the 03:31 agent, the 06:56 watchdog, and the 07:00 daemon.
 Incremental only: one day of new posts, which is small.
