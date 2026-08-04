@@ -50,8 +50,14 @@ DEADLINE_TIME="${DEADLINE_TIME:-07:00}"
 # cannot interrupt a long nltagger pass either, for the same reason.) A large
 # backlog can therefore overrun DEADLINE_TIME into working hours.
 #
-# That is tolerated only because NLTagger is microseconds per post, so the overrun
-# is small in practice. It is a reason, not a guarantee.
+# MEASURED 2026-08-04 by running this job end to end against a scratch store:
+# NLTagger sustains ~164 posts/s, and the deadline SIGINT DOES stop the pass — the
+# run logged "stopping after current page" and halted at 7438 of 81891 posts. An
+# earlier static reading of the code predicted the opposite (that run() blocking the
+# main actor would keep the queue:.main signal source from firing, making the SIGINT
+# a no-op for annotation). The observed behaviour contradicts that prediction, so the
+# reserve gives annotation both a start slot AND a genuine stop. If you ever change
+# how the pass is driven, re-verify this rather than trusting either claim.
 #
 # Overridable for the same reason as DEADLINE_TIME: it is the only knob that lets a
 # test give the scrape a budget of a few seconds. Unset in production, so 20 minutes.
