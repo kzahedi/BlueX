@@ -171,8 +171,9 @@ usage: blueX-annotate [options]
                                        Free, no network, no Ollama, no
                                        ModelConfig. Writes stage="nltagger".
                                        This is the pass the nightly job runs.
-                                       Honours --limit; ignores --model, --pace
-                                       and --concurrency.
+                                       Honours --limit and --min-text-length;
+                                       ignores --model, --pace and
+                                       --concurrency.
   --min-text-length <n>
                      Skip posts whose text is below N characters after
                      whitespace trim. Default 10. Such posts are marked with
@@ -182,6 +183,11 @@ usage: blueX-annotate [options]
                      disable. Without this filter, small models like
                      gemma3:4b return "please provide the reply text" on
                      near-empty inputs, blowing up the error count.
+                     For --pass nltagger the short posts are skipped with NO
+                     annotation at all (no sentinel): NLTagger scores a
+                     contentless post 0.0 while genuinely neutral text scores
+                     ~0.4, and the charts average raw scores, so writing 0.0s
+                     would bias sentiment trends downward.
   --reset-annotations <scope>
                      DESTRUCTIVE — deletes existing Annotation rows so the
                      next run re-classifies from scratch.
@@ -330,6 +336,7 @@ func runCLI() async {
             do {
                 annotated = try NLTaggerPass(container: container).run(
                     limit: args.limit,
+                    minTextLength: args.minTextLength,
                     isCancelled: { cancel.isSet },
                     progress: { done, total in
                         let pct = total == 0 ? 0.0 : Double(done) / Double(total)

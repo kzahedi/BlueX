@@ -28,11 +28,20 @@ struct NLTaggerPass {
     ///   - batchSize: posts fetched and saved per page.
     ///   - limit: stop after this many annotations. Needed to measure throughput
     ///     before committing to a full-corpus run.
+    ///   - minTextLength: posts whose text is shorter than this after a whitespace
+    ///     trim are skipped entirely — no annotation is written. NLTagger scores a
+    ///     contentless post 0.0, whereas genuinely neutral German text scores ~0.4,
+    ///     and ChartsViewModel averages raw scores; a population of 0.0s therefore
+    ///     drags sentiment trends downward. Skipping (rather than sentinel-marking,
+    ///     as the LLM passes do) keeps them out of the average. They stay pending,
+    ///     which costs nothing: this pass already walks the whole corpus per run.
+    ///     0 disables the filter — the default, so GUI callers are unchanged.
     ///   - isCancelled: polled once per page.
     ///   - progress: called after each page with (annotatedSoFar, estimatedTotal).
     @discardableResult
     func run(batchSize: Int = 200,
              limit: Int? = nil,
+             minTextLength: Int = 0,
              isCancelled: () -> Bool = { false },
              progress: ((Int, Int) -> Void)? = nil) throws -> Int {
 
@@ -73,6 +82,10 @@ struct NLTaggerPass {
             for post in posts {
                 if let limit, annotated >= limit { break }
                 guard !doneURIs.contains(post.uri) else { continue }
+                if minTextLength > 0,
+                   post.text.trimmingCharacters(in: .whitespacesAndNewlines).count < minTextLength {
+                    continue
+                }
                 let annotation = tagger.analyse(text: post.text)
                 context.insert(annotation)
                 annotation.post = post
