@@ -25,6 +25,7 @@
 		17FCE332C881FD5C8D38694F /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
 		180B6FD164B46E48EC8B78BF /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA30A1A6E40070FE91F365 /* OllamaClient.swift */; };
 		1A5597C74F2FCD344514C4C9 /* BlueskyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75E97E85CBCB11DCB104D467 /* BlueskyError.swift */; };
+		1AA6BF4C212290EF8EB7B6AE /* NLTaggerPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F26AB6DB7DE0AA74DEDA40A /* NLTaggerPassTests.swift */; };
 		1C270F8B1FAF040CB0D90E5F /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
 		1D7849726C1469811C1EFD1F /* ThreadGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32A21281BBCB50285F99B6C /* ThreadGraphView.swift */; };
 		1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */; };
@@ -134,6 +135,7 @@
 		CF188CC7011A891837DFB12B /* AnnotationDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */; };
 		CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */; };
 		D217117CED224184558D84C8 /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
+		D298B0B2763CAEA138AFC272 /* NLTaggerPass.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */; };
 		DB9792289A0E17D419ACC31E /* KeychainCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034EEB655022F234033B17A8 /* KeychainCredentials.swift */; };
 		DE2F14AFEEAB6D029485C4CA /* LLMPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D23EF32A0BE28A061D51E99 /* LLMPace.swift */; };
 		E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */; };
@@ -155,6 +157,7 @@
 		FB1C16A63F495EE0413A7BFD /* TrackedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452120CDFD8713132697DFC0 /* TrackedAccount.swift */; };
 		FBDD1DE88DF83342B02D8FC3 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 17175E6418BC7FF45872CF2C /* SwiftData.framework */; };
 		FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */; };
+		FC3A27E38EC6A0E933C91594 /* NLTaggerPass.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */; };
 		FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */; };
 /* End PBXBuildFile section */
 
@@ -217,6 +220,7 @@
 		76BB19440EE67FEA283AC720 /* ModelClientFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelClientFactoryTests.swift; sourceTree = "<group>"; };
 		774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXSchema.swift; sourceTree = "<group>"; };
 		7C4F5C9EA074F58157527EF9 /* BlueXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXApp.swift; sourceTree = "<group>"; };
+		7F26AB6DB7DE0AA74DEDA40A /* NLTaggerPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerPassTests.swift; sourceTree = "<group>"; };
 		81B0F5B10734C9CB4AFE3C93 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
 		8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientTests.swift; sourceTree = "<group>"; };
@@ -247,6 +251,7 @@
 		BD700ECA1E2DB6FE0F772794 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyErrorTests.swift; sourceTree = "<group>"; };
 		C6A91D2D190D4CCA52CD8D80 /* AccountSeederTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSeederTests.swift; sourceTree = "<group>"; };
+		CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerPass.swift; sourceTree = "<group>"; };
 		CDC3A679106600F922A9AEFB /* RescrapingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RescrapingPolicy.swift; sourceTree = "<group>"; };
 		CF890C358D68F18FEF4165F6 /* SidebarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewModel.swift; sourceTree = "<group>"; };
 		D03190618A41BC1BAE95560C /* AccountContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountContentView.swift; sourceTree = "<group>"; };
@@ -318,6 +323,7 @@
 				04DFCD82A3B984A58A0DC2BF /* MLXClient.swift */,
 				F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */,
 				A08E022F8A70372EDA1DBB4F /* NLTaggerAnalyser.swift */,
+				CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */,
 				12CA30A1A6E40070FE91F365 /* OllamaClient.swift */,
 				E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */,
 				13CE7D5EB4A92BE8095CE6B3 /* StratifiedSampler.swift */,
@@ -606,6 +612,7 @@
 				C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */,
 				6993F528F5075C15036ED449 /* MLXClientTests.swift */,
 				D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */,
+				7F26AB6DB7DE0AA74DEDA40A /* NLTaggerPassTests.swift */,
 				95C657FDC42EBDAACF08A2E3 /* OllamaClientTests.swift */,
 				9B78F2EBD896FF53789BAF05 /* ScrapeCoordinatorAnnotationTests.swift */,
 				B5589196DEE443DE292FDA88 /* StratifiedSamplerTests.swift */,
@@ -789,6 +796,7 @@
 				EE4C74874E11FE09035D2AF6 /* ModelClientFactoryTests.swift in Sources */,
 				0456781BBBEBA4C7C8CE521B /* ModelConfigTests.swift in Sources */,
 				ED881A1C0BA6976206215913 /* NLTaggerAnalyserTests.swift in Sources */,
+				1AA6BF4C212290EF8EB7B6AE /* NLTaggerPassTests.swift in Sources */,
 				1DB923FEE28C1E6439D44EDF /* OllamaClientTests.swift in Sources */,
 				8D1B5DA496A889605A5EA973 /* PostAnnotationsTests.swift in Sources */,
 				3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */,
@@ -829,6 +837,7 @@
 				FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */,
 				499DB7C7022DA42F27425EE1 /* ModelConfig.swift in Sources */,
 				AB067319B1BCEB66B724B6C6 /* NLTaggerAnalyser.swift in Sources */,
+				FC3A27E38EC6A0E933C91594 /* NLTaggerPass.swift in Sources */,
 				29B87CBE9E42E6C62BE4FCC0 /* OllamaClient.swift in Sources */,
 				5A62D405202BD8FECE251872 /* OpenAICompatibleClient.swift in Sources */,
 				7D4507032EC5FCDCCE5BDC2A /* Post+Annotations.swift in Sources */,
@@ -879,6 +888,7 @@
 				CDD70B0BF812EB47D6D9E172 /* ModelConfig.swift in Sources */,
 				2305761DCF8055D00A05D340 /* ModelSettingsView.swift in Sources */,
 				2D4CD00A83BBFA5628141412 /* NLTaggerAnalyser.swift in Sources */,
+				D298B0B2763CAEA138AFC272 /* NLTaggerPass.swift in Sources */,
 				180B6FD164B46E48EC8B78BF /* OllamaClient.swift in Sources */,
 				0196BEE87FF3890527D0B2EA /* OpenAICompatibleClient.swift in Sources */,
 				C77E9DE54FE81D243A87D9C7 /* Post+Annotations.swift in Sources */,

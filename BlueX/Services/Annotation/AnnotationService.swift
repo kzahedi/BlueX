@@ -20,7 +20,6 @@ final class AnnotationService {
     var thermalState: ProcessInfo.ThermalState = .nominal
 
     private let modelContainer: ModelContainer
-    private let nlTagger = NLTaggerAnalyser()
     private var activeClient: (any LocalModelClient)?
 
     init(modelContainer: ModelContainer) {
@@ -37,7 +36,7 @@ final class AnnotationService {
     /// published on @Observable properties on the main actor. Saves in batches of
     /// `batchSize` so the SQLite write stays bounded and the UI stays responsive.
     @MainActor
-    func runNLTaggerPass(batchSize: Int = 200) async throws {
+    func runNLTaggerPass(batchSize: Int = 200, limit: Int? = nil) async throws {
         isRunning = true
         passLabel = "Apple sentiment"
         queueSize = 0
@@ -52,32 +51,17 @@ final class AnnotationService {
         // Capture only Sendable values for the detached task — @Model instances are
         // confined to the context where they were fetched and must not escape.
         let container = modelContainer
-        let tagger = nlTagger
 
         let stream = AsyncThrowingStream<(Int, Int, Double?), Error> { continuation in
             Task.detached(priority: .userInitiated) {
                 do {
-                    let context = ModelContext(container)
-                    let pending = try context.fetch(FetchDescriptor<Post>())
-                        .filter { !$0.hasNLTaggerAnnotation }
-                    let total = pending.count
-                    continuation.yield((0, total, nil))
-
                     let runStart = Date()
-                    var processed = 0
-                    while processed < total {
-                        try Task.checkCancellation()
-                        let upper = min(processed + batchSize, total)
-                        for i in processed..<upper {
-                            let post = pending[i]
-                            let annotation = tagger.analyse(text: post.text)
-                            context.insert(annotation)
-                            annotation.post = post
-                        }
-                        try context.save()
-                        processed = upper
-                        let eta = Self.etaFromRunningAverage(start: runStart, processed: processed, total: total)
-                        continuation.yield((processed, total, eta))
+                    let pass = NLTaggerPass(container: container)
+                    _ = try pass.run(batchSize: batchSize, limit: limit) { done, total in
+                        let eta = Self.etaFromRunningAverage(
+                            start: runStart, processed: done, total: total
+                        )
+                        continuation.yield((done, total, eta))
                     }
                     continuation.finish()
                 } catch {
