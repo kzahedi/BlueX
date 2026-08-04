@@ -1489,7 +1489,11 @@ ls -la /Volumes/Eregion/bluex-data/
 ```
 Expected: the store is created at `/Volumes/Eregion/bluex-data/default.store` and 6 accounts are listed — bbcnews.bsky.social, theguardian.com, nytimes.com, tagesschau.bsky.social, zeit.de, spiegel.de.
 
-**If zero accounts are listed, STOP.** Scraping with an empty account list would silently do nothing and look like success. `AccountSeeder.seed(into:)` only seeds when the account list is empty, so investigate before proceeding.
+**If zero accounts are listed, STOP — and note that on a genuinely fresh store this is the EXPECTED result.**
+
+Verified empirically 2026-08-04: **neither CLI seeds accounts.** `AccountSeeder.seed(into:)` runs only when **BlueX.app** launches; `blueX-scrape --list-accounts` merely reads. A store created by a CLI therefore has zero accounts, and `blueX-scrape` then exits **2** with `no active accounts to scrape.` (which the nightly job now correctly reports as a failure — confirmed end to end).
+
+So the ordering matters: **launch BlueX.app once** against the new store before relying on any CLI run. Confirm 6 accounts and 3 groups afterwards.
 
 Verified 2026-08-04: all three groups (All Media, German Media, International Media) are recreated identically to the archive, along with 9 ModelConfigs. Nothing to re-add.
 

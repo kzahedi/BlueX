@@ -181,9 +181,12 @@ is not `.complete` is due on every run **regardless of age**. `Post.init` sets
 encounter, however old. `--max-window-days` only governs *re*-scraping of trees
 already marked `.complete`, so it is irrelevant to the initial run.
 
-**Account data survives at zero cost.** `AccountSeeder.seeds` hardcodes all six
-accounts (DIDs, handles, display names, groups) and `seed(into:)` populates any store
-with no accounts. `ensureModelConfigs` does the same for model settings. Verified on the rebuilt store: all three groups (All Media, German Media,
+**Account data survives at zero cost — but only the GUI seeds it.** `AccountSeeder.seeds`
+hardcodes all six accounts (DIDs, handles, display names, groups) and `seed(into:)`
+populates any store with no accounts. **Verified 2026-08-04: that call happens only when
+BlueX.app launches — neither CLI seeds.** A CLI-created store has zero accounts and
+`blueX-scrape` exits 2 with `no active accounts to scrape.` Launch the GUI once against a
+new store before relying on the nightly job. `ensureModelConfigs` covers model settings. Verified on the rebuilt store: all three groups (All Media, German Media,
 International Media) and 9 ModelConfigs are recreated identically to the archive.
 Nothing is lost from the configuration.
 
