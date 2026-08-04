@@ -867,7 +867,7 @@ Only the data moves. The launchd job scripts stay on the internal disk because
 launchd can fire them during DarkWake, when this volume is unmounted."
 ```
 
-**After this task the controller performs the attended data migration** (GUI closed, no job running) before Task 5 runs anything against the real store.
+**No data migration follows this task.** The human chose a clean slate on 2026-08-04: the old corpus is archived at `/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean` (verified 797,253 posts / 6 accounts) and BlueX starts from an empty store on Eregion, which `AccountSeeder` auto-seeds. See Task 8.
 
 ---
 
@@ -1519,56 +1519,71 @@ again — the exact fault that hid for 61 days."
 
 ### Task 8: Phase 1 attended rollout
 
-**Attended — do not run unsupervised.** Step 3 is a one-way door and the throughput numbers are genuinely unknown.
+**Attended — do not run unsupervised.** Nothing here is irreversible: the old corpus is archived, so the worst case is scraping again. But the initial scrape is a multi-day job and Step 3 is the first real test of unattended Keychain access.
 
 **Files:** none — operational
 
-**Precondition:** the store data migration to `/Volumes/Eregion/bluex-data/` was performed by the controller immediately after Task 4, with the GUI closed and no job running. Confirm before starting:
+**Clean slate, decided 2026-08-04.** The old corpus is NOT migrated. It is archived at `/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean` (verified 797,253 posts, 6 accounts, `nltagger` 2,600 / `llm-sentiment` 30,854 / `llm` 1,179). BlueX starts from an empty store on Eregion.
+
+Why this is safe for reply trees: `RescrapingPolicy` guarantees *"every post is scraped completely at least once"* — a post whose `replyTreeStatus` is not `.complete` is due on every run regardless of age, and `Post.init` sets `.pending`. So `--max-window-days` does not apply to never-scraped posts and there is no one-way door.
+
+- [ ] **Step 1: Retire the old internal store**
+
+With the BlueX GUI closed and no job running:
 
 ```bash
-ls -la /Volumes/Eregion/bluex-data/default.store
-sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?immutable=1" "SELECT COUNT(*) FROM ZPOST;"
+ls -la "$HOME/Library/Application Support/BlueX/"
+sqlite3 "file:/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean?immutable=1" \
+  "SELECT 'archive posts', COUNT(*) FROM ZPOST;"
 ```
-Expected: the store exists on Eregion and reports 797,253 posts or more.
+Expected: the archive reports 797,253 posts. **Only once that is confirmed:**
+```bash
+rm "$HOME/Library/Application Support/BlueX/default.store"
+df -h "$HOME" | tail -1
+```
+Expected: ~456MB freed on the internal disk.
 
-- [ ] **Step 1: Verify the unattended path end to end**
+- [ ] **Step 2: Verify the fresh store is created and seeded**
+
+Run:
+```bash
+~/.local/bin/blueX-scrape --list-accounts
+ls -la /Volumes/Eregion/bluex-data/
+```
+Expected: the store is created at `/Volumes/Eregion/bluex-data/default.store` and 6 accounts are listed — bbcnews.bsky.social, theguardian.com, nytimes.com, tagesschau.bsky.social, zeit.de, spiegel.de.
+
+**If zero accounts are listed, STOP.** Scraping with an empty account list would silently do nothing and look like success. `AccountSeeder.seed(into:)` only seeds when the account list is empty, so investigate before proceeding.
+
+Note: the user-created **"All Media"** group is not in `AccountSeeder.seeds` and will not be recreated. Re-add it in the GUI if wanted.
+
+- [ ] **Step 3: Verify the unattended path end to end**
 
 Run:
 ```bash
 "$HOME/Library/Application Support/BlueX/jobs/bluex-nightly.sh" --preflight; echo "exit=$?"
 ```
-Expected: `✓ preflight ok`, `exit=0`. This is the first real test that Keychain credentials are readable outside a terminal session.
+Expected: `✓ preflight ok`, `exit=0`. This is the first real test that Keychain credentials are readable outside an interactive terminal session — an interactive `--list-accounts` success does **not** establish it.
 
-- [ ] **Step 2: Measure NLTagger throughput**
+- [ ] **Step 4: Start the initial scrape**
 
-Run:
+The default 14-day window is correct; `--max-window-days` has no effect on never-scraped posts.
+
 ```bash
-time ~/.local/bin/blueX-annotate --pass nltagger --limit 2000
+~/.local/bin/blueX-scrape --pace gentle 2>&1 | tee ~/Library/Logs/BlueX/initial_$(date +%Y-%m-%d).log
 ```
-Record the reported `posts/s`. Extrapolate to the remaining backlog and **write the measured figure into the spec's Open Items section**, replacing the "unmeasured" note.
+Expected: order of 27+ hours for ~48k root threads at 2s per thread request, so this will span several nightly windows rather than finishing in one sitting. Safe to interrupt — Ctrl-C stops at the next post boundary, and `.pending` trees are retried on the next run.
 
-- [ ] **Step 3: Reply-tree catch-up — ONE-WAY DOOR**
+- [ ] **Step 5: Run sentiment over what has been scraped**
 
-This must run **before** any `--max-window-days 7` scrape. A normal run permanently freezes reply trees for every post created during the 61-day gap.
-
-Run:
-```bash
-~/.local/bin/blueX-scrape --pace gentle --max-window-days 70 2>&1 | tee ~/Library/Logs/BlueX/catchup_$(date +%Y-%m-%d).log
-```
-Expected: hours of gentle-paced scraping. Do not interrupt unless necessary; Ctrl-C stops cleanly at the next post boundary and already-fetched work is saved.
-
-- [ ] **Step 4: Full sentiment backfill**
-
-Run:
 ```bash
 time ~/.local/bin/blueX-annotate --pass nltagger 2>&1 | tail -5
 ```
-Expected: the remaining backlog annotated. Verify:
+Record the reported `posts/s` and **write the measured figure into the spec's Open Items section**, replacing the "unmeasured" note. Verify:
 ```bash
 sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?immutable=1" \
-  "SELECT ZSTAGE, COUNT(*) FROM ZANNOTATION GROUP BY ZSTAGE;"
+  "SELECT (SELECT COUNT(*) FROM ZPOST) AS posts, ZSTAGE, COUNT(*) FROM ZANNOTATION GROUP BY ZSTAGE;"
 ```
-Expected: `nltagger` now close to the total post count.
+Expected: `nltagger` count equals the post count. No separate backfill phase is needed — sentiment is cheap and keeps pace with the scrape.
 
 - [ ] **Step 5: Dry-run the nightly job under launchd**
 

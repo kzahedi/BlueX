@@ -52,15 +52,17 @@ is why the mount state now matters to the job as well as to the scripts.
 | Run window | Dedicated pre-dawn, 03:30 | Machine unused; full wake, not DarkWake; best thermal headroom |
 | Wake mechanism | Root LaunchDaemon at 07:00 arms a one-shot `pmset schedule wake` for 03:30 | `pmset` needs root; `pmset repeat` slot is taken by 06:55; privilege split keeps Keychain + notifications in the user session |
 | Alerting | Notification on failure + staleness watchdog at 06:56 | Watchdog catches the "never even started" mode that caused the 61-day gap |
-| Gap handling | One-off attended `--max-window-days 70` catch-up first | First normal run permanently freezes gap-era reply trees; one-way door |
+| Gap handling | **Clean slate** — fresh empty store, old corpus archived | Chosen 2026-08-04; removes the migration, the catch-up run and the only irreversible step. See "Clean slate" below |
 | Store location | `/Volumes/Eregion/bluex-data/default.store` | Internal disk at 96% (18Gi free); Eregion has 627Gi. The reply-tree corpus grows without bound |
-| Sentiment model | Apple NLTagger (`stage: "nltagger"`) | Only viable option at 795k posts; already implemented and tested |
+| Sentiment model | Apple NLTagger (`stage: "nltagger"`) | Only viable option at corpus scale (hundreds of thousands of posts); already implemented and tested |
 | Semantic checker | Deferred; Apple Foundation Models is the candidate | Confirmed `AVAILABLE` on macOS 26.5.1 with permissive guardrails |
 
 ### Why NLTagger and not Foundation Models
 
-Store state: **797,253 posts**; `nltagger` 2,600 (0.33%), `llm-sentiment` 30,854,
-`llm` 1,179. The sentiment backlog is **~794,700 posts**.
+Measured on the pre-clean-slate store: **797,253 posts**; `nltagger` 2,600 (0.33%),
+`llm-sentiment` 30,854, `llm` 1,179 — a sentiment backlog of **~794,700 posts**. The
+clean slate resets those counts to zero, but the argument is unchanged: the rebuilt
+corpus grows to the same order of magnitude, and sentiment must keep up with it.
 
 - NLTagger: microseconds per post, no network, no Ollama.
 - Foundation Models (~3B, on-device): at ~0.3–1 s/post the same backlog is **66 hours
@@ -148,11 +150,51 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
 
 ## Code changes
 
+### Clean slate
+
+Decided 2026-08-04, after the store-relocation decision. Rather than migrating the
+existing 456MB corpus, BlueX starts from an empty store on Eregion and re-scrapes.
+
+The old corpus is archived, not destroyed:
+`/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean` — verified
+797,253 posts, 6 accounts, annotations `llm` 1,179 / `llm-sentiment` 30,854 /
+`nltagger` 2,600.
+
+**What this removes from the plan:** the store migration, the
+`--max-window-days 70` catch-up, and the one-way door — the only irreversible step
+the design previously contained.
+
+**Why it works mechanically.** `RescrapingPolicy` documents an explicit invariant:
+*"every post is scraped completely at least once"* — a post whose `replyTreeStatus`
+is not `.complete` is due on every run **regardless of age**. `Post.init` sets
+`.pending`, so on an empty store every root post has its reply tree fetched on first
+encounter, however old. `--max-window-days` only governs *re*-scraping of trees
+already marked `.complete`, so it is irrelevant to the initial run.
+
+**Account data survives at zero cost.** `AccountSeeder.seeds` hardcodes all six
+accounts (DIDs, handles, display names, groups) and `seed(into:)` populates any store
+with no accounts. `ensureModelConfigs` does the same for model settings. The one
+casualty is the user-created **"All Media"** group, which is not in `seeds` and will
+not be recreated — trivially re-added in the GUI.
+
+**Accepted trade-off, recorded because it is real and non-obvious.** A fresh scrape
+returns what exists *today*. Replies deleted, deauthored or moderated away since 2018
+are unrecoverable, and for a hate-speech / counter-speech corpus that erosion is
+**not random** — moderation removes disproportionately the hateful content this
+project studies. The rebuilt corpus is therefore expected to be cleaner than reality.
+This was raised and the trade-off accepted; the archive exists for comparison.
+
+**Cost.** ~48,684 root threads at `--pace gentle` (2s per thread request) is on the
+order of 27+ hours before pagination — a multi-day job spanning several nightly
+windows. The `.pending` retry invariant makes interruption safe: an incomplete run
+simply resumes.
+
 ### Store on the external volume
 
 Added 2026-08-04 on request: the reply-tree corpus must live on Eregion. The internal
-disk is at **96% (18Gi free)** and holds a 456MB store about to gain ~795k annotation
-rows plus 61 days of recovered reply trees; Eregion has **627Gi free**.
+disk was at **96% (18Gi free)** holding a 456MB store, against **627Gi free** on Eregion.
+After archiving the old corpus to Eregion the internal disk is at 92% (32Gi free); the
+rebuilt corpus will grow to a comparable size and belongs on the large volume.
 
 New location: `/Volumes/Eregion/bluex-data/default.store`, matching the existing
 top-level `mbsr-data/` naming convention. `BlueXStore` is the single point of change —
@@ -203,7 +245,7 @@ excluded file stays excluded.
 Spelling is `nltagger`, matching the existing stage string and the
 `--reset-annotations` vocabulary.
 
-### 2. Fix the pending-posts fetch (required for a 795k backfill)
+### 2. Fix the pending-posts fetch (required at corpus scale)
 
 `AnnotationService.swift:61`:
 
@@ -265,26 +307,31 @@ Python tooling follows the pytest convention already established in `tools/bench
 
 ## Rollout
 
-Two phases, because backfill and steady-state have different shapes.
+Two phases: a clean-slate start, then steady state.
 
-**Phase 1 — once, attended.** Measure before committing to durations.
+**Phase 1 — once, attended.** Nothing here is irreversible: the old corpus is already
+archived on Eregion, so the worst case is re-scraping again.
 
-1. **Migrate the store to Eregion.** Move
-   `~/Library/Application Support/BlueX/default.store` to
-   `/Volumes/Eregion/bluex-data/default.store` with the GUI closed and no job running.
-   A pre-move backup already exists at `default.store.pre-sdd-2026-08-04`. Verify by
-   comparing post and annotation counts before and after.
+1. **Retire the old internal store.** With the GUI closed and no job running, delete
+   `~/Library/Application Support/BlueX/default.store`. The archive at
+   `/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean` is the record
+   (verified 797,253 posts / 6 accounts). Frees ~456MB on the internal disk.
 2. `install-jobs.sh` — build CLIs, install scripts and plists. Prompts for `sudo` once,
    to install the root arm-wake daemon.
-3. `bluex-nightly.sh --preflight` — verify binaries, store, and Keychain credentials.
-4. `blueX-annotate --pass nltagger --limit 2000` — measure real throughput.
-5. `blueX-scrape --pace gentle --max-window-days 70` — reply-tree catch-up for the
-   61-day gap. **One-way door:** a normal run freezes these trees permanently, so this
-   must precede any `--max-window-days 7` run.
-6. Full NLTagger backfill over the ~795k backlog.
+3. `bluex-nightly.sh --preflight` — verify binaries, store and Keychain credentials.
+   This is also the first real test of unattended Keychain access.
+4. **Verify the fresh store seeds correctly.** A first CLI or GUI run must create
+   `/Volumes/Eregion/bluex-data/default.store` and auto-seed 6 accounts and 2 groups.
+   Confirm before scraping — an empty account list would silently scrape nothing.
+5. **Initial scrape.** `blueX-scrape --pace gentle` (the default 14-day window is fine;
+   `--max-window-days` does not affect never-scraped posts). Expect 27+ hours over
+   several nightly windows. Safe to interrupt: `.pending` trees are retried.
+6. `blueX-annotate --pass nltagger` — sentiment over whatever has been scraped.
+   Cheap and incremental; no separate backfill phase is needed.
 
-**Phase 2 — nightly.** Enable the 03:31 agent, the 06:56 watchdog, and the 07:00 daemon.
-Incremental only: one day of new posts, which is small.
+**Phase 2 — nightly.** Enable the 03:31 agent, the 06:56 watchdog and the 07:00 daemon.
+Until the initial scrape converges the nightly runs continue it; afterwards each run is
+one day of new posts, which is small.
 
 ## Open items
 
