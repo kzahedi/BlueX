@@ -29,14 +29,21 @@ is why the mount state now matters to the job as well as to the scripts.
 
 ## Constraints
 
-- **Keep the current sleep/wake settings.** `sleep 1`, `powernap 1`, `womp 1`,
-  `displaysleep 10`, `disksleep 10`, and the repeating `wakepoweron at 6:55AM`.
+- **Sleep configuration changed mid-project (2026-08-04).** At 11:21 `pmset` read
+  `sleep 1` (idle-sleep after one minute) — that is the machine the outage happened on,
+  and the DarkWake diagnosis above is from that state. By 14:09 it read **`sleep 0`**
+  (never idle-sleep); the mini had then been continuously awake since 09:33:59, last
+  sleeping at 09:22:19. Other settings unchanged: `powernap 1`, `womp 1`,
+  `displaysleep 10`, `disksleep 10`, repeating `wakepoweron at 6:55AM`.
+  The design assumes `sleep 0` but must degrade gracefully if it changes back — it has
+  changed once already today.
 - **`man pmset`: "you may only have one pair of repeating events scheduled — a 'power
   on' event and a 'power off' event."** The 06:55 `wakepoweron` already occupies that
   slot, so a second repeating wake at 03:30 is impossible without destroying it.
 - **`pmset schedule` requires root.** Verified: `pmset schedule wake "08/05/26 03:30:00"`
   → `pmset: This operation must be run as root`, exit 1, no event created. An
-  unprivileged LaunchAgent therefore cannot arm its own wake.
+  unprivileged LaunchAgent cannot arm its own wake — which is why the design avoids
+  needing a wake at all rather than adding a privileged component to schedule one.
 - **Keychain and notifications require the user's Aqua session.** The scrape reads
   Bluesky credentials from the user Keychain and alerting uses `osascript`, so the
   working job must be a user LaunchAgent, not a root LaunchDaemon.
@@ -50,7 +57,7 @@ is why the mount state now matters to the job as well as to the scripts.
 | Decision | Choice | Rationale |
 |---|---|---|
 | Run window | Dedicated pre-dawn, 03:30 | Machine unused; full wake, not DarkWake; best thermal headroom |
-| Wake mechanism | Root LaunchDaemon at 07:00 arms a one-shot `pmset schedule wake` for 03:30 | `pmset` needs root; `pmset repeat` slot is taken by 06:55; privilege split keeps Keychain + notifications in the user session |
+| Wake mechanism | **None** — the mini is set to never idle-sleep (`sleep 0`), so launchd fires the 03:31 agent while it is awake | Removes the root LaunchDaemon, the `sudo` step and the only privileged component. `pmset schedule` needs root, so avoiding it entirely is worth more than the insurance |
 | Alerting | Notification on failure + staleness watchdog at 06:56 | Watchdog catches the "never even started" mode that caused the 61-day gap |
 | Gap handling | **Clean slate** — fresh empty store, old corpus archived | Chosen 2026-08-04; removes the migration, the catch-up run and the only irreversible step. See "Clean slate" below |
 | Store location | `/Volumes/Eregion/bluex-data/default.store` | Internal disk at 96% (18Gi free); Eregion has 627Gi. The reply-tree corpus grows without bound |
@@ -106,16 +113,20 @@ at the installed copies.
 |---|---|---|
 | `bluex-nightly.sh` | installed → `~/Library/Application Support/BlueX/jobs/` | Sole working entry point: preflight → caffeinate → lock → scrape → sentiment → heartbeat |
 | `bluex-watchdog.sh` | same | Runs 06:56 on the existing wake; notifies if heartbeat or store is stale. Notification only |
-| `bluex-arm-wake.sh` | installed → `/usr/local/libexec/bluex/` (root-owned) | Arms the next 03:30 one-shot wake. The only privileged component |
 | `install-jobs.sh` | `tools/` (repo, version controlled) | Builds CLIs to a stable path, installs scripts + plists, loads agents/daemon. Idempotent |
 | `net.pulsschlag.bluex.nightly.plist` | `~/Library/LaunchAgents/` | `StartCalendarInterval` 03:31 |
 | `net.pulsschlag.bluex.watchdog.plist` | `~/Library/LaunchAgents/` | `StartCalendarInterval` 06:56 |
-| `net.pulsschlag.bluex.armwake.plist` | `/Library/LaunchDaemons/` | Root, `StartCalendarInterval` 07:00 |
 
-**Privilege split.** The daemon does exactly one thing — call `pmset` — and holds no
-credentials and no store access. The agent does all the work and needs no elevation.
-Arming at 07:00 (after the 06:55 `wakepoweron`, when the machine is reliably awake) means
-re-arming is independent of whether the previous night's run succeeded.
+**No privileged component.** Everything runs as user LaunchAgents. `install-jobs.sh`
+never calls `sudo`, nothing lands in `/Library/LaunchDaemons` or `/usr/local/libexec`,
+and no `pmset` state is modified.
+
+**Degradation if `sleep` is re-enabled** (it changed once on 2026-08-04, so this is a
+real scenario, not a hypothetical): launchd replays the missed 03:31 calendar event on
+the next wake, so the job still runs — just later. If that wake is a DarkWake with
+`/Volumes/Eregion` unmounted, `bluex_wait_for_store` times out after 180s and the job
+notifies and exits 75. Both paths are loud. The `caffeinate` assertion is retained for
+the same reason: it costs nothing and protects a long run if idle-sleep returns.
 
 This **replaces** the two current jobs. Today the shared store-lock makes annotate
 silently `exit 0` when scrape overruns; running the two sequentially inside one wrapper
@@ -132,8 +143,8 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
 ### Data flow
 
 ```
-03:30  one-shot pmset full wake (armed yesterday at 07:00 by the daemon)
-03:31  launchd fires bluex-nightly.sh (user agent, script on internal disk)
+03:31  launchd fires bluex-nightly.sh (user agent, script on internal disk).
+       No wake needed: the mini never idle-sleeps.
        wait for /Volumes/Eregion to mount (bounded; notify + exit if it never does)
        preflight: binaries, store, Keychain credentials
        caffeinate -i -s held for the whole run
@@ -142,10 +153,9 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
        blueX-annotate --pass nltagger        (incremental)
        release lock + caffeinate (trap EXIT)
        write ~/Library/Logs/BlueX/last-run.json
-       exit → mini idles → sleeps after 1 min
-06:55  existing wakepoweron (unchanged)
+       exit → mini stays awake (sleep 0)
+06:55  existing wakepoweron (unchanged, untouched)
 06:56  bluex-watchdog.sh (user agent) → notify if stale
-07:00  bluex-arm-wake.sh (root daemon) → pmset schedule wake tomorrow 03:30
 ```
 
 ## Code changes
@@ -281,12 +291,11 @@ This is a targeted fix to code the work depends on, not unrelated refactoring.
   18h stale-lock reclaim.
 - Watchdog: notify when heartbeat age **or** store mtime exceeds **48h**. Using both
   distinguishes "ran but scraped nothing" from "never ran".
-- **Arming cannot be broken by a failed run.** The daemon arms at 07:00 unconditionally,
-  driven by the 06:55 `wakepoweron` rather than by the previous night's job. There is no
-  chain to break — which is why the watchdog needs no re-arm responsibility.
-- Daemon failure (e.g. `pmset` error) → logged to
-  `/var/log/bluex-armwake.log`; the missing 03:30 wake shows up as a stale heartbeat at
-  the next 06:56 watchdog run.
+- **There is no scheduling chain to break.** The 03:31 agent is a plain calendar event;
+  nothing has to arm it, so no failure can stop future runs.
+- If the machine is asleep at 03:31 (only possible if `sleep` is re-enabled), launchd
+  replays the event on the next wake; a DarkWake with the volume unmounted exits 75 with
+  a notification rather than failing silently.
 
 The earlier "skip annotate if Ollama is unreachable" branch is **removed** — NLTagger
 has no external dependency.
@@ -316,8 +325,7 @@ archived on Eregion, so the worst case is re-scraping again.
    `~/Library/Application Support/BlueX/default.store`. The archive at
    `/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean` is the record
    (verified 797,253 posts / 6 accounts). Frees ~456MB on the internal disk.
-2. `install-jobs.sh` — build CLIs, install scripts and plists. Prompts for `sudo` once,
-   to install the root arm-wake daemon.
+2. `install-jobs.sh` — build CLIs, install scripts and plists. No `sudo` required.
 3. `bluex-nightly.sh --preflight` — verify binaries, store and Keychain credentials.
    This is also the first real test of unattended Keychain access.
 4. **Verify the fresh store seeds correctly.** A first CLI or GUI run must create
@@ -329,7 +337,7 @@ archived on Eregion, so the worst case is re-scraping again.
 6. `blueX-annotate --pass nltagger` — sentiment over whatever has been scraped.
    Cheap and incremental; no separate backfill phase is needed.
 
-**Phase 2 — nightly.** Enable the 03:31 agent, the 06:56 watchdog and the 07:00 daemon.
+**Phase 2 — nightly.** Enable the 03:31 agent and the 06:56 watchdog.
 Until the initial scrape converges the nightly runs continue it; afterwards each run is
 one day of new posts, which is small.
 
