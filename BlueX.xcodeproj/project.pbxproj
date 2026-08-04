@@ -97,6 +97,7 @@
 		76D90D15568F87D55C6F9850 /* ScrapingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17BD7F5B327BFA1F0C892C6 /* ScrapingSettingsView.swift */; };
 		773553EDED707C260631C287 /* CredentialsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAF14F9783E11604DF39941 /* CredentialsSettingsView.swift */; };
 		78EA1B61E16F4547EBA976F3 /* KeychainAPIKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D8025D5316354901AB67E3 /* KeychainAPIKey.swift */; };
+		7A80D3901726C31FA84F85B6 /* BlueXStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */; };
 		7D4507032EC5FCDCCE5BDC2A /* Post+Annotations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */; };
 		7E54D60EA393803A2B7EB11D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B196EB48B113AFB1FFB67B81 /* SidebarView.swift */; };
 		7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6993F528F5075C15036ED449 /* MLXClientTests.swift */; };
@@ -189,6 +190,7 @@
 		1D2F936DA2B17E29AC501ADC /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		1DAF14F9783E11604DF39941 /* CredentialsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsSettingsView.swift; sourceTree = "<group>"; };
 		22A32BE361802D4B8EE09320 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
+		26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXStoreTests.swift; sourceTree = "<group>"; };
 		2B7F11C9D2CD6D7FF8582CF1 /* CLISupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISupport.swift; sourceTree = "<group>"; };
 		2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Post+Annotations.swift"; sourceTree = "<group>"; };
 		34D266795CDA4976FE6A23BC /* FeedScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraper.swift; sourceTree = "<group>"; };
@@ -448,6 +450,7 @@
 				D51D05BA19044CC1DCBCA2FE /* AccountSnapshotTests.swift */,
 				4764EACFFD4E7CEA59F5D618 /* AnnotationDedupTests.swift */,
 				D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */,
+				26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */,
 				0E24D0B833F878002CE416A9 /* LLMPaceTests.swift */,
 				E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */,
 				147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */,
@@ -784,6 +787,7 @@
 				C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */,
 				54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */,
 				61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */,
+				7A80D3901726C31FA84F85B6 /* BlueXStoreTests.swift in Sources */,
 				0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */,
 				F0D9BB11B48CDFB4C0E16F34 /* BlueskyAPIClientRateLimitTests.swift in Sources */,
 				76251AA5DB29B65FD817AC42 /* BlueskyAPIClientTests.swift in Sources */,
