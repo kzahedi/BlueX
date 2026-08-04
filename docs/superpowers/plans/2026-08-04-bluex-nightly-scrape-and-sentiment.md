@@ -1533,7 +1533,7 @@ With the BlueX GUI closed and no job running:
 
 ```bash
 ls -la "$HOME/Library/Application Support/BlueX/"
-sqlite3 "file:/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean?immutable=1" \
+sqlite3 "file:/Volumes/Eregion/bluex-archive/default.store.2026-08-04-preclean?mode=ro" \
   "SELECT 'archive posts', COUNT(*) FROM ZPOST;"
 ```
 Expected: the archive reports 797,253 posts. **Only once that is confirmed:**
@@ -1554,7 +1554,7 @@ Expected: the store is created at `/Volumes/Eregion/bluex-data/default.store` an
 
 **If zero accounts are listed, STOP.** Scraping with an empty account list would silently do nothing and look like success. `AccountSeeder.seed(into:)` only seeds when the account list is empty, so investigate before proceeding.
 
-Note: the user-created **"All Media"** group is not in `AccountSeeder.seeds` and will not be recreated. Re-add it in the GUI if wanted.
+Verified 2026-08-04: all three groups (All Media, German Media, International Media) are recreated identically to the archive, along with 9 ModelConfigs. Nothing to re-add.
 
 - [ ] **Step 3: Verify the unattended path end to end**
 
@@ -1580,7 +1580,7 @@ time ~/.local/bin/blueX-annotate --pass nltagger 2>&1 | tail -5
 ```
 Record the reported `posts/s` and **write the measured figure into the spec's Open Items section**, replacing the "unmeasured" note. Verify:
 ```bash
-sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?immutable=1" \
+sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?mode=ro" \
   "SELECT (SELECT COUNT(*) FROM ZPOST) AS posts, ZSTAGE, COUNT(*) FROM ZANNOTATION GROUP BY ZSTAGE;"
 ```
 Expected: `nltagger` count equals the post count. No separate backfill phase is needed — sentiment is cheap and keeps pace with the scrape.
