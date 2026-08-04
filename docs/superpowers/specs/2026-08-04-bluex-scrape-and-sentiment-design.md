@@ -346,9 +346,13 @@ one day of new posts, which is small.
 
 ## Open items
 
-- **NLTagger throughput on this store is unmeasured.** The 9-sample test was dominated
-  by Swift compile time. Phase 1 step 2 exists to measure it rather than guess; no
-  backfill duration is asserted in this spec.
+- **NLTagger throughput: MEASURED at ~164.5 posts/s** (7,438 posts in 45s, 2026-08-04,
+  real binaries against a scratch store). A full 800k-post corpus is therefore roughly
+  **80 minutes** of sentiment — comfortably inside one nightly window, not the multi-day
+  concern this item previously flagged.
+- **The deadline SIGINT does interrupt the annotation pass** — observed, contradicting an
+  earlier static reading that predicted it could not. Re-verify if the pass's driving
+  changes.
 - **Keychain access at 03:30 is unverified.** It worked before June, but an unattended
   run is where Keychain ACLs bite. `--preflight` tests this before the schedule is
   trusted.
