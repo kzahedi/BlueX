@@ -31,6 +31,12 @@ internal disk and unaffected. Only scripts and binaries sit on the volume that v
 - **`man pmset`: "you may only have one pair of repeating events scheduled — a 'power
   on' event and a 'power off' event."** The 06:55 `wakepoweron` already occupies that
   slot, so a second repeating wake at 03:30 is impossible without destroying it.
+- **`pmset schedule` requires root.** Verified: `pmset schedule wake "08/05/26 03:30:00"`
+  → `pmset: This operation must be run as root`, exit 1, no event created. An
+  unprivileged LaunchAgent therefore cannot arm its own wake.
+- **Keychain and notifications require the user's Aqua session.** The scrape reads
+  Bluesky credentials from the user Keychain and alerting uses `osascript`, so the
+  working job must be a user LaunchAgent, not a root LaunchDaemon.
 - **Must not interfere with daily operations.** No scraping or annotation during
   working hours.
 - Personal projects stay on `/Volumes/Eregion` per the global convention. Relocating
@@ -41,7 +47,7 @@ internal disk and unaffected. Only scripts and binaries sit on the volume that v
 | Decision | Choice | Rationale |
 |---|---|---|
 | Run window | Dedicated pre-dawn, 03:30 | Machine unused; full wake, not DarkWake; best thermal headroom |
-| Wake mechanism | Self-re-arming one-shot `pmset schedule wake` | `pmset repeat` slot is taken by 06:55; one-shots already in use on this machine |
+| Wake mechanism | Root LaunchDaemon at 07:00 arms a one-shot `pmset schedule wake` for 03:30 | `pmset` needs root; `pmset repeat` slot is taken by 06:55; privilege split keeps Keychain + notifications in the user session |
 | Alerting | Notification on failure + staleness watchdog at 06:56 | Watchdog catches the "never even started" mode that caused the 61-day gap |
 | Gap handling | One-off attended `--max-window-days 70` catch-up first | First normal run permanently freezes gap-era reply trees; one-way door |
 | Sentiment model | Apple NLTagger (`stage: "nltagger"`) | Only viable option at 795k posts; already implemented and tested |
@@ -92,11 +98,18 @@ at the installed copies.
 
 | Component | Location | Purpose |
 |---|---|---|
-| `bluex-nightly.sh` | installed → `~/Library/Application Support/BlueX/jobs/` | Sole launchd entry point: preflight → caffeinate → lock → scrape → sentiment → re-arm → heartbeat |
-| `bluex-watchdog.sh` | same | Runs 06:56 on the existing wake; notifies if heartbeat or store is stale |
-| `install-jobs.sh` | `tools/` (repo, version controlled) | Builds CLIs to a stable path, installs scripts + plists, loads agents. Idempotent |
+| `bluex-nightly.sh` | installed → `~/Library/Application Support/BlueX/jobs/` | Sole working entry point: preflight → caffeinate → lock → scrape → sentiment → heartbeat |
+| `bluex-watchdog.sh` | same | Runs 06:56 on the existing wake; notifies if heartbeat or store is stale. Notification only |
+| `bluex-arm-wake.sh` | installed → `/usr/local/libexec/bluex/` (root-owned) | Arms the next 03:30 one-shot wake. The only privileged component |
+| `install-jobs.sh` | `tools/` (repo, version controlled) | Builds CLIs to a stable path, installs scripts + plists, loads agents/daemon. Idempotent |
 | `net.pulsschlag.bluex.nightly.plist` | `~/Library/LaunchAgents/` | `StartCalendarInterval` 03:31 |
 | `net.pulsschlag.bluex.watchdog.plist` | `~/Library/LaunchAgents/` | `StartCalendarInterval` 06:56 |
+| `net.pulsschlag.bluex.armwake.plist` | `/Library/LaunchDaemons/` | Root, `StartCalendarInterval` 07:00 |
+
+**Privilege split.** The daemon does exactly one thing — call `pmset` — and holds no
+credentials and no store access. The agent does all the work and needs no elevation.
+Arming at 07:00 (after the 06:55 `wakepoweron`, when the machine is reliably awake) means
+re-arming is independent of whether the previous night's run succeeded.
 
 This **replaces** the two current jobs. Today the shared store-lock makes annotate
 silently `exit 0` when scrape overruns; running the two sequentially inside one wrapper
@@ -113,22 +126,38 @@ symlink-not-copy approach (necessary for the Sequoia provenance `SIGKILL` docume
 ### Data flow
 
 ```
-03:30  one-shot pmset full wake (armed by the previous run)
-03:31  launchd fires bluex-nightly.sh (internal disk)
+03:30  one-shot pmset full wake (armed yesterday at 07:00 by the daemon)
+03:31  launchd fires bluex-nightly.sh (user agent, internal disk)
        preflight: binaries, store, Keychain credentials
        caffeinate -i -s held for the whole run
        acquire store lock (atomic mkdir, existing 18h stale reclaim)
        blueX-scrape   --pace gentle --max-window-days 7
        blueX-annotate --pass nltagger        (incremental)
        release lock + caffeinate (trap EXIT)
-       arm tomorrow's 03:30 wake
        write ~/Library/Logs/BlueX/last-run.json
        exit → mini idles → sleeps after 1 min
 06:55  existing wakepoweron (unchanged)
-06:56  bluex-watchdog.sh → notify if stale
+06:56  bluex-watchdog.sh (user agent) → notify if stale
+07:00  bluex-arm-wake.sh (root daemon) → pmset schedule wake tomorrow 03:30
 ```
 
 ## Code changes
+
+### 0. Extract `NLTaggerPass` so the CLI can reuse it
+
+`project.yml:64-66` **excludes** `AnnotationService.swift` from the `BlueXAnnotate`
+target — the project deliberately keeps `@Observable`/GUI-coupled code out of CLI
+targets (`ScrapeCoordinator.swift` is excluded from `BlueXScrape` for the same reason).
+So the CLI cannot call `AnnotationService.runNLTaggerPass` at all.
+
+Extract the paging + tagging loop into `BlueX/Services/Annotation/NLTaggerPass.swift`:
+a plain struct, no `Observation`, no `@MainActor`, directly unit-testable, taking an
+optional progress callback. `AnnotationService.runNLTaggerPass` delegates to it and
+keeps its `@Observable` progress publishing; the CLI calls it directly. One
+implementation, two consumers — no duplicated loop.
+
+`BlueX/Services/Annotation/` is already in the `BlueXAnnotate` target, so only the one
+excluded file stays excluded.
 
 ### 1. Expose `--pass nltagger` in `blueX-annotate`
 
@@ -152,8 +181,18 @@ let pending = try context.fetch(FetchDescriptor<Post>())
 
 This materialises all 797k posts, then filters in Swift, and `hasNLTaggerAnnotation`
 faults the `annotations` relationship per post. Acceptable at 2,600 annotations; not at
-795k. Push the predicate into the `FetchDescriptor` and page with
-`fetchLimit`/`fetchOffset`.
+795k. The replacement lands in `NLTaggerPass` (section 0) and does three things:
+
+1. Fetch the URIs that already carry an `nltagger` annotation into a `Set<String>` once
+   — 2,600 rows today. This mirrors the `alreadyDone` pattern already proven at
+   `cli/annotate/main.swift:361-370`, and avoids relationship faulting entirely.
+2. Page `Post` with `fetchLimit`/`fetchOffset` over a stable sort (`\Post.uri`).
+   Inserting annotations does not change the `Post` count, so offsets stay valid.
+3. Use a fresh `ModelContext` per page so the context does not accumulate 795k
+   registered objects.
+
+It also gains a `limit` parameter, without which the Phase 1 throughput measurement
+is impossible.
 
 This is a targeted fix to code the work depends on, not unrelated refactoring.
 
@@ -165,13 +204,14 @@ This is a targeted fix to code the work depends on, not unrelated refactoring.
   fix; exit 78.
 - `caffeinate` and the store lock both released via `trap … EXIT`; keep the existing
   18h stale-lock reclaim.
-- Re-arm failure → logged and notified; the 06:56 watchdog catches the consequence.
 - Watchdog: notify when heartbeat age **or** store mtime exceeds **48h**. Using both
   distinguishes "ran but scraped nothing" from "never ran".
-- **Watchdog re-arms the chain.** If no `pmset` wake event is scheduled for 03:30, the
-  watchdog arms one. This is what makes the self-re-arming design recoverable: a single
-  failed re-arm would otherwise stop the chain permanently, which is the same class of
-  silent failure as the original outage.
+- **Arming cannot be broken by a failed run.** The daemon arms at 07:00 unconditionally,
+  driven by the 06:55 `wakepoweron` rather than by the previous night's job. There is no
+  chain to break — which is why the watchdog needs no re-arm responsibility.
+- Daemon failure (e.g. `pmset` error) → logged to
+  `/var/log/bluex-armwake.log`; the missing 03:30 wake shows up as a stale heartbeat at
+  the next 06:56 watchdog run.
 
 The earlier "skip annotate if Ollama is unreachable" branch is **removed** — NLTagger
 has no external dependency.
@@ -196,14 +236,17 @@ Two phases, because backfill and steady-state have different shapes.
 
 **Phase 1 — once, attended.** Measure before committing to durations.
 
-1. `install-jobs.sh` — build CLIs, install scripts and plists.
-2. `blueX-annotate --pass nltagger --limit 2000` — measure real throughput.
-3. `blueX-scrape --pace gentle --max-window-days 70` — reply-tree catch-up for the
-   61-day gap. One-way door: a normal run freezes these trees permanently.
-4. Full NLTagger backfill over the ~795k backlog.
+1. `install-jobs.sh` — build CLIs, install scripts and plists. Prompts for `sudo` once,
+   to install the root arm-wake daemon.
+2. `bluex-nightly.sh --preflight` — verify binaries, store, and Keychain credentials.
+3. `blueX-annotate --pass nltagger --limit 2000` — measure real throughput.
+4. `blueX-scrape --pace gentle --max-window-days 70` — reply-tree catch-up for the
+   61-day gap. **One-way door:** a normal run freezes these trees permanently, so this
+   must precede any `--max-window-days 7` run.
+5. Full NLTagger backfill over the ~795k backlog.
 
-**Phase 2 — nightly.** Enable the 03:31 job and the 06:56 watchdog. Incremental only:
-one day of new posts, which is small.
+**Phase 2 — nightly.** Enable the 03:31 agent, the 06:56 watchdog, and the 07:00 daemon.
+Incremental only: one day of new posts, which is small.
 
 ## Open items
 
