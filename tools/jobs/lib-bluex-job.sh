@@ -42,10 +42,34 @@ bluex_wait_for_store() {
 
 # Desktop notification. Requires the user's Aqua session, so this works from a
 # LaunchAgent and NOT from a root LaunchDaemon (there is none in this design).
+#
+# Escape BACKSLASH FIRST, then double quote — the other order would re-escape the
+# backslashes this function itself inserted. A stray backslash in a log path or an
+# error message used to produce an AppleScript syntax error, and a failed
+# notification in the alerting path is the one thing that must never be silent, so
+# a failure is recorded on disk rather than swallowed.
 bluex_notify() {
   local title="$1" message="$2"
-  osascript -e "display notification \"${message//\"/\\\"}\" with title \"${title//\"/\\\"}\"" \
-    >/dev/null 2>&1 || true
+  title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
+  message="${message//\\/\\\\}"; message="${message//\"/\\\"}"
+  if ! osascript -e "display notification \"$message\" with title \"$title\"" >/dev/null 2>&1; then
+    echo "$(date): notification FAILED — $1: $2" >>"$BLUEX_LOG_DIR/notify-failures.log"
+  fi
+  return 0
+}
+
+# Read one scalar field out of the heartbeat JSON. Echoes the raw token (unquoted
+# number or bare word such as `true`) and returns 1 if the file or key is absent.
+# Deliberately grep+sed rather than a JSON parser: these scripts must run under
+# launchd with no dependencies beyond the base system.
+bluex_json_field() {
+  local file="$1" key="$2" raw
+  [ -e "$file" ] || return 1
+  raw=$(grep -Eo "\"$key\"[[:space:]]*:[[:space:]]*[^,}[:space:]]+" "$file" 2>/dev/null | tail -1)
+  [ -n "$raw" ] || return 1
+  # Strip up to the FIRST colon only — the key never contains one, but values
+  # (timestamps, paths) can.
+  echo "${raw#*:}" | tr -d ' "'
 }
 
 bluex_log_path() {

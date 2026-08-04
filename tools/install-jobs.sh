@@ -19,6 +19,17 @@ JOBS_DEST="$HOME/Library/Application Support/BlueX/jobs"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 
+# BlueX.xcodeproj is generated from project.yml, so building without regenerating
+# can compile a .pbxproj that predates the current source list — a new shared file
+# or a changed target would be silently missing and the installer would still
+# report success. Fail loudly rather than install a stale binary.
+echo "==> regenerating BlueX.xcodeproj from project.yml"
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "✗ xcodegen not found on PATH. Install it (brew install xcodegen) and re-run." >&2
+  exit 1
+fi
+( cd "$REPO_ROOT" && xcodegen generate )
+
 echo "==> building CLIs"
 "$REPO_ROOT/tools/install-cli.sh"
 
