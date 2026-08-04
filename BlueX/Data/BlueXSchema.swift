@@ -18,19 +18,62 @@ enum BlueXSchema {
 }
 
 /// Store location + container builder for every process that opens the BlueX
-/// database. Anchored at `~/Library/Application Support/BlueX/default.store`
-/// so other non-sandboxed SwiftData apps on the machine can't clobber us.
+/// database: the GUI, `blueX-scrape` and `blueX-annotate`.
+///
+/// The store lives on the external Eregion volume. The internal disk was at 96%
+/// (18Gi free) holding a 456MB store about to gain ~795k annotation rows plus 61
+/// days of recovered reply trees; Eregion has 627Gi.
+///
+/// Only the DATA lives there. The launchd job scripts stay on the internal disk,
+/// because launchd execs them and can fire during DarkWake, when this volume is not
+/// mounted — that is exactly what killed scraping for 61 days from 2026-06-04.
 enum BlueXStore {
-    static let url: URL = {
-        URL.applicationSupportDirectory
-            .appendingPathComponent("BlueX", isDirectory: true)
-            .appendingPathComponent("default.store", isDirectory: false)
-    }()
+    enum StoreError: LocalizedError {
+        case volumeNotMounted(URL)
 
-    /// Creates the parent directory if needed and returns a configured ModelContainer.
+        var errorDescription: String? {
+            switch self {
+            case .volumeNotMounted(let dir):
+                return "The BlueX store directory is unavailable: \(dir.path). "
+                     + "Attach the Eregion drive, or set BLUEX_STORE_DIR to another location."
+            }
+        }
+    }
+
+    /// Store directory. `BLUEX_STORE_DIR` overrides it, so the location can change
+    /// without a rebuild and tests can point at a temporary directory.
+    static var directory: URL {
+        if let override = ProcessInfo.processInfo.environment["BLUEX_STORE_DIR"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return URL(fileURLWithPath: "/Volumes/Eregion/bluex-data", isDirectory: true)
+    }
+
+    static var url: URL {
+        directory.appendingPathComponent("default.store", isDirectory: false)
+    }
+
+    /// True when the store directory's PARENT exists — i.e. the volume is mounted.
+    ///
+    /// Checking the parent rather than the directory itself is deliberate: if the
+    /// drive is detached, `createDirectory` would happily build the whole path under
+    /// an empty /Volumes and SwiftData would create a second, empty store. That
+    /// looks like success while orphaning 797k posts, so it must be impossible.
+    static var isAvailable: Bool {
+        var isDirectory: ObjCBool = false
+        let parent = directory.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        return isDirectory.boolValue
+    }
+
+    /// Creates the store directory if needed and returns a configured ModelContainer.
     static func openContainer() throws -> ModelContainer {
+        guard isAvailable else { throw StoreError.volumeNotMounted(directory) }
         try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
+            at: directory,
             withIntermediateDirectories: true
         )
         let config = ModelConfiguration(
