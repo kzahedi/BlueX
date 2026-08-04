@@ -27,23 +27,28 @@ store_age=$(bluex_age_seconds "$BLUEX_STORE")
 
 
 # ---- exit codes from the most recent heartbeat -------------------------------
-# bluex-nightly.sh writes these for us and, until now, nobody read them.
-# A deadline stop is not a failure (a multi-day initial scrape hits 07:00 every
-# night), so its nonzero-or-not exits are deliberately not judged here.
+# bluex-nightly.sh writes these for us and, until this branch, nobody read them.
+#
+# Judged UNCONDITIONALLY. A deadline stop used to exempt them, on the theory that a
+# multi-day backfill hits 07:00 every night and that is not a failure. True, but the
+# exemption also hid every real failure for the length of the backfill — a scrape
+# that failed at 04:00 and was then SIGINTed at 07:00 read as healthy. And it bought
+# nothing: a deadline SIGINT on its own always yields exit 0 from both CLIs, so a
+# nonzero exit always means a genuine failure, deadline or not.
 scrape_exit=$(bluex_json_field "$BLUEX_HEARTBEAT" scrapeExit)
 sentiment_exit=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentExit)
-stopped_at_deadline=$(bluex_json_field "$BLUEX_HEARTBEAT" stoppedAtDeadline)
+# Not a failure — annotation losing its slot to a long scrape is expected during a
+# backfill — but it must not be invisible either.
+sentiment_skipped=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentSkipped)
 
+# An absent field means an older heartbeat format, not a success — but the staleness
+# checks already cover a heartbeat that is not being rewritten, so only a PRESENT
+# nonzero value alarms here.
 failures=()
-if [ "$stopped_at_deadline" != "true" ]; then
-  # An absent field means an older heartbeat format, not a success — but the
-  # staleness checks already cover a heartbeat that is not being rewritten, so
-  # only a PRESENT nonzero value alarms here.
-  [ -n "$scrape_exit" ] && [ "$scrape_exit" != "0" ] && failures+=("scrape (exit $scrape_exit)")
-  [ -n "$sentiment_exit" ] && [ "$sentiment_exit" != "0" ] && failures+=("sentiment (exit $sentiment_exit)")
-fi
+[ -n "$scrape_exit" ] && [ "$scrape_exit" != "0" ] && failures+=("scrape (exit $scrape_exit)")
+[ -n "$sentiment_exit" ] && [ "$sentiment_exit" != "0" ] && failures+=("sentiment (exit $sentiment_exit)")
 
-echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s scrapeExit=${scrape_exit:-?} sentimentExit=${sentiment_exit:-?} deadline=${stopped_at_deadline:-?}" >>"$LOG"
+echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s scrapeExit=${scrape_exit:-?} sentimentExit=${sentiment_exit:-?} sentimentSkipped=${sentiment_skipped:-?}" >>"$LOG"
 
 heartbeat_stale=0
 store_stale=0
@@ -79,6 +84,16 @@ if [ "$heartbeat_stale" -eq 1 ] || [ "$store_stale" -eq 1 ]; then
   bluex_notify "BlueX is stale" "$message"
   echo "$(date): STALE — notified (${message})." >>"$LOG"
   exit 1
+fi
+
+# Not stale and nothing failed — but the sentiment pass may still have been starved
+# of its slot by a long scrape. Expected during a backfill, so this is a heads-up at
+# exit 0, not an alarm: annotation silently not running for weeks while both exits
+# stayed 0 is the kind of gap this watchdog exists to surface.
+if [ "$sentiment_skipped" = "true" ]; then
+  bluex_notify "BlueX sentiment skipped" "Last run scraped but never annotated (no budget left) — check $BLUEX_LOG_DIR"
+  echo "$(date): fresh, but sentiment was skipped on the last run — notified." >>"$LOG"
+  exit 0
 fi
 
 echo "$(date): fresh." >>"$LOG"

@@ -24,8 +24,21 @@ MAX_WINDOW_DAYS=7
 # Wall-clock stop. The spec's constraints say no scraping or annotation during
 # working hours, and nothing else bounds the run: a 03:31 start on a large backfill
 # would otherwise still be scraping at noon, holding caffeinate through the day.
-# 07:00 sits before the 06:55 wake window closes and before the working day.
+# 07:00 is before the working day and only a few minutes after the 06:55 wake.
+#
+# Note the ordering against the watchdog, which runs at 06:56 — BEFORE this
+# deadline. A run that goes the distance is therefore still in flight when the
+# watchdog looks, so its heartbeat is from the previous night and is not judged
+# until the following morning. That is fine: an immediate failure is notified
+# directly by this script, so the watchdog is the backstop, not the first line.
 DEADLINE_TIME="07:00"
+
+# Budget reserved for the sentiment pass out of the run's total. Without it the
+# scrape eats the whole night on a multi-day backfill and NLTagger annotation never
+# runs at all — for weeks, with both exit codes 0 and a store mtime that stays
+# fresh. Annotation gets its own slice so it always makes some progress, and it
+# still ends by DEADLINE_TIME.
+SENTIMENT_RESERVE_SECONDS=$(( 20 * 60 ))
 
 preflight() {
   local problems=0
@@ -103,7 +116,8 @@ fi
 
 caffeinate -i -s -w $$ &
 CAFFEINATE_PID=$!
-trap 'kill "$CAFFEINATE_PID" 2>/dev/null; rmdir "$BLUEX_LOCK" 2>/dev/null' EXIT
+DEADLINE_FLAG="$BLUEX_LOG_DIR/.deadline-fired.$$"
+trap 'kill "$CAFFEINATE_PID" 2>/dev/null; rm -f "$DEADLINE_FLAG"; rmdir "$BLUEX_LOCK" 2>/dev/null' EXIT
 
 if ! preflight >>"$LOG" 2>&1; then
   bluex_notify "BlueX nightly" "Preflight failed — see $LOG"
@@ -122,102 +136,143 @@ elif [ "$DEADLINE_EPOCH" -le "$(date +%s)" ]; then
 fi
 
 STOPPED_AT_DEADLINE=0
+RUN_BOUNDED_SKIPPED=0
 
-# Run a CLI with a wall-clock budget. At the deadline the child gets SIGINT, never
-# SIGKILL: installSIGINTHandler in both CLIs stops at the next post/page boundary
-# and everything already scraped is persisted, whereas a KILL would drop in-flight
-# work. Returns the child's exit status; sets STOPPED_AT_DEADLINE if the timer
-# fired.
+# Run a CLI with a wall-clock stop of its own ($1 = absolute epoch, 0 = unbounded).
+# At the stop the child gets SIGINT, never SIGKILL: installSIGINTHandler in both
+# CLIs stops at the next post/page boundary and everything already done is
+# persisted, whereas a KILL would drop in-flight work. The signal goes to the
+# CHILD's pid — not to this script and not to the process group — so the heartbeat
+# write below always stays reachable.
+#
+# Returns the child's exit status. Sets STOPPED_AT_DEADLINE if the stop fired, and
+# RUN_BOUNDED_SKIPPED if there was no budget left to even start the child.
 run_bounded() {
+  local stop_at="$1"; shift
+  RUN_BOUNDED_SKIPPED=0
+
   local budget=0
-  if [ "$DEADLINE_EPOCH" -gt 0 ]; then
-    budget=$(( DEADLINE_EPOCH - $(date +%s) ))
+  if [ "$stop_at" -gt 0 ]; then
+    budget=$(( stop_at - $(date +%s) ))
     if [ "$budget" -le 0 ]; then
       STOPPED_AT_DEADLINE=1
-      echo "⏰ ${DEADLINE_TIME} deadline reached — skipping: $*"
+      RUN_BOUNDED_SKIPPED=1
+      echo "⏰ no budget left before ${DEADLINE_TIME} — skipping: $*"
       return 0
     fi
   fi
 
-  local fired="$BLUEX_LOG_DIR/.deadline-fired.$$"
-  rm -f "$fired"
+  rm -f "$DEADLINE_FLAG"
 
   "$@" &
   local child=$!
   local timer=0
   if [ "$budget" -gt 0 ]; then
-    # Touch the flag only if the INT was actually delivered — a child that finished
-    # first makes the kill fail and leaves no flag. A "is the timer still alive?"
-    # check cannot be used instead: an exited-but-unreaped timer is a zombie and
-    # still answers `kill -0`.
-    ( sleep "$budget"; kill -INT "$child" 2>/dev/null && : >"$fired" ) &
+    # Polls instead of a single long `sleep` so the timer notices the child
+    # finishing and exits on its own. A `sleep $budget` had to be killed by the
+    # parent, which orphaned the sleep itself (two per run, up to ~3.5 h), and
+    # killing the sleep instead would let the subshell fall through to the
+    # kill -INT and interrupt a child that had already finished cleanly.
+    #
+    # The flag file is touched only if the INT was actually delivered. A "is the
+    # timer still alive?" check cannot substitute: an exited-but-unreaped timer is
+    # a zombie and still answers `kill -0`.
+    (
+      while [ "$(date +%s)" -lt "$stop_at" ]; do
+        kill -0 "$child" 2>/dev/null || exit 0
+        sleep 5
+      done
+      kill -INT "$child" 2>/dev/null && : >"$DEADLINE_FLAG"
+    ) &
     timer=$!
   fi
 
   wait "$child"
   local rc=$?
 
-  if [ "$timer" -ne 0 ]; then
-    kill "$timer" 2>/dev/null
-    wait "$timer" 2>/dev/null
-  fi
+  # No kill needed: with the child reaped, the timer's next poll fails kill -0 and
+  # it exits within one poll interval. wait reaps it.
+  [ "$timer" -ne 0 ] && wait "$timer" 2>/dev/null
 
-  if [ -f "$fired" ]; then
+  if [ -f "$DEADLINE_FLAG" ]; then
     STOPPED_AT_DEADLINE=1
-    echo "⏰ stopped at the ${DEADLINE_TIME} deadline — NOT a failure; work up to the last post boundary is saved."
+    echo "⏰ stopped at the ${DEADLINE_TIME} deadline — work up to the last post/page boundary is saved."
   fi
-  rm -f "$fired"
+  rm -f "$DEADLINE_FLAG"
   return $rc
 }
 
 scrape_rc=0
 annotate_rc=0
+SENTIMENT_SKIPPED=0
+
+# The scrape stops early enough to leave the sentiment pass its reserved slice.
+SCRAPE_DEADLINE=$DEADLINE_EPOCH
+if [ "$DEADLINE_EPOCH" -gt 0 ]; then
+  SCRAPE_DEADLINE=$(( DEADLINE_EPOCH - SENTIMENT_RESERVE_SECONDS ))
+fi
 
 # A brace group, not a subshell — the exit codes below must survive into the
 # heartbeat written afterwards.
 {
   echo "=== nightly $(date) ==="
   if [ "$DEADLINE_EPOCH" -gt 0 ]; then
-    echo "deadline: $(date -r "$DEADLINE_EPOCH")"
+    echo "deadline: $(date -r "$DEADLINE_EPOCH")  (scrape stops $(date -r "$SCRAPE_DEADLINE"))"
   else
     echo "deadline: none"
   fi
   echo "--- scrape (gentle, max-window-days $MAX_WINDOW_DAYS) ---"
-  run_bounded "$SCRAPE" --pace gentle --max-window-days "$MAX_WINDOW_DAYS"
+  run_bounded "$SCRAPE_DEADLINE" "$SCRAPE" --pace gentle --max-window-days "$MAX_WINDOW_DAYS"
   scrape_rc=$?
   [ "$scrape_rc" -ne 0 ] && echo "✗ scrape failed (exit $scrape_rc)."
 
   echo "--- Apple NLTagger sentiment ---"
-  run_bounded "$ANNOTATE" --pass nltagger
+  run_bounded "$DEADLINE_EPOCH" "$ANNOTATE" --pass nltagger
   annotate_rc=$?
+  SENTIMENT_SKIPPED=$RUN_BOUNDED_SKIPPED
   [ "$annotate_rc" -ne 0 ] && echo "✗ sentiment failed (exit $annotate_rc)."
+  [ "$SENTIMENT_SKIPPED" -eq 1 ] && echo "⚠ sentiment did not run at all this night — no budget left."
 
-  echo "=== done $(date) (stoppedAtDeadline=$STOPPED_AT_DEADLINE) ==="
+  echo "=== done $(date) (stoppedAtDeadline=$STOPPED_AT_DEADLINE sentimentSkipped=$SENTIMENT_SKIPPED) ==="
 } >>"$LOG" 2>&1
 
-# Heartbeat. Lets the watchdog tell "ran but found nothing new" from "never ran",
-# and — via the exit codes plus stoppedAtDeadline — a failing run from a run that
-# simply ran out of night. A multi-day initial scrape legitimately hits the
-# deadline every night, so that case must not be read as a failure.
+# Heartbeat. Lets the watchdog tell "ran but found nothing new" from "never ran".
+#
+# stoppedAtDeadline records that the run was cut short, and sentimentSkipped that
+# annotation never got to run. NEITHER excuses a nonzero exit: a deadline SIGINT by
+# itself always yields exit 0 (the scrape breaks on cancel without flagging a
+# failure; the nltagger pass returns normally), so a nonzero exit always means a
+# genuine failure. These two flags may only qualify the "ran short" reading —
+# never suppress a failure. An earlier version of this script suppressed the
+# failure notification on any deadline night, which hid every failure for the whole
+# length of a multi-day backfill: precisely the silent-failure class this branch
+# exists to remove.
 deadline_json=false
 [ "$STOPPED_AT_DEADLINE" -eq 1 ] && deadline_json=true
+sentiment_skipped_json=false
+[ "$SENTIMENT_SKIPPED" -eq 1 ] && sentiment_skipped_json=true
 cat >"$BLUEX_HEARTBEAT" <<JSON
 {
   "finishedAt": "$(date -u "+%Y-%m-%dT%H:%M:%SZ")",
   "scrapeExit": $scrape_rc,
   "sentimentExit": $annotate_rc,
   "stoppedAtDeadline": $deadline_json,
+  "sentimentSkipped": $sentiment_skipped_json,
   "log": "$LOG"
 }
 JSON
 
-if [ "$STOPPED_AT_DEADLINE" -eq 1 ]; then
-  echo "$(date): stopped at the $DEADLINE_TIME deadline (scrape=$scrape_rc sentiment=$annotate_rc) — no alert." >>"$LOG"
-  exit 0
+if [ "$scrape_rc" -ne 0 ] || [ "$annotate_rc" -ne 0 ]; then
+  suffix=""
+  [ "$STOPPED_AT_DEADLINE" -eq 1 ] && suffix=" (also hit the $DEADLINE_TIME deadline)"
+  echo "$(date): FAILED — scrape=$scrape_rc sentiment=$annotate_rc$suffix" >>"$LOG"
+  bluex_notify "BlueX nightly failed" "scrape=$scrape_rc sentiment=$annotate_rc$suffix — see $LOG"
+  exit 1
 fi
 
-if [ "$scrape_rc" -ne 0 ] || [ "$annotate_rc" -ne 0 ]; then
-  bluex_notify "BlueX nightly failed" "scrape=$scrape_rc sentiment=$annotate_rc — see $LOG"
-  exit 1
+if [ "$SENTIMENT_SKIPPED" -eq 1 ]; then
+  echo "$(date): both steps ok, but sentiment never ran (no budget before $DEADLINE_TIME)." >>"$LOG"
+elif [ "$STOPPED_AT_DEADLINE" -eq 1 ]; then
+  echo "$(date): stopped at the $DEADLINE_TIME deadline, both steps exited 0 — ran short, not failed." >>"$LOG"
 fi
 exit 0
