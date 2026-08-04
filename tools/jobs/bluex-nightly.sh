@@ -36,8 +36,18 @@ DEADLINE_TIME="07:00"
 # Budget reserved for the sentiment pass out of the run's total. Without it the
 # scrape eats the whole night on a multi-day backfill and NLTagger annotation never
 # runs at all — for weeks, with both exit codes 0 and a store mtime that stays
-# fresh. Annotation gets its own slice so it always makes some progress, and it
-# still ends by DEADLINE_TIME.
+# fresh.
+#
+# What the reserve guarantees is a START slot, NOT a bounded finish. The deadline
+# SIGINT is a no-op for the annotation step: blueX-annotate runs NLTaggerPass.run()
+# synchronously on the main actor, while installSIGINTHandler's DispatchSource sits
+# on queue .main, so the main queue cannot drain while the pass is executing and
+# the pass's once-per-page isCancelled() poll never observes the flag. (Ctrl-C
+# cannot interrupt a long nltagger pass either, for the same reason.) A large
+# backlog can therefore overrun DEADLINE_TIME into working hours.
+#
+# That is tolerated only because NLTagger is microseconds per post, so the overrun
+# is small in practice. It is a reason, not a guarantee.
 SENTIMENT_RESERVE_SECONDS=$(( 20 * 60 ))
 
 preflight() {
@@ -117,7 +127,26 @@ fi
 caffeinate -i -s -w $$ &
 CAFFEINATE_PID=$!
 DEADLINE_FLAG="$BLUEX_LOG_DIR/.deadline-fired.$$"
-trap 'kill "$CAFFEINATE_PID" 2>/dev/null; rm -f "$DEADLINE_FLAG"; rmdir "$BLUEX_LOCK" 2>/dev/null' EXIT
+
+# zsh does not run an EXIT trap on a signal death, so trapping EXIT alone left the
+# lock and the flag file behind on `launchctl bootout` or a plain kill. A leftover
+# lock makes the NEXT night's run skip silently until the 18h reclaim window passes
+# — the exact pattern this branch exists to remove.
+#
+# Every step is idempotent (kill on a dead pid, rm -f, rmdir on a missing dir all
+# fail harmlessly), which matters because a signal trap that exits also re-triggers
+# the EXIT trap, so this runs twice on a signal death. The explicit 128+signo exits
+# keep the status meaningful instead of falling through and continuing the run.
+bluex_cleanup() {
+  kill "$CAFFEINATE_PID" 2>/dev/null
+  rm -f "$DEADLINE_FLAG"
+  rmdir "$BLUEX_LOCK" 2>/dev/null
+  return 0
+}
+trap bluex_cleanup EXIT
+trap 'bluex_cleanup; exit 130' INT
+trap 'bluex_cleanup; exit 143' TERM
+trap 'bluex_cleanup; exit 129' HUP
 
 if ! preflight >>"$LOG" 2>&1; then
   bluex_notify "BlueX nightly" "Preflight failed — see $LOG"
