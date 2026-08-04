@@ -11,6 +11,7 @@
 //   blueX-scrape --limit 200              — max NEW posts per account this run
 //   blueX-scrape --max-window-days 30     — reply-tree refresh window (default 14)
 //   blueX-scrape --list-accounts          — print active accounts + exit
+//   blueX-scrape --check-credentials      — Keychain + Bluesky login only, no store
 //   blueX-scrape --help
 
 import Foundation
@@ -24,6 +25,9 @@ struct CLIArgs {
     var limit: Int?
     var maxWindowDays: Int = 14
     var listAccounts = false
+    /// Preflight mode: prove the Keychain ACL and the Bluesky login work, without
+    /// touching the store. See the `--check-credentials` block in `runCLI()`.
+    var checkCredentials = false
     var help = false
 
     static func parse(_ argv: [String]) -> CLIArgs {
@@ -34,6 +38,7 @@ struct CLIArgs {
             switch arg {
             case "-h", "--help":          a.help = true
             case "--list-accounts":       a.listAccounts = true
+            case "--check-credentials":   a.checkCredentials = true
             case "--handle":
                 i += 1; if i < argv.count { a.handle = argv[i] }
             case "--pace":
@@ -72,6 +77,13 @@ usage: blueX-scrape [options]
                          was within this window of the post's createdAt; after,
                          the tree is frozen.
   --list-accounts        Print active accounts and exit.
+  --check-credentials    Preflight the unattended path: read the Bluesky
+                         credentials from the Keychain and open a real session
+                         against bsky.social, then exit. Deliberately does NOT
+                         open the SwiftData store, so it works (and stays a
+                         sharp diagnostic) even with the store volume detached
+                         or a scrape already running. Exits 0 only if both the
+                         Keychain read and the login succeed.
   --help, -h             This help.
 
 Reads + writes the BlueX SwiftData store at
@@ -95,6 +107,38 @@ struct LimitReached: Error {}
 func runCLI() async {
     let args = CLIArgs.parse(CommandLine.arguments)
     if args.help { print(usage); return }
+
+    // ---- credential preflight — MUST stay above openContainer().
+    //
+    // The nightly job's preflight needs to know that an unattended 03:31 run can
+    // actually authenticate. `--list-accounts` was previously assumed to prove
+    // that; it does not — it returns before KeychainCredentials.load() is ever
+    // called. The CLIs are ad-hoc signed (CODE_SIGN_IDENTITY "-"), so a rebuild
+    // can change the identity a Keychain ACL was granted to, and an ACL prompt at
+    // 03:31 has nobody to answer it. This flag exercises the real path: Keychain
+    // read, then a live createSession.
+    //
+    // No store access on purpose. Keeping it independent of the external volume
+    // makes it a sharper diagnostic (it separates "credentials broken" from
+    // "volume missing") and avoids opening the store a second time while a long
+    // scrape holds it.
+    if args.checkCredentials {
+        guard let creds = KeychainCredentials.load() else {
+            fail("blueX-scrape", "✗ Keychain: no Bluesky credentials found. Open BlueX → Settings → Credentials, save an app password, then re-run.")
+        }
+        print("✓ Keychain: credentials for @\(creds.handle)")
+        let api = BlueskyAPIClient()
+        let result = await api.createSession(handle: creds.handle, password: creds.password)
+        guard case .success = result else {
+            if case .failure(let err) = result {
+                fail("blueX-scrape", "✗ Bluesky: authentication failed for @\(creds.handle): \(err)")
+            }
+            fail("blueX-scrape", "✗ Bluesky: authentication failed for @\(creds.handle)")
+        }
+        print("✓ Bluesky: session created for @\(creds.handle)")
+        print("✓ credentials ok (store not touched)")
+        return
+    }
 
     let container: ModelContainer
     do { container = try BlueXStore.openContainer() }
@@ -193,6 +237,17 @@ func runCLI() async {
     var grandNewPosts = 0
     var grandNewReplies = 0
     var grandRefreshed = 0
+    // Anything that made this run scrape less than it was asked to. A revoked app
+    // password or a total auth outage used to print a ⚠ and exit 0, which is
+    // indistinguishable from "nothing new" to the nightly job and the watchdog —
+    // exactly the silent-success failure class that hid the 61-day outage. Per
+    // account resilience is preserved (one bad account does not abort the rest),
+    // but the PROCESS exit code now reflects that something failed.
+    var runFailed = false
+    // Set when re-authentication fails: the token is dead, so no later account can
+    // succeed either. Stops the run — but through the normal summary, not a bare
+    // `return`, so the failure reaches the exit code.
+    var authDead = false
 
     for (idx, account) in accounts.enumerated() {
         if cancel.isSet { break }
@@ -242,13 +297,15 @@ func runCLI() async {
                 )
                 break
             } catch let err where isAuthFailed(err) && attempt == 0 {
-                if !(await refreshToken()) { return }
+                if !(await refreshToken()) { runFailed = true; authDead = true; break }
                 continue
             } catch {
                 writeFinalLine("⚠ \(account.handle)  refresh failed: \(error.localizedDescription)")
+                runFailed = true
                 break
             }
         }
+        if authDead { break }
 
         // ---- Phase 2: feed scrape, depth-first per post.
         for attempt in 0...1 {
@@ -281,10 +338,11 @@ func runCLI() async {
             } catch is CancellationError {
                 break  // user pressed Ctrl-C
             } catch let err where isAuthFailed(err) && attempt == 0 {
-                if !(await refreshToken()) { return }
+                if !(await refreshToken()) { runFailed = true; authDead = true; break }
                 continue
             } catch {
                 writeFinalLine("⚠ \(account.handle)  scrape error: \(error.localizedDescription)")
+                runFailed = true
                 break
             }
         }
@@ -301,11 +359,24 @@ func runCLI() async {
         grandNewPosts += accountNewPosts
         grandNewReplies += accountNewReplies
         grandRefreshed += accountRefreshed
+
+        if authDead { break }
     }
 
     let elapsed = Date().timeIntervalSince(runStart)
     let interrupted = cancel.isSet ? "  (interrupted)" : ""
     print("\nDone · \(grandNewPosts) new posts · \(grandNewReplies + grandRefreshed) replies (\(grandRefreshed) refreshed) · \(formatDuration(elapsed))\(interrupted)")
+
+    // Ctrl-C (and --limit) remain exit-0 cases: the user asked for the stop and the
+    // work is saved. Only genuine failures set runFailed.
+    if runFailed {
+        FileHandle.standardError.write(Data(
+            (authDead
+                ? "blueX-scrape: run aborted — re-authentication failed (see ⚠ above).\n"
+                : "blueX-scrape: run completed with errors on one or more accounts (see ⚠ above).\n").utf8
+        ))
+        exit(1)
+    }
 }
 
 await runCLI()
