@@ -1,9 +1,12 @@
 #!/bin/zsh
 # tools/jobs/bluex-nightly.sh — the BlueX nightly run. User LaunchAgent, 03:31.
 #
-# Fires on a one-shot pmset wake armed at 07:00 the previous morning by the root
-# arm-wake daemon. Holds a power assertion for the whole run: with `pmset sleep 1`
-# the mini sleeps one minute after going idle, which would cut the run short.
+# Fires on a plain StartCalendarInterval at 03:31 — the mini currently has
+# `pmset sleep 0` (never idle-sleeps), so no wake mechanism is needed and there
+# is no privileged component in this design. Still holds a caffeinate power
+# assertion for the whole run as insurance: `sleep` was flipped from 1 to 0
+# once already today, and if it's ever re-enabled a long scrape must not be
+# cut short by an idle-sleep mid-run.
 #
 # Runs as a user agent (not root) because the scrape reads Bluesky credentials
 # from the user Keychain and alerting uses osascript.
