@@ -1,47 +1,59 @@
 #!/usr/bin/env bash
 # tools/install-cli.sh
 #
-# Copy the freshly-built BlueX command-line tools (blueX-annotate, blueX-scrape)
-# from Xcode's DerivedData into ~/.local/bin so they're on PATH. Safe to re-run
-# after every CLI rebuild.
+# Build the BlueX command-line tools and put them on PATH at ~/.local/bin.
+# Safe to re-run after every change.
+#
+# Builds into a STABLE derived-data path rather than Xcode's default. The default
+# location is disposable: cleaning DerivedData on 2026-06 broke both symlinks and
+# the nightly jobs failed silently for 61 days.
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_ROOT="${HOME}/.local/share/bluex-build"
+BUILD_DIR="${BUILD_ROOT}/Build/Products/Debug"
 DEST_DIR="${HOME}/.local/bin"
-mkdir -p "$DEST_DIR"
 
-BUILD_DIR="${HOME}/Library/Developer/Xcode/DerivedData/BlueX-"*"/Build/Products/Debug"
+mkdir -p "$DEST_DIR" "$BUILD_ROOT"
+
+echo "==> building (derivedDataPath: $BUILD_ROOT)"
+for scheme in BlueXAnnotate BlueXScrape; do
+  xcodebuild build \
+    -project "$REPO_ROOT/BlueX.xcodeproj" \
+    -scheme "$scheme" \
+    -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$BUILD_ROOT" \
+    -quiet
+  echo "  ✓ $scheme"
+done
 
 install_one() {
   local name="$1"
-  local bin
-  bin=$(find ${BUILD_DIR} -name "$name" -type f 2>/dev/null | head -1)
-  if [[ -z "$bin" ]]; then
-    echo "✗ $name not found in DerivedData. Build it first:" >&2
-    echo "  xcodebuild build -project BlueX.xcodeproj -scheme ${name/blueX-/BlueX} -destination 'platform=macOS,arch=arm64'" >&2
+  local bin="$BUILD_DIR/$name"
+  if [[ ! -f "$bin" ]]; then
+    echo "✗ $name not found at $bin after a successful build." >&2
     return 1
   fi
   # SYMLINK instead of cp: newer macOS (Sequoia+ with the provenance xattr)
   # SIGKILLs binaries that have been copied out of their build location when
   # they link statically-included SPM products via package-internal rpaths.
-  # The original at DerivedData works; the bytewise-identical copy does not.
-  # Symlinking sidesteps the check entirely and has a nice bonus: rebuilds
-  # are picked up immediately without re-running this script.
-  rm -f "$DEST_DIR/$name"
-  ln -s "$bin" "$DEST_DIR/$name"
+  # The original at the build location works; the bytewise-identical copy does
+  # not. Symlinking sidesteps the check entirely, and rebuilds are picked up
+  # without re-running this script.
+  ln -sfn "$bin" "$DEST_DIR/$name"
   echo "✓ symlinked: $DEST_DIR/$name → $bin"
 }
 
-install_one blueX-annotate || true
-install_one blueX-scrape    || true
+install_one blueX-annotate
+install_one blueX-scrape
 
 case ":$PATH:" in
   *":$DEST_DIR:"*) ;;
   *)
     echo
     echo "NOTE: $DEST_DIR is not on your PATH."
-    echo "Add this to your shell rc (~/.zshrc or ~/.bashrc):"
+    echo "Add this to your shell rc (~/.zshrc):"
     echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-    echo "Then open a new terminal and you can run the CLIs."
     ;;
 esac
