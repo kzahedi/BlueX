@@ -22,6 +22,11 @@ mkdir -p "$BLUEX_LOG_DIR"
 # which is what "the volume is mounted" means. A full wake mounts external volumes
 # asynchronously and the 03:31 job can win the race, so wait rather than fail.
 # Timeout 0 = check once and return immediately.
+#
+# Also the case launchd's replay hits: if idle-sleep is ever re-enabled (see
+# caffeinate note in bluex-nightly.sh), a missed 03:31 StartCalendarInterval
+# fires on the next wake, which may be a DarkWake with /Volumes/Eregion still
+# unmounted — that's what the bounded wait plus exit 75 is for.
 bluex_wait_for_store() {
   local timeout="${1:-180}" waited=0
   local parent="${BLUEX_STORE_DIR:h}"
@@ -36,7 +41,7 @@ bluex_wait_for_store() {
 }
 
 # Desktop notification. Requires the user's Aqua session, so this works from a
-# LaunchAgent and NOT from the root arm-wake daemon.
+# LaunchAgent and NOT from a root LaunchDaemon (there is none in this design).
 bluex_notify() {
   local title="$1" message="$2"
   osascript -e "display notification \"${message//\"/\\\"}\" with title \"${title//\"/\\\"}\"" \
