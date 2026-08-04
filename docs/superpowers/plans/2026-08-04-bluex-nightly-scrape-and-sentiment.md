@@ -12,14 +12,15 @@
 
 ## Global Constraints
 
-- **No runtime artefact may reference `/Volumes`.** This is the regression that caused the outage. Guarded by a test in Task 6.
+- **Job scripts live on the internal disk and must never *assume* `/Volumes/Eregion` is mounted.** launchd execs them and can fire during DarkWake, when that volume is absent — the outage. Scripts wait for the mount with a bounded timeout, then notify and exit. Guarded by a test in Task 7.
+- **The store lives at `/Volumes/Eregion/bluex-data/default.store`** (moved 2026-08-04 on request; the internal disk is at 96%). Overridable via the `BLUEX_STORE_DIR` environment variable. Only the *data* moves — never the scripts.
 - **Deployment target `14.0`, `SWIFT_VERSION: "5.9"`** for all targets (`project.yml`).
 - **`AnnotationService.swift` is excluded from the `BlueXAnnotate` target** (`project.yml:64-66`). CLI-visible code must not live in that file.
 - **Annotation stage string is exactly `"nltagger"`** — matches `Post+Annotations.swift` and the `--reset-annotations` vocabulary.
 - **`pmset schedule` requires root.** Verified: `pmset: This operation must be run as root`, exit 1.
 - **Only one `pmset repeat` pair exists per machine** and the user's `wakepoweron at 6:55AM` occupies it. Never call `pmset repeat`.
 - **Do not change any `pmset` power setting**, including the 06:55 repeating wake.
-- **Store path:** `~/Library/Application Support/BlueX/default.store` (internal disk).
+- **Store path:** `/Volumes/Eregion/bluex-data/default.store`. Pre-move backup of the old internal store: `~/Library/Application Support/BlueX/default.store.pre-sdd-2026-08-04`.
 - **Schemes:** `BlueX`, `BlueXAnnotate`, `BlueXScrape`. There is no `BlueXTests` scheme — tests run under the `BlueX` scheme.
 - **Run `xcodegen generate` after adding or removing any source file**, or Xcode will not see it.
 - Never commit to `main`. Work on branch `fix/nightly-scrape-and-sentiment`.
@@ -32,6 +33,8 @@
 | `BlueX/Services/Annotation/AnnotationService.swift` | **modify** — delegate `runNLTaggerPass` to `NLTaggerPass`, keep `@Observable` progress publishing |
 | `BlueXTests/Services/NLTaggerPassTests.swift` | **new** — paging, skip-already-done, limit, progress |
 | `cli/annotate/main.swift` | **modify** — add `--pass nltagger` |
+| `BlueX/Data/BlueXSchema.swift` | **modify** — store moves to Eregion; throws `volumeNotMounted` instead of silently creating an empty store |
+| `BlueXTests/Data/BlueXStoreTests.swift` | **new** — `BLUEX_STORE_DIR` override, and a missing volume throws rather than creating a store |
 | `tools/install-cli.sh` | **modify** — build to a stable `-derivedDataPath` that survives an Xcode clean |
 | `tools/jobs/lib-bluex-job.sh` | **new** — shared paths, notifications, file-age helper |
 | `tools/jobs/bluex-nightly.sh` | **new** — the nightly run + `--preflight` |
@@ -382,7 +385,7 @@ measured before a full-corpus run."
 
 **Interfaces:**
 - Consumes: `NLTaggerPass.run(batchSize:limit:isCancelled:progress:)` from Task 1; `BlueXStore.openContainer()`; `fail(_:_:)` from `cli/Shared/CLISupport.swift`
-- Produces: the CLI invocation `blueX-annotate --pass nltagger [--limit N]` used by Task 4
+- Produces: the CLI invocation `blueX-annotate --pass nltagger [--limit N]` used by Task 5
 
 - [ ] **Step 1: Extend the `AnnotatePass` enum**
 
@@ -536,7 +539,7 @@ The symlinks at `~/.local/bin` pointed into `DerivedData/BlueX-cdfwtjmm…`, whi
 - Modify: `tools/install-cli.sh`
 
 **Interfaces:**
-- Produces: executable `~/.local/bin/blueX-scrape` and `~/.local/bin/blueX-annotate`, symlinked into `~/.local/share/bluex-build/Build/Products/Debug`. Tasks 4 and 6 depend on these paths.
+- Produces: executable `~/.local/bin/blueX-scrape` and `~/.local/bin/blueX-annotate`, symlinked into `~/.local/share/bluex-build/Build/Products/Debug`. Tasks 5 and 7 depend on these paths.
 
 - [ ] **Step 1: Rewrite `tools/install-cli.sh`**
 
@@ -633,14 +636,249 @@ instead, and build rather than merely locating the binaries."
 
 ---
 
-### Task 4: The nightly job
+### Task 4: Move the store to the Eregion volume
+
+Added on request 2026-08-04. The internal disk is at 96% (18Gi free) holding a 456MB store about to gain ~795k annotation rows plus 61 days of recovered reply trees; Eregion has 627Gi free.
+
+`BlueXStore` is the only place that resolves the store path — the GUI and both CLIs route through `openContainer()`, and `BlueXStore.url` is referenced once, in an error message.
+
+**Files:**
+- Modify: `BlueX/Data/BlueXSchema.swift:20-44`
+- Test: `BlueXTests/Data/BlueXStoreTests.swift`
+
+**Interfaces:**
+- Produces: `BlueXStore.directory` (URL, honours `BLUEX_STORE_DIR`), `BlueXStore.url`, `BlueXStore.isAvailable` (Bool), `BlueXStore.StoreError.volumeNotMounted(URL)`. Task 5's mount-wait mirrors `isAvailable` in shell.
+
+**Do NOT migrate the store data.** Write the code, test it against temporary directories, commit, and stop. Moving the real 456MB store is an attended step the controller performs with the human — a subagent must not touch it. Do not run any CLI against the default store path in this task.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `BlueXTests/Data/BlueXStoreTests.swift`:
+
+```swift
+// BlueXTests/Data/BlueXStoreTests.swift
+import XCTest
+@testable import BlueX
+
+final class BlueXStoreTests: XCTestCase {
+
+    private var savedOverride: String?
+
+    override func setUp() {
+        super.setUp()
+        savedOverride = ProcessInfo.processInfo.environment["BLUEX_STORE_DIR"]
+    }
+
+    override func tearDown() {
+        if let savedOverride {
+            setenv("BLUEX_STORE_DIR", savedOverride, 1)
+        } else {
+            unsetenv("BLUEX_STORE_DIR")
+        }
+        super.tearDown()
+    }
+
+    // Pins the constant. The whole point of the change is that the data lives on the
+    // external volume, so a silent revert to the internal disk must fail the suite.
+    func testDefaultDirectoryIsOnTheEregionVolume() {
+        unsetenv("BLUEX_STORE_DIR")
+        XCTAssertEqual(BlueXStore.directory.path, "/Volumes/Eregion/bluex-data")
+        XCTAssertEqual(BlueXStore.url.lastPathComponent, "default.store")
+    }
+
+    func testDirectoryHonoursEnvironmentOverride() {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("bluex-store-override", isDirectory: true)
+        setenv("BLUEX_STORE_DIR", tmp.path, 1)
+        XCTAssertEqual(BlueXStore.directory.path, tmp.path)
+    }
+
+    // The critical guard. With the drive detached, creating the directory would
+    // produce a SECOND, empty store — which looks like success and silently
+    // orphans 797k posts.
+    func testOpenContainerThrowsWhenTheVolumeIsMissing() {
+        let missing = "/Volumes/NotMounted-\(UUID().uuidString)/bluex-data"
+        setenv("BLUEX_STORE_DIR", missing, 1)
+
+        XCTAssertFalse(BlueXStore.isAvailable)
+        XCTAssertThrowsError(try BlueXStore.openContainer()) { error in
+            guard case BlueXStore.StoreError.volumeNotMounted = error else {
+                return XCTFail("expected volumeNotMounted, got \(error)")
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missing),
+                       "must not create the store directory when the volume is absent")
+    }
+
+    func testOpenContainerSucceedsWhenTheParentExists() throws {
+        let parent = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("bluex-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        setenv("BLUEX_STORE_DIR", parent.appendingPathComponent("bluex-data").path, 1)
+        XCTAssertTrue(BlueXStore.isAvailable)
+        _ = try BlueXStore.openContainer()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: BlueXStore.url.path))
+    }
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run:
+```bash
+cd /Volumes/Eregion/projects/bluex-v2
+xcodegen generate
+xcodebuild test -project BlueX.xcodeproj -scheme BlueX \
+  -destination 'platform=macOS,arch=arm64' \
+  -only-testing:BlueXTests/BlueXStoreTests 2>&1 | tail -30
+```
+Expected: FAIL — `BlueXStore` has no member `directory` / `isAvailable` / `StoreError`
+
+- [ ] **Step 3: Rewrite `BlueXStore`**
+
+In `BlueX/Data/BlueXSchema.swift`, replace the whole `BlueXStore` enum (lines 20-44, including its doc comment) with:
+
+```swift
+/// Store location + container builder for every process that opens the BlueX
+/// database: the GUI, `blueX-scrape` and `blueX-annotate`.
+///
+/// The store lives on the external Eregion volume. The internal disk was at 96%
+/// (18Gi free) holding a 456MB store about to gain ~795k annotation rows plus 61
+/// days of recovered reply trees; Eregion has 627Gi.
+///
+/// Only the DATA lives there. The launchd job scripts stay on the internal disk,
+/// because launchd execs them and can fire during DarkWake, when this volume is not
+/// mounted — that is exactly what killed scraping for 61 days from 2026-06-04.
+enum BlueXStore {
+    enum StoreError: LocalizedError {
+        case volumeNotMounted(URL)
+
+        var errorDescription: String? {
+            switch self {
+            case .volumeNotMounted(let dir):
+                return "The BlueX store directory is unavailable: \(dir.path). "
+                     + "Attach the Eregion drive, or set BLUEX_STORE_DIR to another location."
+            }
+        }
+    }
+
+    /// Store directory. `BLUEX_STORE_DIR` overrides it, so the location can change
+    /// without a rebuild and tests can point at a temporary directory.
+    static var directory: URL {
+        if let override = ProcessInfo.processInfo.environment["BLUEX_STORE_DIR"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return URL(fileURLWithPath: "/Volumes/Eregion/bluex-data", isDirectory: true)
+    }
+
+    static var url: URL {
+        directory.appendingPathComponent("default.store", isDirectory: false)
+    }
+
+    /// True when the store directory's PARENT exists — i.e. the volume is mounted.
+    ///
+    /// Checking the parent rather than the directory itself is deliberate: if the
+    /// drive is detached, `createDirectory` would happily build the whole path under
+    /// an empty /Volumes and SwiftData would create a second, empty store. That
+    /// looks like success while orphaning 797k posts, so it must be impossible.
+    static var isAvailable: Bool {
+        var isDirectory: ObjCBool = false
+        let parent = directory.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        return isDirectory.boolValue
+    }
+
+    /// Creates the store directory if needed and returns a configured ModelContainer.
+    static func openContainer() throws -> ModelContainer {
+        guard isAvailable else { throw StoreError.volumeNotMounted(directory) }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let config = ModelConfiguration(
+            schema: BlueXSchema.all,
+            url: url,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(for: BlueXSchema.all, configurations: config)
+    }
+}
+```
+
+`BlueXStore.url` changes from a stored to a computed property. Its one caller — `BlueX/BlueXApp.swift:11`, inside a `fatalError` message — is source-compatible and needs no edit. The GUI still fails loudly with the drive detached, and now the message names the drive.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run:
+```bash
+cd /Volumes/Eregion/projects/bluex-v2
+xcodegen generate
+xcodebuild test -project BlueX.xcodeproj -scheme BlueX \
+  -destination 'platform=macOS,arch=arm64' \
+  -only-testing:BlueXTests/BlueXStoreTests 2>&1 | tail -30
+```
+Expected: PASS — 4 tests
+
+- [ ] **Step 5: Confirm both CLIs and the app still build**
+
+Run:
+```bash
+cd /Volumes/Eregion/projects/bluex-v2
+for scheme in BlueX BlueXAnnotate BlueXScrape; do
+  xcodebuild build -project BlueX.xcodeproj -scheme "$scheme" \
+    -destination 'platform=macOS,arch=arm64' -quiet 2>&1 | tail -5
+  echo "  built $scheme"
+done
+```
+Expected: three successful builds
+
+- [ ] **Step 6: Run the full suite**
+
+Run:
+```bash
+cd /Volumes/Eregion/projects/bluex-v2
+xcodebuild test -project BlueX.xcodeproj -scheme BlueX \
+  -destination 'platform=macOS,arch=arm64' 2>&1 | tail -30
+```
+Expected: PASS — all tests, including `NLTaggerPassTests` and `ScrapeCoordinatorAnnotationTests`
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd /Volumes/Eregion/projects/bluex-v2
+git add BlueX/Data/BlueXSchema.swift BlueXTests/Data/BlueXStoreTests.swift BlueX.xcodeproj
+git commit -m "feat(store): move the SwiftData store to the Eregion volume
+
+The internal disk is at 96% (18Gi free) with a 456MB store about to gain ~795k
+annotation rows plus 61 days of recovered reply trees; Eregion has 627Gi.
+
+openContainer() now throws volumeNotMounted rather than creating the directory
+when the drive is detached — otherwise SwiftData would build a second, empty
+store that looks like success while orphaning 797k posts. Path is overridable
+via BLUEX_STORE_DIR.
+
+Only the data moves. The launchd job scripts stay on the internal disk because
+launchd can fire them during DarkWake, when this volume is unmounted."
+```
+
+**After this task the controller performs the attended data migration** (GUI closed, no job running) before Task 5 runs anything against the real store.
+
+---
+
+### Task 5: The nightly job
 
 **Files:**
 - Create: `tools/jobs/lib-bluex-job.sh`, `tools/jobs/bluex-nightly.sh`
 
 **Interfaces:**
-- Consumes: `~/.local/bin/blueX-scrape`, `~/.local/bin/blueX-annotate --pass nltagger`
-- Produces: `bluex-nightly.sh --preflight` (exit 0 ok, 1 problems); heartbeat at `~/Library/Logs/BlueX/last-run.json` with keys `finishedAt`, `scrapeExit`, `sentimentExit`, `log`. Tasks 5 and 6 depend on both.
+- Consumes: `~/.local/bin/blueX-scrape`, `~/.local/bin/blueX-annotate --pass nltagger`; `BLUEX_STORE_DIR` semantics from Task 4
+- Produces: `bluex-nightly.sh --preflight` (exit 0 ok, 1 problems); `bluex_wait_for_store TIMEOUT` and the `BLUEX_*` variables in `lib-bluex-job.sh`; heartbeat at `~/Library/Logs/BlueX/last-run.json` with keys `finishedAt`, `scrapeExit`, `sentimentExit`, `log`. Tasks 6 and 7 depend on these.
 
 - [ ] **Step 1: Create the shared library**
 
@@ -655,12 +893,34 @@ Create `tools/jobs/lib-bluex-job.sh`:
 # 61-day outage beginning 2026-06-04. Nothing here may reference /Volumes.
 
 BLUEX_LOG_DIR="$HOME/Library/Logs/BlueX"
-BLUEX_STORE="$HOME/Library/Application Support/BlueX/default.store"
 BLUEX_HEARTBEAT="$BLUEX_LOG_DIR/last-run.json"
 BLUEX_LOCK="$BLUEX_LOG_DIR/bluex-store.lock"
 BLUEX_BIN="$HOME/.local/bin"
 
+# The DATA lives on the external volume; logs, locks and the heartbeat stay on the
+# internal disk so they remain writable even when the drive is detached. Exported so
+# the Swift CLIs resolve the same path this script checked.
+export BLUEX_STORE_DIR="${BLUEX_STORE_DIR:-/Volumes/Eregion/bluex-data}"
+BLUEX_STORE="$BLUEX_STORE_DIR/default.store"
+
 mkdir -p "$BLUEX_LOG_DIR"
+
+# Mirrors BlueXStore.isAvailable in Swift: the store directory's PARENT must exist,
+# which is what "the volume is mounted" means. A full wake mounts external volumes
+# asynchronously and the 03:31 job can win the race, so wait rather than fail.
+# Timeout 0 = check once and return immediately.
+bluex_wait_for_store() {
+  local timeout="${1:-180}" waited=0
+  local parent="${BLUEX_STORE_DIR:h}"
+  while [ ! -d "$parent" ]; do
+    if [ "$waited" -ge "$timeout" ]; then
+      return 1
+    fi
+    sleep 5
+    waited=$(( waited + 5 ))
+  done
+  return 0
+}
 
 # Desktop notification. Requires the user's Aqua session, so this works from a
 # LaunchAgent and NOT from the root arm-wake daemon.
@@ -721,6 +981,11 @@ preflight() {
       problems=1
     fi
   done
+  if ! bluex_wait_for_store 0; then
+    echo "✗ store volume not mounted: ${BLUEX_STORE_DIR:h}"
+    echo "  fix: attach the Eregion drive"
+    problems=1
+  fi
   if [ ! -e "$BLUEX_STORE" ]; then
     echo "✗ store not found: $BLUEX_STORE"
     problems=1
@@ -742,6 +1007,14 @@ if [ "${1:-}" = "--preflight" ]; then
 fi
 
 LOG="$(bluex_log_path nightly)"
+
+# The store lives on an external volume, so wait for the mount before anything else.
+# Bounded: a launchd job that hangs forever is worse than one that reports and exits.
+if ! bluex_wait_for_store 180; then
+  echo "$(date): store volume ${BLUEX_STORE_DIR:h} not mounted after 180s — skipped." >>"$LOG"
+  bluex_notify "BlueX nightly skipped" "Eregion not mounted after 180s — see $LOG"
+  exit 75
+fi
 
 if ! preflight >>"$LOG" 2>&1; then
   bluex_notify "BlueX nightly" "Preflight failed — see $LOG"
@@ -836,7 +1109,7 @@ acquisition. Holds a power assertion because pmset sleep is 1 minute. Adds
 
 ---
 
-### Task 5: The staleness watchdog
+### Task 6: The staleness watchdog
 
 The outage went unnoticed for 61 days. This is the part that would have caught it.
 
@@ -920,14 +1193,14 @@ distinguishes a run that found nothing from a run that never happened; the
 
 ---
 
-### Task 6: Arm-wake daemon, installer, and the regression guard
+### Task 7: Arm-wake daemon, installer, and the regression guard
 
 **Files:**
 - Create: `tools/jobs/bluex-arm-wake.sh`, `tools/jobs/test_jobs.py`, `tools/install-jobs.sh`
 - Delete: `tools/blueX-scrape-job.sh`, `tools/blueX-annotate-job.sh`
 
 **Interfaces:**
-- Consumes: everything from Tasks 3-5
+- Consumes: everything from Tasks 3-6
 - Produces: installed agents `net.pulsschlag.bluex.{nightly,watchdog}`, daemon `net.pulsschlag.bluex.armwake`
 
 - [ ] **Step 1: Write the failing guard tests**
@@ -939,8 +1212,10 @@ Create `tools/jobs/test_jobs.py`:
 
 launchd was told to run the job scripts from /Volumes/Eregion — an external
 volume that is not mounted during DarkWake — so every run died with
-"can't open input file" and exit 127, silently, for 61 days. Nothing on the
-runtime path may reference /Volumes.
+"can't open input file" and exit 127, silently, for 61 days.
+
+The store data was later moved onto that same volume deliberately, so the rule is
+not "no /Volumes anywhere". It is: the DATA may live there, the CODE may not.
 """
 
 import os
@@ -963,14 +1238,33 @@ WATCHDOG_PLIST = AGENTS_DIR / "net.pulsschlag.bluex.watchdog.plist"
 
 
 @pytest.mark.parametrize("name", RUNTIME_SCRIPTS)
-def test_runtime_script_has_no_external_volume_path(name):
-    text = (JOBS_SRC / name).read_text()
-    offenders = [
-        line
-        for line in text.splitlines()
-        if "/Volumes" in line and not line.lstrip().startswith("#")
-    ]
-    assert not offenders, f"{name} references /Volumes outside a comment: {offenders}"
+def test_volumes_is_used_only_for_the_store_data_path(name):
+    """Data on Eregion is fine. CODE on Eregion is what broke.
+
+    launchd execs these scripts and can fire during DarkWake, when the volume is
+    unmounted. A /Volumes path may therefore only ever be the store DATA directory,
+    whose availability bluex_wait_for_store checks explicitly — never a script,
+    source target or exec target.
+    """
+    offenders = []
+    for line in (JOBS_SRC / name).read_text().splitlines():
+        if "/Volumes" not in line or line.lstrip().startswith("#"):
+            continue
+        if "BLUEX_STORE_DIR" not in line:
+            offenders.append(line)
+    assert not offenders, (
+        f"{name}: /Volumes used for something other than the store directory: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("name", RUNTIME_SCRIPTS)
+def test_nothing_is_sourced_or_executed_from_an_external_volume(name):
+    for line in (JOBS_SRC / name).read_text().splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#") or "/Volumes" not in stripped:
+            continue
+        if "source " in stripped or stripped.startswith(". "):
+            pytest.fail(f"{name} sources from an external volume: {line}")
 
 
 @pytest.mark.parametrize("name", RUNTIME_SCRIPTS)
@@ -1223,11 +1517,19 @@ again — the exact fault that hid for 61 days."
 
 ---
 
-### Task 7: Phase 1 attended rollout
+### Task 8: Phase 1 attended rollout
 
 **Attended — do not run unsupervised.** Step 3 is a one-way door and the throughput numbers are genuinely unknown.
 
 **Files:** none — operational
+
+**Precondition:** the store data migration to `/Volumes/Eregion/bluex-data/` was performed by the controller immediately after Task 4, with the GUI closed and no job running. Confirm before starting:
+
+```bash
+ls -la /Volumes/Eregion/bluex-data/default.store
+sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?immutable=1" "SELECT COUNT(*) FROM ZPOST;"
+```
+Expected: the store exists on Eregion and reports 797,253 posts or more.
 
 - [ ] **Step 1: Verify the unattended path end to end**
 
@@ -1263,7 +1565,7 @@ time ~/.local/bin/blueX-annotate --pass nltagger 2>&1 | tail -5
 ```
 Expected: the remaining backlog annotated. Verify:
 ```bash
-sqlite3 "file:$HOME/Library/Application Support/BlueX/default.store?immutable=1" \
+sqlite3 "file:/Volumes/Eregion/bluex-data/default.store?immutable=1" \
   "SELECT ZSTAGE, COUNT(*) FROM ZANNOTATION GROUP BY ZSTAGE;"
 ```
 Expected: `nltagger` now close to the total post count.
@@ -1311,9 +1613,9 @@ git commit -m "docs(spec): record measured NLTagger throughput and first-run res
 ## Verification checklist
 
 - [ ] `xcodebuild test -project BlueX.xcodeproj -scheme BlueX -destination 'platform=macOS,arch=arm64'` passes
-- [ ] `cd tools/jobs && python -m pytest test_jobs.py` passes with no skips
+- [ ] `cd tools/jobs && python -m pytest test_jobs.py` passes (the two installed-plist tests skip until the attended install)
 - [ ] `blueX-annotate --pass nltagger --limit 5` writes annotations
-- [ ] No installed plist or job script references `/Volumes`
+- [ ] No installed plist references `/Volumes`, and job scripts use it only for `BLUEX_STORE_DIR`
 - [ ] `pmset -g sched` still shows `wakepoweron at 6:55AM every day`
 - [ ] Both old agents are gone from `~/Library/LaunchAgents`
 - [ ] Heartbeat shows `scrapeExit: 0` and `sentimentExit: 0` after a kickstart
