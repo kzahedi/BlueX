@@ -1,13 +1,19 @@
 #!/bin/zsh
 # tools/jobs/bluex-watchdog.sh — staleness check. User LaunchAgent, 06:56.
 #
-# Rides the existing 06:55 wakepoweron. Notification only: arming the nightly wake
-# belongs to the root daemon, which runs off that same wakepoweron rather than off
-# the previous night's job, so there is no chain a failed run can break.
+# Rides the existing 06:55 wakepoweron. Notification only — it arms nothing and
+# nothing arms it. There is no privileged component anywhere in this design (see
+# lib-bluex-job.sh): the mini never idle-sleeps, so the nightly agent fires on a
+# plain StartCalendarInterval and this watchdog fires on its own. Neither depends on
+# the previous night's run, so there is no chain a failed run can break.
 #
-# Exists because the 2026-06-04 outage failed silently for 61 days. Checking BOTH
-# the heartbeat and the store mtime distinguishes "ran but wrote nothing" from
-# "never ran at all" — the outage was the second kind.
+# Exists because the 2026-06-04 outage failed silently for 61 days. Three signals,
+# because each alone has a blind spot:
+#   heartbeat mtime — distinguishes "never ran" from "ran and found nothing"
+#   store mtime     — distinguishes "ran" from "ran and actually wrote data"
+#   heartbeat exits — a job that fails identically every night keeps its own
+#                     heartbeat fresh, so mtime alone would call it healthy. That
+#                     is precisely how 61 days passed.
 set -u
 
 JOBS_DIR="${0:A:h}"
@@ -19,12 +25,40 @@ LOG="$BLUEX_LOG_DIR/watchdog.log"
 heartbeat_age=$(bluex_age_seconds "$BLUEX_HEARTBEAT")
 store_age=$(bluex_age_seconds "$BLUEX_STORE")
 
-echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s" >>"$LOG"
+
+# ---- exit codes from the most recent heartbeat -------------------------------
+# bluex-nightly.sh writes these for us and, until now, nobody read them.
+# A deadline stop is not a failure (a multi-day initial scrape hits 07:00 every
+# night), so its nonzero-or-not exits are deliberately not judged here.
+scrape_exit=$(bluex_json_field "$BLUEX_HEARTBEAT" scrapeExit)
+sentiment_exit=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentExit)
+stopped_at_deadline=$(bluex_json_field "$BLUEX_HEARTBEAT" stoppedAtDeadline)
+
+failures=()
+if [ "$stopped_at_deadline" != "true" ]; then
+  # An absent field means an older heartbeat format, not a success — but the
+  # staleness checks already cover a heartbeat that is not being rewritten, so
+  # only a PRESENT nonzero value alarms here.
+  [ -n "$scrape_exit" ] && [ "$scrape_exit" != "0" ] && failures+=("scrape (exit $scrape_exit)")
+  [ -n "$sentiment_exit" ] && [ "$sentiment_exit" != "0" ] && failures+=("sentiment (exit $sentiment_exit)")
+fi
+
+echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s scrapeExit=${scrape_exit:-?} sentimentExit=${sentiment_exit:-?} deadline=${stopped_at_deadline:-?}" >>"$LOG"
 
 heartbeat_stale=0
 store_stale=0
 [ "$heartbeat_age" -gt "$STALE_AFTER" ] && heartbeat_stale=1
 [ "$store_age" -gt "$STALE_AFTER" ] && store_stale=1
+
+# A failing-but-punctual job is its own alarm, independent of freshness.
+if [ "${#failures[@]}" -gt 0 ]; then
+  also_stale=""
+  { [ "$heartbeat_stale" -eq 1 ] || [ "$store_stale" -eq 1 ] } && also_stale=" and data is stale"
+  message="Last run failed: ${(j:, :)failures}${also_stale} — check $BLUEX_LOG_DIR"
+  bluex_notify "BlueX nightly failing" "$message"
+  echo "$(date): FAILED RUN — notified (${message})." >>"$LOG"
+  exit 1
+fi
 
 if [ "$heartbeat_stale" -eq 1 ] || [ "$store_stale" -eq 1 ]; then
   # A day count only means something when derived from the signal that is
