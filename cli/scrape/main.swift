@@ -105,6 +105,11 @@ struct LimitReached: Error {}
 // MARK: - Main
 
 func runCLI() async {
+    // A full disk raises an NSException out of CoreData, which Swift cannot catch;
+    // without this the process SIGABRTs with no exit status and no heartbeat. See
+    // installUncaughtExceptionHandler.
+    installUncaughtExceptionHandler(program: "blueX-scrape")
+
     let args = CLIArgs.parse(CommandLine.arguments)
     if args.help { print(usage); return }
 
