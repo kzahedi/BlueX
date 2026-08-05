@@ -61,7 +61,10 @@ final class ScrapeCoordinator {
     /// the same baseURL/session and a fresh observer closure that captures self.
     private func rebindWithRateLimitObserver(_ client: BlueskyAPIClient) -> BlueskyAPIClient {
         BlueskyAPIClient(
-            session: URLSession.shared,
+            // Same cache-free session the client defaults to — see the comment on
+            // BlueskyAPIClient.uncachedSession. Passing URLSession.shared here would
+            // reintroduce the on-disk response cache for the GUI's scrape path only.
+            session: BlueskyAPIClient.uncachedSession,
             onRateLimited: { [weak self] retryAfter, _ in
                 guard let self else { return }
                 Task { @MainActor in
