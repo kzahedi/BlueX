@@ -191,6 +191,11 @@ class _Sandbox:
         self.log_dir = self.home / "Library/Logs/BlueX"
         self.heartbeat = self.log_dir / "last-run.json"
         self.lock = self.log_dir / "bluex-store.lock"
+        # What GROWS during a run lives next to the store on the volume; the control
+        # plane above stays internal. Defaults derived from BLUEX_STORE_DIR in
+        # lib-bluex-job.sh, so redirecting the store dir redirects these too.
+        self.run_log_dir = self.store_dir / "logs"
+        self.job_tmpdir = self.store_dir / "tmp"
         self.notify_log = tmp_path / "notifications.log"
 
         for d in (self.bin, self.stubs, self.store_dir, self.log_dir):
@@ -242,7 +247,10 @@ class _Sandbox:
         return self.notify_log.read_text()
 
     def nightly_log(self) -> str:
-        logs = sorted(self.log_dir.glob("nightly_*.log"))
+        """Every run log, wherever it landed — volume when mounted, internal when not."""
+        logs = sorted(self.run_log_dir.glob("nightly_*.log")) + sorted(
+            self.log_dir.glob("nightly_*.log")
+        )
         return "\n".join(p.read_text() for p in logs)
 
     def watchdog_log(self) -> str:
@@ -442,7 +450,9 @@ def test_heartbeat_written_by_nightly_is_valid_json_with_every_contract_field(sa
     assert sandbox.run(NIGHTLY).returncode == 0
     data = json.loads(sandbox.heartbeat.read_text())
     assert sorted(data) == sorted(HEARTBEAT_FIELDS), f"contract drifted: {sorted(data)}"
-    assert data["log"].startswith(str(sandbox.log_dir))
+    # The heartbeat must point at wherever the log ACTUALLY went — with the volume
+    # mounted that is the run-log dir on the volume, not the internal control plane.
+    assert data["log"].startswith(str(sandbox.run_log_dir)), data["log"]
 
 
 def test_the_watchdogs_reader_can_read_every_field_the_writer_writes(sandbox):
@@ -739,3 +749,137 @@ def test_a_second_concurrent_run_skips_instead_of_touching_the_store(sandbox):
         "a skipped run wrote a heartbeat — the watchdog would read it as a real run"
     )
     assert "store busy" in sandbox.nightly_log()
+
+
+# ---------------------------------------------------------------------------
+# 7. Disk locality: what GROWS goes on the volume, the control plane stays internal.
+# ---------------------------------------------------------------------------
+# The 2026-08-04 run died with an uncaught NSException when the INTERNAL disk filled
+# while the store volume still had ~626 GB free: the URLSession response cache, the
+# SQLite temp files (TMPDIR under /var/folders) and one unbounded run log per run were
+# all internal. The split below is the fix, and it is not symmetrical on purpose:
+#
+#   volume   — run logs (unbounded growth; describe work that needs the volume anyway)
+#              and TMPDIR (SQLite scratch for a store that lives there)
+#   internal — heartbeat, store lock, watchdog.log; small, fixed-size, and they must
+#              stay writable when the volume is DETACHED, because a missing volume is
+#              itself the failure that has to be recorded and reported.
+#
+# Collapsing either direction reintroduces one of the two outages: everything internal
+# fills the boot disk, everything external means a detached drive cannot be diagnosed.
+
+
+def _lib_eval(sandbox, snippet, extra_env=None):
+    """Evaluate a snippet with lib-bluex-job.sh sourced, in a subprocess."""
+    env = dict(sandbox.env)
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        ["zsh", "-c", f'source "{LIB}"; {snippet}'],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def test_run_logs_land_on_the_store_volume_when_it_is_mounted(sandbox):
+    """One ~100–600 KB log per run, never pruned — the growth that must leave / ."""
+    assert sandbox.run(NIGHTLY).returncode == 0
+    on_volume = list(sandbox.run_log_dir.glob("nightly_*.log"))
+    assert len(on_volume) == 1, f"expected one run log on the volume, got {on_volume}"
+    assert not list(sandbox.log_dir.glob("nightly_*.log")), (
+        "a run log was written to the internal control-plane directory as well"
+    )
+    assert "=== nightly" in on_volume[0].read_text()
+
+
+def test_the_control_plane_stays_internal_while_the_volume_is_mounted(sandbox):
+    """Heartbeat, lock and watchdog.log must not migrate to the volume.
+
+    They are the only things that still work when the drive is gone, so "the volume is
+    mounted" must not be what decides where they live.
+    """
+    assert sandbox.run(NIGHTLY).returncode == 0
+    assert sandbox.run(WATCHDOG).returncode == 0
+
+    assert sandbox.heartbeat.exists(), "heartbeat left the internal disk"
+    assert (sandbox.log_dir / "watchdog.log").exists(), "watchdog.log left the internal disk"
+    for stray in ("last-run.json", "watchdog.log", "bluex-store.lock"):
+        assert not (sandbox.store_dir / stray).exists(), (
+            f"{stray} was written to the store volume — unreadable when it detaches"
+        )
+    # The lock's own path is derived internally, not just absent because it was cleaned.
+    assert str(sandbox.lock).startswith(str(sandbox.home))
+
+
+def test_tmpdir_is_redirected_onto_the_store_volume_when_it_is_mounted(sandbox):
+    """SQLite journal/temp for an external store must not land on /var/folders.
+
+    This was internal even though the store was external, which is half of what filled
+    the boot disk.
+    """
+    result = _lib_eval(sandbox, 'echo "$TMPDIR"')
+    assert result.stdout.strip() == str(sandbox.job_tmpdir), result.stdout
+    assert sandbox.job_tmpdir.is_dir(), "TMPDIR exported but never created"
+
+
+def test_tmpdir_is_left_alone_when_the_volume_is_missing(sandbox, tmp_path):
+    """A detached drive must not get directories created on it, or a dead TMPDIR.
+
+    Pointing TMPDIR at a path under an unmounted volume would turn the clean
+    "volume missing → exit 75 → notify" path into a confusing secondary failure in
+    which the job cannot even write its own diagnostics.
+    """
+    missing = tmp_path / "no-such-volume/bluex-data"
+    result = _lib_eval(
+        sandbox,
+        'echo "$TMPDIR"',
+        extra_env={"BLUEX_STORE_DIR": str(missing), "TMPDIR": "/tmp/inherited"},
+    )
+    assert result.stdout.strip() == "/tmp/inherited", (
+        f"TMPDIR was overridden although the volume is absent: {result.stdout!r}"
+    )
+    assert not missing.parent.exists(), "created a directory under an unmounted volume"
+
+
+def test_log_path_falls_back_to_the_internal_directory_when_the_volume_is_missing(
+    sandbox, tmp_path
+):
+    """The mount-wait failure is logged through this very function.
+
+    So a run-log path on the volume whose absence IS the failure cannot be logged at
+    all — the fallback is what keeps exit 75 diagnosable.
+    """
+    missing = tmp_path / "no-such-volume/bluex-data"
+    result = _lib_eval(
+        sandbox, "bluex_log_path nightly", extra_env={"BLUEX_STORE_DIR": str(missing)}
+    )
+    path = result.stdout.strip()
+    assert path.startswith(str(sandbox.log_dir)), path
+    assert not missing.parent.exists(), "created a directory under an unmounted volume"
+
+    # …and with the volume present it goes to the volume instead.
+    present = _lib_eval(sandbox, "bluex_log_path nightly").stdout.strip()
+    assert present.startswith(str(sandbox.run_log_dir)), present
+
+
+def test_watchdog_points_at_the_run_logs_that_exist(sandbox, tmp_path):
+    """A notification naming a path on a missing volume is a dead end for the reader."""
+    sandbox.run(NIGHTLY)          # creates the run-log dir on the volume
+    sandbox.write_heartbeat(
+        age_seconds=0,
+        finishedAt="2026-08-05T02:11:00Z",
+        scrapeExit=2,
+        sentimentExit=0,
+        stoppedAtDeadline=False,
+        sentimentSkipped=False,
+        log=str(sandbox.run_log_dir / "nightly_x.log"),
+    )
+    assert sandbox.run(WATCHDOG).returncode == 1
+    assert str(sandbox.run_log_dir) in sandbox.notifications, sandbox.notifications
+
+    missing = tmp_path / "no-such-volume/bluex-data"
+    sandbox.notify_log.write_text("")
+    result = sandbox.run(WATCHDOG, extra_env={"BLUEX_STORE_DIR": str(missing)})
+    assert result.returncode == 1
+    assert str(sandbox.log_dir) in sandbox.notifications, sandbox.notifications

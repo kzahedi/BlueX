@@ -112,6 +112,10 @@ if [ "${1:-}" = "--preflight" ]; then
   exit $?
 fi
 
+# Per-run log. Lands on the store volume when it is mounted (these grow, one file per
+# run, and the internal disk filling is what killed the 2026-08-04 run) and falls back
+# to the internal control-plane directory when it is not — the mount-wait failure just
+# below has to be recordable. The heartbeat's "log" field carries whichever it was.
 LOG="$(bluex_log_path nightly)"
 
 # The store lives on an external volume, so wait for the mount before anything else.
