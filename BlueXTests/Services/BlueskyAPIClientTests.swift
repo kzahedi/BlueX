@@ -185,4 +185,25 @@ final class BlueskyAPIClientTests: XCTestCase {
             XCTFail("Expected failure(.notFound), got \(result)")
         }
     }
+
+    // MARK: - No on-disk response cache
+
+    /// The default session must never keep an on-disk response cache.
+    ///
+    /// Two reasons, and the second is the serious one: the cache grew ~1 MB per minute
+    /// of scraping on the INTERNAL disk (it filled it on 2026-08-04 and killed a run),
+    /// and a cache hit on a `getPostThread` reply-tree refresh would return the reply
+    /// set we already had, silently under-collecting new replies. Asserted rather than
+    /// commented because "restore URLSession.shared" is a one-character regression.
+    func testDefaultSessionHasNoResponseCache() {
+        let config = BlueskyAPIClient.uncachedSession.configuration
+        XCTAssertNil(config.urlCache, "default session must have no URL cache")
+        XCTAssertEqual(config.requestCachePolicy, .reloadIgnoringLocalCacheData)
+    }
+
+    /// URLSession.shared is exactly the thing being avoided — a distinct instance is
+    /// what proves the default was actually replaced and not merely re-declared.
+    func testDefaultSessionIsNotTheSharedSession() {
+        XCTAssertFalse(BlueskyAPIClient.uncachedSession === URLSession.shared)
+    }
 }
