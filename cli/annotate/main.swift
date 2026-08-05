@@ -263,6 +263,11 @@ func formatPerPost(_ seconds: TimeInterval) -> String {
 // can't use `@main` here because that would conflict with top-level declarations
 // like `usage` and `barWidth` above.
 func runCLI() async {
+        // Same reason as blueX-scrape: a disk-full CoreData commit raises an
+        // NSException Swift cannot catch, which would abort with no exit status and no
+        // heartbeat. See installUncaughtExceptionHandler.
+        installUncaughtExceptionHandler(program: "blueX-annotate")
+
         let args = CLIArgs.parse(CommandLine.arguments)
         if args.help { print(usage); return }
 
