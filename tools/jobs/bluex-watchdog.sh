@@ -20,7 +20,12 @@ JOBS_DIR="${0:A:h}"
 source "$JOBS_DIR/lib-bluex-job.sh"
 
 STALE_AFTER=$(( 48 * 3600 ))
+# The watchdog's OWN log stays on the internal disk with the rest of the control
+# plane: it has to be writable precisely when the volume is missing.
 LOG="$BLUEX_LOG_DIR/watchdog.log"
+# Where the per-run logs actually are — the store volume when mounted, the internal
+# directory otherwise. Notifications must not send the reader to a path that is gone.
+LOG_HINT="$(bluex_log_hint)"
 
 heartbeat_age=$(bluex_age_seconds "$BLUEX_HEARTBEAT")
 store_age=$(bluex_age_seconds "$BLUEX_STORE")
@@ -59,7 +64,7 @@ store_stale=0
 if [ "${#failures[@]}" -gt 0 ]; then
   also_stale=""
   { [ "$heartbeat_stale" -eq 1 ] || [ "$store_stale" -eq 1 ] } && also_stale=" and data is stale"
-  message="Last run failed: ${(j:, :)failures}${also_stale} — check $BLUEX_LOG_DIR"
+  message="Last run failed: ${(j:, :)failures}${also_stale} — check $LOG_HINT"
   bluex_notify "BlueX nightly failing" "$message"
   echo "$(date): FAILED RUN — notified (${message})." >>"$LOG"
   exit 1
@@ -74,12 +79,12 @@ if [ "$heartbeat_stale" -eq 1 ] || [ "$store_stale" -eq 1 ]; then
   if [ "$store_stale" -eq 1 ]; then
     days=$(( store_age / 86400 ))
     if [ "$heartbeat_stale" -eq 1 ]; then
-      message="No successful run and no new data in ${days}d — check $BLUEX_LOG_DIR"
+      message="No successful run and no new data in ${days}d — check $LOG_HINT"
     else
-      message="Store hasn't updated in ${days}d — check $BLUEX_LOG_DIR"
+      message="Store hasn't updated in ${days}d — check $LOG_HINT"
     fi
   else
-    message="Nightly job hasn't completed a run recently — check $BLUEX_LOG_DIR"
+    message="Nightly job hasn't completed a run recently — check $LOG_HINT"
   fi
   bluex_notify "BlueX is stale" "$message"
   echo "$(date): STALE — notified (${message})." >>"$LOG"
@@ -91,7 +96,7 @@ fi
 # exit 0, not an alarm: annotation silently not running for weeks while both exits
 # stayed 0 is the kind of gap this watchdog exists to surface.
 if [ "$sentiment_skipped" = "true" ]; then
-  bluex_notify "BlueX sentiment skipped" "Last run scraped but never annotated (no budget left) — check $BLUEX_LOG_DIR"
+  bluex_notify "BlueX sentiment skipped" "Last run scraped but never annotated (no budget left) — check $LOG_HINT"
   echo "$(date): fresh, but sentiment was skipped on the last run — notified." >>"$LOG"
   exit 0
 fi
