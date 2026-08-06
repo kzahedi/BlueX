@@ -39,7 +39,13 @@ struct MLXClient: LocalModelClient {
         apiKey: String? = nil,
         validClasses: Set<String> = LLMResponseParser.hateCounterNeutral,
         timeoutSeconds: TimeInterval = 120,
-        session: URLSessionProtocol = URLSession.shared
+        // Injection preserved so tests keep passing a MockURLSession; only the
+        // DEFAULT changed, from URLSession.shared (which writes a response cache to
+        // ~/Library/Caches and a cookie/credential SQLite to ~/Library/HTTPStorages)
+        // to the shared ephemeral session. Local MLX/LM Studio use no auth and hosted
+        // endpoints use a Bearer API key, so no persistent cookie or credential
+        // storage is needed.
+        session: URLSessionProtocol = EphemeralHTTPSession.shared
     ) {
         self.modelName = modelName
         self.modelVersion = modelVersion
