@@ -26,33 +26,22 @@ typealias RateLimitObserver = @Sendable (TimeInterval, Int) -> Void
 // Why: A struct is ideal for a stateless HTTP client — no stored mutable state,
 // no lifecycle management. The token is passed in per-call; ScrapeCoordinator owns it.
 struct BlueskyAPIClient {
-    /// The session every caller gets by default: **no on-disk response cache**.
+    /// The session every caller gets by default: **no on-disk HTTP footprint at all**
+    /// — no response cache in `~/Library/Caches`, and no cookie/credential store in
+    /// `~/Library/HTTPStorages`.
     ///
-    /// `URLSession.shared` uses the default configuration, which writes every response
-    /// body into `~/Library/Caches/<bundle-or-tool-name>` — ~1 MB per minute of
-    /// scraping, on the INTERNAL disk, growing without bound while the store itself
-    /// sits on the external volume. That is what filled the internal disk on
-    /// 2026-08-04 and killed a run mid-scrape.
+    /// This is an alias, not a second session: all three BlueX HTTP clients
+    /// (Bluesky, Ollama, OpenAI-compatible) share the one instance. The full
+    /// rationale — why `.ephemeral` rather than `.default` + `urlCache = nil`, why
+    /// dropping persistent cookies/credentials is safe for bearer-token endpoints,
+    /// and why `reloadIgnoringLocalCacheData` still matters for `getPostThread`
+    /// correctness — lives on `EphemeralHTTPSession`.
     ///
-    /// Do NOT "restore" the cache. It cannot help and it can actively harm:
-    ///
-    /// * Feed pagination sends a fresh cursor on every request, so no two feed
-    ///   requests are ever identical — the cache can never hit.
-    /// * The requests that DO repeat are `getPostThread` refreshes of reply trees
-    ///   inside the rescrape window, and those exist precisely to discover **new**
-    ///   replies. A cache hit there returns the reply set we already have and we
-    ///   silently under-collect. The cache is a correctness hazard, not merely
-    ///   wasted disk.
-    ///
-    /// `urlCache = nil` removes the store; `reloadIgnoringLocalCacheData` also stops
-    /// reads from any cache another layer might install later. Built once, statically:
-    /// a URLSession per client instance would leak connection pools.
-    static let uncachedSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
-    }()
+    /// Do NOT "restore" a cache here. Feed pagination sends a fresh cursor on every
+    /// request so it could never hit, and the requests that DO repeat are
+    /// `getPostThread` reply-tree refreshes that exist to discover **new** replies —
+    /// a hit there silently under-collects.
+    static let uncachedSession: URLSession = EphemeralHTTPSession.shared
 
     private let baseURL: URL
     private let session: URLSessionProtocol
