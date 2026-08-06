@@ -177,11 +177,11 @@ func runCLI() async {
     )
     FileHandle.standardOutput.write(Data("authenticating as @\(creds.handle)…\n".utf8))
     let authResult = await api.createSession(handle: creds.handle, password: creds.password)
-    guard case .success(let session) = authResult else {
+    guard case .success(let initialSession) = authResult else {
         if case .failure(let err) = authResult { fail("blueX-scrape", "authentication failed: \(err)") }
         fail("blueX-scrape", "authentication failed")
     }
-    let token = session.accessJwt
+    let token = initialSession.accessJwt
 
     // ---- accounts
     let allActive: [TrackedAccount]
@@ -212,31 +212,24 @@ func runCLI() async {
     print("Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window\n")
 
     // Bluesky session tokens last ~2 h. Long backfills on NYT-class accounts
-    // routinely outlast that, after which every API call fails with
-    // ExpiredToken. We hold the token in a var and refresh it via the helper
-    // below whenever a call returns .authFailed.
-    var currentToken = token
-    func refreshToken() async -> Bool {
-        writeProgress("token expired — re-authenticating as @\(creds.handle)…")
-        let r = await api.createSession(handle: creds.handle, password: creds.password)
-        if case .success(let s) = r {
-            currentToken = s.accessJwt
-            return true
+    // routinely outlast that — several times over, not once — so token upkeep
+    // lives in ScrapeSession: it refreshes on a schedule, refreshes again
+    // reactively if a call still comes back .authFailed, and bounds the number of
+    // re-auths per phase so a server that rejects every token can't spin forever.
+    let session = ScrapeSession(
+        token: token,
+        issuedAt: Date(),
+        onReauth: { reason in
+            switch reason {
+            case .scheduled: writeProgress("session ageing — re-authenticating as @\(creds.handle)…")
+            case .expired:   writeProgress("token expired — re-authenticating as @\(creds.handle)…")
+            }
+        },
+        authenticate: {
+            await api.createSession(handle: creds.handle, password: creds.password)
+                .map { $0.accessJwt }
         }
-        if case .failure(let err) = r {
-            writeFinalLine("⚠ re-auth failed: \(err.localizedDescription) — stopping.")
-        }
-        return false
-    }
-
-    /// Returns true if `err` was an authFailed and we successfully refreshed —
-    /// caller should retry the operation. Returns false otherwise.
-    func isAuthFailed(_ err: Error) -> Bool {
-        if let blueskyErr = err as? BlueskyError, case .authFailed = blueskyErr {
-            return true
-        }
-        return false
-    }
+    )
 
     let runStart = Date()
     var grandNewPosts = 0
@@ -263,7 +256,7 @@ func runCLI() async {
             Calendar.current.isDateInToday($0.timestamp)
         }
         if !alreadySnapshotted,
-           case .success(let profile) = await api.getProfile(did: account.did, token: currentToken) {
+           case .success(let profile) = await api.getProfile(did: account.did, token: session.token) {
             let accountDID = account.did
             let rootPosts = (try? context.fetch(FetchDescriptor<Post>(
                 predicate: #Predicate<Post> { $0.account?.did == accountDID && $0.isRootPost == true }
@@ -293,34 +286,33 @@ func runCLI() async {
         writeProgress("\(banner) · refreshing existing reply trees…")
 
         // ---- Phase 1: refresh reply trees of already-stored posts still within the window.
-        // On authFailed we refresh the token once and retry the phase; second
-        // failure surfaces normally.
-        for attempt in 0...1 {
-            do {
-                accountRefreshed = try await threadScraper.scrapeAllThreads(
-                    for: account, token: currentToken, window: window
+        // withToken re-auths and retries the phase as often as the token expires;
+        // only a refused createSession (dead credentials) stops the run.
+        do {
+            accountRefreshed = try await session.withToken { token in
+                try await threadScraper.scrapeAllThreads(
+                    for: account, token: token, window: window
                 )
-                break
-            } catch let err where isAuthFailed(err) && attempt == 0 {
-                if !(await refreshToken()) { runFailed = true; authDead = true; break }
-                continue
-            } catch {
-                writeFinalLine("⚠ \(account.handle)  refresh failed: \(error.localizedDescription)")
-                runFailed = true
-                break
             }
+        } catch let err as ReauthenticationFailed {
+            writeFinalLine("⚠ re-auth failed: \(err.localizedDescription) — stopping.")
+            runFailed = true
+            authDead = true
+        } catch {
+            writeFinalLine("⚠ \(account.handle)  refresh failed: \(error.localizedDescription)")
+            runFailed = true
         }
         if authDead { break }
 
         // ---- Phase 2: feed scrape, depth-first per post.
-        for attempt in 0...1 {
-            do {
-                let pace = args.pace
-                let limit = args.limit
-                _ = try await feedScraper.scrape(account: account, token: currentToken) { post in
+        do {
+            let pace = args.pace
+            let limit = args.limit
+            _ = try await session.withToken { token in
+                try await feedScraper.scrape(account: account, token: token) { post in
                     if cancel.isSet { throw CancellationError() }
                     let replies = try await threadScraper.scrapeThreadIfDue(
-                        post, token: currentToken, window: window
+                        post, token: token, window: window
                     )
                     accountNewReplies += replies
                     accountNewPosts += 1
@@ -336,20 +328,24 @@ func runCLI() async {
                     if pace.baseDelayNanoseconds > 0 {
                         try await Task.sleep(nanoseconds: pace.baseDelayNanoseconds)
                     }
+                    // A post boundary is the one place where abandoning the feed
+                    // costs nothing: everything so far is persisted and the
+                    // resumeCursor puts us back on the same page. So this is where
+                    // an ageing session gets swapped out, before it can fail.
+                    if session.isRefreshDue { throw TokenRefreshDue() }
                 }
-                break
-            } catch is LimitReached {
-                break  // expected — --limit hit
-            } catch is CancellationError {
-                break  // user pressed Ctrl-C
-            } catch let err where isAuthFailed(err) && attempt == 0 {
-                if !(await refreshToken()) { runFailed = true; authDead = true; break }
-                continue
-            } catch {
-                writeFinalLine("⚠ \(account.handle)  scrape error: \(error.localizedDescription)")
-                runFailed = true
-                break
             }
+        } catch is LimitReached {
+            // expected — --limit hit
+        } catch is CancellationError {
+            // user pressed Ctrl-C
+        } catch let err as ReauthenticationFailed {
+            writeFinalLine("⚠ re-auth failed: \(err.localizedDescription) — stopping.")
+            runFailed = true
+            authDead = true
+        } catch {
+            writeFinalLine("⚠ \(account.handle)  scrape error: \(error.localizedDescription)")
+            runFailed = true
         }
 
         let elapsed = Date().timeIntervalSince(accountStart)
