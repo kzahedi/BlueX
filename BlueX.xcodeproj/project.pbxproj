@@ -72,7 +72,9 @@
 		499DB7C7022DA42F27425EE1 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */; };
 		4A811F85A1D94045E7A3F491 /* BlueskyErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C438AFAE69B7390D32E953F6 /* BlueskyErrorTests.swift */; };
 		4BCBFFE074DF675C640E6DB2 /* GroupContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8F1353B230B5CF0586520C /* GroupContentView.swift */; };
+		4BDD8106A6CE1A9C2E42F33E /* SQLiteWriteHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */; };
 		4C0FFDE6191611E31ABD6256 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
+		4CDEE3FB27AAFDA2C0B28CBF /* SQLiteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */; };
 		5058BFD41718DD4D0450173C /* LLMPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D23EF32A0BE28A061D51E99 /* LLMPace.swift */; };
 		53E2BE82278AF14C2759CA42 /* GroupViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3767034503F048488CB75ED8 /* GroupViewModel.swift */; };
 		54B592BFE86122BA10FF9C31 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
@@ -182,6 +184,7 @@
 		E0DCB1E4C6FFFF768AF7656D /* ScrapeLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */; };
 		E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */; };
 		E31DDBBD15F2D382F90FF004 /* StratifiedSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13CE7D5EB4A92BE8095CE6B3 /* StratifiedSampler.swift */; };
+		E8AFE1B01666779C5DE6C390 /* SQLiteConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F32001F88B913F0737047 /* SQLiteConnection.swift */; };
 		E96B057F1122BB9C21E219D3 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
 		EAA99000519D18F63216A1D4 /* BlueskyStructs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10286721EB5230015A2ABC69 /* BlueskyStructs.swift */; };
 		EBD200B3925779D14AB6A35A /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
@@ -261,6 +264,7 @@
 		5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorState.swift; sourceTree = "<group>"; };
 		5E74DD6D8DEF8F94D6792FCB /* GroupChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChartsView.swift; sourceTree = "<group>"; };
 		62B611ED2E97467D003931E9 /* BlueXAnnotate */ = {isa = PBXFileReference; includeInIndex = 0; path = BlueXAnnotate; sourceTree = BUILT_PRODUCTS_DIR; };
+		64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteConnectionTests.swift; sourceTree = "<group>"; };
 		6993F528F5075C15036ED449 /* MLXClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXClientTests.swift; sourceTree = "<group>"; };
 		6CF5D9DD862799E8F8B07EEB /* BlueXScrape */ = {isa = PBXFileReference; includeInIndex = 0; path = BlueXScrape; sourceTree = BUILT_PRODUCTS_DIR; };
 		6D23EF32A0BE28A061D51E99 /* LLMPace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMPace.swift; sourceTree = "<group>"; };
@@ -293,12 +297,14 @@
 		A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeCoordinator.swift; sourceTree = "<group>"; };
 		AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeLog.swift; sourceTree = "<group>"; };
 		ADFC3883CAF3F0D75FC2773B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteWriteHelper.swift; sourceTree = "<group>"; };
 		B196EB48B113AFB1FFB67B81 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B3235AE5DB7844DB51A86A7A /* ReplyAuthor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyAuthor.swift; sourceTree = "<group>"; };
 		B5589196DEE443DE292FDA88 /* StratifiedSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StratifiedSamplerTests.swift; sourceTree = "<group>"; };
 		B60B1BC949BB1C979F616110 /* AccountGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountGroup.swift; sourceTree = "<group>"; };
 		B64BBB180BFFF336E6727BE9 /* AnnotationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationServiceTests.swift; sourceTree = "<group>"; };
 		B8C1D02287847969F4D8975D /* SentimentIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentimentIndicator.swift; sourceTree = "<group>"; };
+		B96F32001F88B913F0737047 /* SQLiteConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteConnection.swift; sourceTree = "<group>"; };
 		B9A17BA1B0564E23F22F868F /* ChartsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartsViewModel.swift; sourceTree = "<group>"; };
 		BA67E988CC70CC382795EBFF /* BlueX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlueX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD700ECA1E2DB6FE0F772794 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -542,6 +548,15 @@
 			path = Data;
 			sourceTree = "<group>";
 		};
+		89C7C955AEAADBC9F5A646A7 /* Stats */ = {
+			isa = PBXGroup;
+			children = (
+				64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */,
+				B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */,
+			);
+			path = Stats;
+			sourceTree = "<group>";
+		};
 		8F7BE49BF25EE37DD115BB49 /* Authors */ = {
 			isa = PBXGroup;
 			children = (
@@ -578,6 +593,14 @@
 				81B0F5B10734C9CB4AFE3C93 /* SettingsView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		A7E0276C38CA2B9A4F2ADCD0 /* Stats */ = {
+			isa = PBXGroup;
+			children = (
+				B96F32001F88B913F0737047 /* SQLiteConnection.swift */,
+			);
+			path = Stats;
 			sourceTree = "<group>";
 		};
 		A970F485A29CE1047A8E02FE /* Account */ = {
@@ -696,6 +719,7 @@
 				D6499275C303C9C8279B4304 /* API */,
 				2EFBC3E77790700BC7EDC19C /* Authors */,
 				BB3805C4910857AC44D58AE0 /* Scraping */,
+				A7E0276C38CA2B9A4F2ADCD0 /* Stats */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -718,6 +742,7 @@
 				471C3B9AA2204CF53EBC740A /* Annotation */,
 				8F7BE49BF25EE37DD115BB49 /* Authors */,
 				AA8A862F4B967B4D007D401C /* Scraping */,
+				89C7C955AEAADBC9F5A646A7 /* Stats */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -966,6 +991,8 @@
 				54C56CBCBEDB7C0180E86C78 /* ReplyAuthorTests.swift in Sources */,
 				097B30318A678F2FF90BE24E /* RescrapingPolicyTests.swift in Sources */,
 				CBF3636EDC3B9A06872A8E14 /* RootViewTests.swift in Sources */,
+				4CDEE3FB27AAFDA2C0B28CBF /* SQLiteConnectionTests.swift in Sources */,
+				4BDD8106A6CE1A9C2E42F33E /* SQLiteWriteHelper.swift in Sources */,
 				1575A78AFADAC2A6729123EF /* ScrapeCoordinatorAnnotationTests.swift in Sources */,
 				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
 				3D3D5FF34A64773027189028 /* ScrapeSessionTests.swift in Sources */,
@@ -1071,6 +1098,7 @@
 				DECC26838DB6FFB04DF01398 /* ReplyAuthor.swift in Sources */,
 				A617A22A18144517AEBD9C85 /* RescrapingPolicy.swift in Sources */,
 				6FB69CEE4C143BC1F40D15E3 /* RootView.swift in Sources */,
+				E8AFE1B01666779C5DE6C390 /* SQLiteConnection.swift in Sources */,
 				110059F2FBD068015F522851 /* ScrapeCoordinator.swift in Sources */,
 				48C386296947768DF225AB3B /* ScrapeLog.swift in Sources */,
 				84D8848E186F57EC7BA70311 /* ScrapeSession.swift in Sources */,
