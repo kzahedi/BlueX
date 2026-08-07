@@ -76,6 +76,28 @@ targets:
     dependencies:
       - sdk: SwiftData.framework
 
+  BlueXAuthors:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: cli/authors
+      - path: cli/Shared
+      - path: BlueX/Data
+      - path: BlueX/Services/API
+      - path: BlueX/Services/Authors
+    settings:
+      base:
+        PRODUCT_NAME: blueX-authors
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    dependencies:
+      - sdk: SwiftData.framework
+
   BlueXScrape:
     type: tool
     platform: macOS
