@@ -14,11 +14,13 @@ struct AuthorBackfill {
 
     @discardableResult
     func run(batchSize: Int = 500) throws -> (created: Int, updated: Int) {
-        let index = ModelContext(container)
+        // A throwaway context solely to size the paging loop below — fetchCount avoids
+        // materializing any Post objects, unlike a full fetch().
+        let countCtx = ModelContext(container)
 
         // Fold the corpus down to one row per DID before touching the store.
         var seen: [String: (first: Date, last: Date)] = [:]
-        let total = try index.fetchCount(FetchDescriptor<Post>())
+        let total = try countCtx.fetchCount(FetchDescriptor<Post>())
         var offset = 0
         while offset < total {
             let ctx = ModelContext(container)
