@@ -68,6 +68,7 @@ final class ReplyAuthorTests: XCTestCase {
         let fresh = ModelContext(container)
         let loaded = try XCTUnwrap(try fresh.fetch(FetchDescriptor<AuthorObservation>()).first)
         XCTAssertNil(loaded.followersCount)
+        XCTAssertNil(loaded.followsCount)
         XCTAssertNil(loaded.postsCount)
         XCTAssertNil(loaded.accountCreatedAt)
     }
