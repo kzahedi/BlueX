@@ -14,6 +14,8 @@ enum BlueXSchema {
         ScrapeLog.self,
         ModelConfig.self,
         CoordinatorState.self,
+        ReplyAuthor.self,
+        AuthorObservation.self,
     ])
 }
 
