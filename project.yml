@@ -137,3 +137,13 @@ targets:
         CODE_SIGNING_ALLOWED: "NO"
     dependencies:
       - target: BlueX
+
+schemes:
+  BlueXTests:
+    build:
+      targets:
+        BlueXTests: [test]
+    test:
+      targets: [BlueXTests]
+      environmentVariables:
+        BLUEX_STORE_DIR: /tmp/bluex-test-store
