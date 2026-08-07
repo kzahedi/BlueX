@@ -6,9 +6,10 @@ import SwiftData
 /// models the six curated news outlets: these are ~146k members of the public with a
 /// completely different lifecycle, so they get their own entity rather than a flag.
 ///
-/// Keyed on DID, never handle. The corpus contains 146,422 distinct DIDs but only
-/// 146,336 distinct handles — handles are changed and reused, so a handle-keyed identity
-/// would silently merge different people.
+/// Keyed on DID, never handle. Handles are changed and reused, so a handle-keyed
+/// identity would silently merge different people — DIDs are stable and unique.
+/// Snapshot supporting this: measured 2026-08-07, the corpus had 146,541 distinct
+/// DIDs against only 146,453 distinct handles. That gap only grows with more scraping.
 ///
 /// There is deliberately NO relationship from `Post` to here. Adding one would mean
 /// SwiftData rewriting all 842,369 reply rows in a migration to gain what a join on
