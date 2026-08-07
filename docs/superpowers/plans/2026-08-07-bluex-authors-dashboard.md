@@ -233,15 +233,19 @@ final class SQLiteConnection {
         // mode=ro, never immutable=1 — immutable ignores the WAL and has already
         // reported 0 rows on a store that held 6.
         let uri = "file:\(url.path)?mode=ro"
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
+        // FULLMUTEX puts THIS connection in serialized mode, which is what lets
+        // AggregateReader be @unchecked Sendable. macOS system libsqlite3 reports
+        // threadsafe == 2 (Multi-thread), so serialized is not the default here and
+        // must be requested per connection.
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(uri, &handle, flags, nil) == SQLITE_OK, let handle else {
             throw SQLiteError.cannotOpen(url.path)
         }
-        // AggregateReader is @unchecked Sendable on the strength of SQLite's serialized
-        // threading mode. If this build is not serialized, that reasoning is void.
-        guard sqlite3_threadsafe() == 1 else {
+        // FULLMUTEX cannot deliver serialization if the library was compiled with no
+        // mutexes at all, so guard the precondition that actually matters.
+        guard sqlite3_threadsafe() != 0 else {
             sqlite3_close(handle)
-            throw SQLiteError.cannotOpen("sqlite not in serialized threading mode")
+            throw SQLiteError.cannotOpen("sqlite compiled without mutexes")
         }
         self.db = handle
     }
@@ -599,13 +603,18 @@ enum AggregateError: Error {
 ///
 /// **Concurrency.** This wraps a raw `sqlite3` handle, which Swift cannot prove is
 /// `Sendable`, so the type is marked `@unchecked Sendable` to let view models hand it to
-/// `Task.detached`. That is sound only because SQLite is compiled in its default
-/// *serialized* threading mode, where a single connection may be used from multiple
-/// threads and sqlite serialises access internally.
+/// `Task.detached`.
 ///
-/// **Task 1 must verify this rather than assume it**: assert
-/// `sqlite3_threadsafe() == 1` at open, and throw if it is not, since the whole
-/// justification collapses otherwise.
+/// That is sound because `SQLiteConnection` opens with `SQLITE_OPEN_FULLMUTEX`, which
+/// puts *that connection* in serialized threading mode, so SQLite serialises concurrent
+/// use internally.
+///
+/// **Measured 2026-08-07, correcting an earlier claim in this plan:** macOS system
+/// libsqlite3 returns `sqlite3_threadsafe() == 2` — Multi-thread, **not** Serialized.
+/// Serialized is therefore *not* the library default here, and an earlier draft of this
+/// plan wrongly told Task 1 to assert `== 1`. The guarantee comes from the per-connection
+/// `FULLMUTEX` flag; the open-time guard only asserts the weaker precondition that
+/// mutexes were compiled in at all (`sqlite3_threadsafe() != 0`).
 final class AggregateReader: @unchecked Sendable {
     /// Core Data stores dates as seconds since 2001-01-01.
     static let coreDataEpochOffset: TimeInterval = 978_307_200
