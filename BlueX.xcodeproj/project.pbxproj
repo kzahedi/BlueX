@@ -37,6 +37,7 @@
 		23F30AB47EB1AE28EC7BC017 /* AppleFoundationModelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */; };
 		247B2D46F3754179A212D47C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFC3883CAF3F0D75FC2773B /* main.swift */; };
 		252B8DFD3874E68FF2E72EB6 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
+		255CF8DD78450361BEDE4040 /* AuthorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E76EA892658EF9381313683D /* AuthorBackfillTests.swift */; };
 		27F96A42093B36CB6D2055E1 /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
 		29B87CBE9E42E6C62BE4FCC0 /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA30A1A6E40070FE91F365 /* OllamaClient.swift */; };
 		29EE8F5903AE185891B7A135 /* FeedScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34D266795CDA4976FE6A23BC /* FeedScraper.swift */; };
@@ -78,6 +79,7 @@
 		5CA50D900BA500549D7B924D /* RescrapingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC3A679106600F922A9AEFB /* RescrapingPolicy.swift */; };
 		5E9148D2273C438AFB76CEB5 /* BlueskyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75E97E85CBCB11DCB104D467 /* BlueskyError.swift */; };
 		5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034EEB655022F234033B17A8 /* KeychainCredentials.swift */; };
+		60A555C00881F0D6FFAAE70A /* AuthorBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC3DB987C788E07F0BD0E3AC /* AuthorBackfill.swift */; };
 		60B84B462FD2AAB2CB7C2FDD /* PostInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B70A3AE47F9A0E152371A0 /* PostInspectorView.swift */; };
 		616595C95C5D9357026B40DF /* AnnotationDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */; };
 		61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB06109F203B7416AB7B334 /* BlueXColorsTests.swift */; };
@@ -288,7 +290,9 @@
 		D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTests.swift; sourceTree = "<group>"; };
 		D94903302FAE92596AA7EDEF /* NLTaggerAnalyserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLTaggerAnalyserTests.swift; sourceTree = "<group>"; };
 		DAFA0B786ADDCE34214193F6 /* ThreadViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewModel.swift; sourceTree = "<group>"; };
+		DC3DB987C788E07F0BD0E3AC /* AuthorBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorBackfill.swift; sourceTree = "<group>"; };
 		E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationDedup.swift; sourceTree = "<group>"; };
+		E76EA892658EF9381313683D /* AuthorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorBackfillTests.swift; sourceTree = "<group>"; };
 		E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleClient.swift; sourceTree = "<group>"; };
 		E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigTests.swift; sourceTree = "<group>"; };
 		EC29C79B0EF209A2D41DFBD9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -370,6 +374,14 @@
 				695299116A444FEA637BEEDE /* Shared */,
 			);
 			path = cli;
+			sourceTree = "<group>";
+		};
+		2EFBC3E77790700BC7EDC19C /* Authors */ = {
+			isa = PBXGroup;
+			children = (
+				DC3DB987C788E07F0BD0E3AC /* AuthorBackfill.swift */,
+			);
+			path = Authors;
 			sourceTree = "<group>";
 		};
 		3A19D92FCFC5B0E4EC912AA7 /* Views */ = {
@@ -481,6 +493,14 @@
 				D31C21DBC8F7D149938497C3 /* TrackedAccountTests.swift */,
 			);
 			path = Data;
+			sourceTree = "<group>";
+		};
+		8F7BE49BF25EE37DD115BB49 /* Authors */ = {
+			isa = PBXGroup;
+			children = (
+				E76EA892658EF9381313683D /* AuthorBackfillTests.swift */,
+			);
+			path = Authors;
 			sourceTree = "<group>";
 		};
 		96AE22FBB0DECAC203189554 = {
@@ -627,6 +647,7 @@
 			children = (
 				1183AA51519641E2E2B19ABE /* Annotation */,
 				D6499275C303C9C8279B4304 /* API */,
+				2EFBC3E77790700BC7EDC19C /* Authors */,
 				BB3805C4910857AC44D58AE0 /* Scraping */,
 			);
 			path = Services;
@@ -648,6 +669,7 @@
 				9B78F2EBD896FF53789BAF05 /* ScrapeCoordinatorAnnotationTests.swift */,
 				B5589196DEE443DE292FDA88 /* StratifiedSamplerTests.swift */,
 				471C3B9AA2204CF53EBC740A /* Annotation */,
+				8F7BE49BF25EE37DD115BB49 /* Authors */,
 				AA8A862F4B967B4D007D401C /* Scraping */,
 			);
 			path = Services;
@@ -814,6 +836,7 @@
 				40E11094CC1D72F733AAAD72 /* AnnotationDedupTests.swift in Sources */,
 				C6004409701BA48FD6A76FBB /* AnnotationServiceTests.swift in Sources */,
 				54FFC77982D439DE7A6006D7 /* AnnotationTests.swift in Sources */,
+				255CF8DD78450361BEDE4040 /* AuthorBackfillTests.swift in Sources */,
 				61E65C53B76C257B4249B2B0 /* BlueXColorsTests.swift in Sources */,
 				7A80D3901726C31FA84F85B6 /* BlueXStoreTests.swift in Sources */,
 				0B7CEC0A93EC9D4165A5137F /* BlueXTests.swift in Sources */,
@@ -903,6 +926,7 @@
 				616595C95C5D9357026B40DF /* AnnotationDedup.swift in Sources */,
 				FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */,
 				23F30AB47EB1AE28EC7BC017 /* AppleFoundationModelClient.swift in Sources */,
+				60A555C00881F0D6FFAAE70A /* AuthorBackfill.swift in Sources */,
 				B0A11190879C2C0D04A3D40C /* AuthorObservation.swift in Sources */,
 				5B6BF6975BFEFCF2006124E9 /* BlueXApp.swift in Sources */,
 				AD6634C2A06FECA0E12D80DB /* BlueXColors.swift in Sources */,
