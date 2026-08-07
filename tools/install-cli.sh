@@ -18,7 +18,7 @@ DEST_DIR="${HOME}/.local/bin"
 mkdir -p "$DEST_DIR" "$BUILD_ROOT"
 
 echo "==> building (derivedDataPath: $BUILD_ROOT)"
-for scheme in BlueXAnnotate BlueXScrape; do
+for scheme in BlueXAnnotate BlueXScrape BlueXAuthors; do
   xcodebuild build \
     -project "$REPO_ROOT/BlueX.xcodeproj" \
     -scheme "$scheme" \
@@ -47,6 +47,7 @@ install_one() {
 
 install_one blueX-annotate
 install_one blueX-scrape
+install_one blueX-authors
 
 case ":$PATH:" in
   *":$DEST_DIR:"*) ;;
