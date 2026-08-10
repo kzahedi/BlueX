@@ -116,6 +116,24 @@ Applying this to the live store is an **attended** step. A corpus scrape and a l
 harvester write to `/Volumes/Eregion/bluex-data` continuously; building an index under an
 active writer risks lock contention on 1.5M rows of irreplaceable research data.
 
+**Open hole in this design, raised by Task 3's review and not yet solved.** Re-assertion
+needs a *write* connection, but `AggregateReader` is read-only by construction and the
+dashboard's whole point is to read. A process that only ever reads — the app opening the
+dashboard without the scrape or a CLI having run first — would never trigger the
+re-assertion and would run unindexed **silently**, which is the same silent-degradation
+failure the migration experiment exposed. Candidate answers, to be decided when this is
+wired up:
+
+1. Re-assert from `BlueXStore.openContainer()`, which every process calls before reading.
+   Covers the app and all three CLIs, but couples store-opening to index maintenance.
+2. Have `AggregateReader` *detect* the missing index (`sqlite_master` lookup, cheap) and
+   surface it as a visible degraded state rather than fixing it — a reader that cannot
+   write should not pretend it can.
+
+Option 2 is the honest one for a read-only type; option 1 is what actually keeps the
+indexes present. They are not exclusive, and doing both is probably right: fix on open,
+detect and report on read.
+
 ### Navigation
 
 `SidebarItem` gains an `authors` case, alongside the existing non-model `.queue` and
