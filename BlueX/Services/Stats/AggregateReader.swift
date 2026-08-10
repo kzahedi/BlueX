@@ -197,4 +197,94 @@ final class AggregateReader: @unchecked Sendable {
                         replies: try Int(r.int(2)))
         }
     }
+
+    // MARK: - Population
+
+    /// Bin edges chosen to show the power law: half the population replies once, and a
+    /// fraction of a percent replies 100+ times.
+    private static let binEdges: [(label: String, lower: Int, upper: Int?)] = [
+        ("1", 1, 1), ("2–9", 2, 9), ("10–99", 10, 99),
+        ("100–999", 100, 999), ("1000+", 1000, nil),
+    ]
+
+    func populationStats(now: Date = Date()) throws -> PopulationStats {
+        // One pass yields every per-author reply count; the summaries below are folded
+        // from it rather than re-queried.
+        let counts = try conn.query("""
+            SELECT COUNT(*) AS c, MAX(ZCREATEDAT) AS last_seen
+            FROM ZPOST WHERE ZISROOTPOST = 0
+            GROUP BY ZAUTHORDID
+            """) { (Int(try $0.int(0)), Self.date(fromCoreData: try $0.double(1))) }
+
+        let totalAuthors = counts.count
+        let totalReplies = counts.map(\.0).reduce(0, +)
+
+        let sortedCounts = counts.map(\.0).sorted()
+        let median = sortedCounts.isEmpty ? 0 : sortedCounts[sortedCounts.count / 2]
+
+        let cutoff = now.addingTimeInterval(-30 * 24 * 60 * 60)
+        let active = counts.filter { $0.1 >= cutoff && $0.1 <= now }.count
+
+        let bins = Self.binEdges.map { edge in
+            HistogramBin(
+                label: edge.label,
+                lowerBound: edge.lower,
+                upperBound: edge.upper,
+                authors: counts.filter { count in
+                    count.0 >= edge.lower && (edge.upper.map { u in count.0 <= u } ?? true)
+                }.count
+            )
+        }
+
+        let outlets = try conn.query("""
+            SELECT r.ZACCOUNT, t.ZHANDLE,
+                   COUNT(DISTINCT p.ZAUTHORDID), COUNT(*)
+            FROM ZPOST p
+            JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+            JOIN ZTRACKEDACCOUNT t ON t.Z_PK = r.ZACCOUNT
+            WHERE p.ZISROOTPOST = 0
+            GROUP BY r.ZACCOUNT, t.ZHANDLE
+            ORDER BY COUNT(*) DESC
+            """) { r in
+            OutletCount(accountPK: try r.int(0),
+                        handle: try r.text(1) ?? "unknown",
+                        authors: Int(try r.int(2)),
+                        replies: Int(try r.int(3)))
+        }
+
+        var statusCounts: [String: Int] = [:]
+        let statusRows = try conn.query(
+            "SELECT ZCURRENTSTATUS, COUNT(*) FROM ZREPLYAUTHOR GROUP BY ZCURRENTSTATUS",
+            row: { (r: SQLRow) in (try r.text(0) ?? "unknown", Int(try r.int(1))) }
+        )
+        for row in statusRows {
+            statusCounts[row.0] = row.1
+        }
+
+        return PopulationStats(
+            totalAuthors: totalAuthors,
+            totalReplies: totalReplies,
+            medianRepliesPerAuthor: median,
+            activeLast30Days: active,
+            bins: bins,
+            outlets: outlets,
+            statusCounts: statusCounts
+        )
+    }
+
+    /// An author is "new" in the week of their first reply, and never again.
+    func newAuthorsPerWeek() throws -> [WeekCount] {
+        let firsts = try conn.query("""
+            SELECT MIN(ZCREATEDAT) FROM ZPOST WHERE ZISROOTPOST = 0 GROUP BY ZAUTHORDID
+            """) { Self.date(fromCoreData: try $0.double(0)) }
+
+        let calendar = Calendar(identifier: .iso8601)
+        var counts: [Date: Int] = [:]
+        for stamp in firsts {
+            let start = calendar.dateInterval(of: .weekOfYear, for: stamp)?.start ?? stamp
+            counts[start, default: 0] += 1
+        }
+        return counts.map { WeekCount(weekStart: $0.key, count: $0.value) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
 }
