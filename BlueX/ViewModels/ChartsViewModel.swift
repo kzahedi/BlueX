@@ -46,52 +46,34 @@ final class ChartsViewModel {
 
     // MARK: - Aggregation
 
-    func computeBuckets(from posts: [Post]) {
-        guard !posts.isEmpty else {
-            weekBuckets = []
-            return
-        }
+    /// Loads weekly buckets from the aggregate reader, off the main actor.
+    ///
+    /// Replaces `computeBuckets(from:)`, which materialised up to ~874k `Post` objects
+    /// and ran eight filter passes per bucket on the MainActor to produce twelve numbers.
+    /// Speech-class and sentiment fields stay zero: `ZANNOTATION` is empty right now, so
+    /// there is nothing to classify by yet.
+    @MainActor
+    func load(accountPKs: [Int64], reader: AggregateReader) async {
+        let buckets: [WeekBucket] = await Task.detached(priority: .userInitiated) {
+            let roots = (try? reader.rootPostsPerWeek(accountPKs: accountPKs)) ?? []
+            let replies = (try? reader.repliesPerWeek(accountPKs: accountPKs)) ?? []
 
-        let calendar = Calendar(identifier: .iso8601)
+            var byWeek: [Date: (root: Int, reply: Int)] = [:]
+            for w in roots { byWeek[w.weekStart, default: (0, 0)].root += w.count }
+            for w in replies { byWeek[w.weekStart, default: (0, 0)].reply += w.count }
 
-        // Group posts by ISO week start (Monday)
-        var grouped: [Date: [Post]] = [:]
-        for post in posts {
-            let weekStart = calendar.dateInterval(of: .weekOfYear, for: post.createdAt)?.start ?? post.createdAt
-            grouped[weekStart, default: []].append(post)
-        }
-
-        // Build sorted buckets, splitting root posts from replies
-        let sorted = grouped.sorted { $0.key < $1.key }
-        weekBuckets = sorted.map { (weekStart, weekPosts) in
-            let roots   = weekPosts.filter { $0.isRootPost }
-            let replies = weekPosts.filter { !$0.isRootPost }
-
-            func classCount(_ pool: [Post], _ cls: String) -> Int {
-                pool.filter { $0.currentSpeechClass == cls }.count
-            }
-            func pendingCount(_ pool: [Post]) -> Int {
-                pool.filter { !$0.hasLLMAnnotation }.count
-            }
-
-            let scores = weekPosts.compactMap { $0.nlTaggerAnnotation?.sentimentScore }
-            let avg = scores.isEmpty ? 0 : scores.reduce(0, +) / Double(scores.count)
-
-            return WeekBucket(
-                id: weekStart,
-                weekStart: weekStart,
-                hateCount:    classCount(roots,   "hate"),
-                counterCount: classCount(roots,   "counter"),
-                neutralCount: classCount(roots,   "neutral"),
-                pendingCount: pendingCount(roots),
-                replyHateCount:    classCount(replies, "hate"),
-                replyCounterCount: classCount(replies, "counter"),
-                replyNeutralCount: classCount(replies, "neutral"),
-                replyPendingCount: pendingCount(replies),
-                avgSentiment: avg,
-                sentimentSampleCount: scores.count
-            )
-        }
+            return byWeek.map { week, counts in
+                WeekBucket(
+                    id: week, weekStart: week,
+                    hateCount: 0, counterCount: 0, neutralCount: 0,
+                    pendingCount: counts.root,
+                    replyHateCount: 0, replyCounterCount: 0, replyNeutralCount: 0,
+                    replyPendingCount: counts.reply,
+                    avgSentiment: 0, sentimentSampleCount: 0
+                )
+            }.sorted { $0.weekStart < $1.weekStart }
+        }.value
+        self.weekBuckets = buckets
     }
 
     /// Returns only the most recent `windowWeeks` buckets.
