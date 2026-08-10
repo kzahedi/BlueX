@@ -248,6 +248,13 @@ struct GroupChartsView: View {
             guard !Task.isCancelled else { return }
             loadError = nil
         } catch {
+            // No `await` precedes this publish today, so nothing can actually be
+            // cancelled out from under it yet — but the moment one is added inside
+            // this `do` block, this becomes a live race (a superseded group's error
+            // could overwrite a newer group's state), exactly like the ones this
+            // function's other guards exist to prevent. Keep this guard even though
+            // it is currently a no-op: do not remove it as "redundant".
+            guard !Task.isCancelled else { return }
             loadError = error.localizedDescription
         }
     }
