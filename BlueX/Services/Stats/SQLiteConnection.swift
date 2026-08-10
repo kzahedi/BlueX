@@ -11,17 +11,52 @@ enum SQLiteError: Error {
     case cannotOpen(String)
     case prepareFailed(String)
     case stepFailed(String)
+    /// Thrown by an `SQLRow` accessor called after the row callback that produced it has
+    /// returned. The row wraps a live statement pointer that is only valid for the
+    /// duration of that one callback invocation; using it later would read a finalized
+    /// (or reused, on the next iteration) statement. See `SQLRow` below.
+    case rowUsedAfterCallback
 }
 
-/// One row of a result set. Valid only inside the row callback — it wraps a live
-/// statement pointer and must not escape.
-struct SQLRow {
+/// One row of a result set, handed to the callback passed to `SQLiteConnection.query`.
+///
+/// It wraps a live statement pointer that is only valid for the duration of that single
+/// callback invocation — the pointer is reused (or finalized) on the very next loop
+/// iteration. Swift 5.9 has no type-level way to forbid the callback from stashing this
+/// object somewhere and reading it later, so instead it enforces the rule at runtime:
+/// every accessor throws `SQLiteError.rowUsedAfterCallback` once the row has been
+/// invalidated (which `SQLiteConnection.query` does immediately after each callback
+/// returns). A caller that lets an `SQLRow` escape its callback gets a legible failure
+/// instead of undefined behaviour on a stale or finalized pointer.
+final class SQLRow {
     fileprivate let stmt: OpaquePointer
+    fileprivate var isValid = true
 
-    func int(_ i: Int32) -> Int64 { sqlite3_column_int64(stmt, i) }
-    func double(_ i: Int32) -> Double { sqlite3_column_double(stmt, i) }
-    func isNull(_ i: Int32) -> Bool { sqlite3_column_type(stmt, i) == SQLITE_NULL }
-    func text(_ i: Int32) -> String? {
+    fileprivate init(stmt: OpaquePointer) {
+        self.stmt = stmt
+    }
+
+    private func checkValid() throws {
+        guard isValid else { throw SQLiteError.rowUsedAfterCallback }
+    }
+
+    func int(_ i: Int32) throws -> Int64 {
+        try checkValid()
+        return sqlite3_column_int64(stmt, i)
+    }
+
+    func double(_ i: Int32) throws -> Double {
+        try checkValid()
+        return sqlite3_column_double(stmt, i)
+    }
+
+    func isNull(_ i: Int32) throws -> Bool {
+        try checkValid()
+        return sqlite3_column_type(stmt, i) == SQLITE_NULL
+    }
+
+    func text(_ i: Int32) throws -> String? {
+        try checkValid()
         guard let c = sqlite3_column_text(stmt, i) else { return nil }
         return String(cString: c)
     }
@@ -54,10 +89,22 @@ final class SQLiteConnection {
         guard sqlite3_threadsafe() != 0 else {
             throw SQLiteError.cannotOpen("sqlite compiled without thread-safety support")
         }
-        guard sqlite3_open_v2(uri, &handle, flags, nil) == SQLITE_OK, let handle else {
-            throw SQLiteError.cannotOpen(url.path)
+        // sqlite3_open_v2 may allocate a handle even when it returns an error — the
+        // caller is expected to sqlite3_close it regardless of the return code. Bind
+        // the success case to a *new* name (openedHandle) rather than shadowing
+        // `handle`, so the failure branch can still see and close whatever
+        // sqlite3_open_v2 put in `handle`, and so we can read sqlite3_errmsg on it
+        // before closing — a bare path string says nothing about why the open failed.
+        let rc = sqlite3_open_v2(uri, &handle, flags, nil)
+        guard rc == SQLITE_OK, let openedHandle = handle else {
+            let message = handle.map { String(cString: sqlite3_errmsg($0)) }
+                ?? "sqlite3_open_v2 returned code \(rc)"
+            if let handle {
+                sqlite3_close(handle)
+            }
+            throw SQLiteError.cannotOpen("\(url.path): \(message)")
         }
-        self.db = handle
+        self.db = openedHandle
     }
 
     deinit { sqlite3_close(db) }
@@ -87,7 +134,9 @@ final class SQLiteConnection {
         while true {
             let rc = sqlite3_step(stmt)
             if rc == SQLITE_ROW {
-                out.append(try row(SQLRow(stmt: stmt)))
+                let sqlRow = SQLRow(stmt: stmt)
+                defer { sqlRow.isValid = false }
+                out.append(try row(sqlRow))
             } else if rc == SQLITE_DONE {
                 break
             } else {
