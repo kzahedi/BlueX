@@ -19,7 +19,11 @@ struct AccountSeeder {
         // International Media
         Seed(did: "did:plc:eclio37ymobqex2ncko63h4r",  handle: "nytimes.com",           displayName: "The New York Times", groupName: "International Media"),
         Seed(did: "did:plc:vovinwhtulbsx4mwfw26r5ni",  handle: "theguardian.com",       displayName: "The Guardian",       groupName: "International Media"),
-        Seed(did: "did:plc:ixvke777actf2fcveqlkdbp5",  handle: "bbcnews.bsky.social",   displayName: "BBC News",           groupName: "International Media"),
+        // Removed 2026-08-10: bbcnews.bsky.social (did:plc:ixvke777actf2fcveqlkdbp5) is a
+        // dormant handle, not the BBC newsroom — the Bluesky API reports postsCount 0, an
+        // empty author feed, and no display name. It contributed 0 posts across the whole
+        // corpus. A search for an official BBC News account found only unofficial RSS bots
+        // and individual journalists, so there is nothing to point it at.
     ]
 
     /// Removes every account/group/post/annotation not in `seeds`, then seeds missing entries.
