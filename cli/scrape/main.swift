@@ -197,8 +197,10 @@ func runCLI() async {
         let matched = allActive.filter { $0.handle == h || $0.did == h }
         if matched.isEmpty { fail("blueX-scrape", "no active account matches handle/DID '\(h)'. Run --list-accounts.") }
         accounts = matched
-    } else {
+    } else if allActive.isEmpty {
         accounts = allActive
+    } else {
+        accounts = ScrapeOrder.rotated(allActive, startingAt: Int.random(in: 0..<allActive.count))
     }
     if accounts.isEmpty { fail("blueX-scrape", "no active accounts to scrape.") }
 
@@ -209,7 +211,8 @@ func runCLI() async {
     let threadScraper = ThreadScraper(api: api, context: context)
     let window = TimeInterval(args.maxWindowDays) * 86400
 
-    print("Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window\n")
+    print("Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window")
+    print("Order: \(accounts.map { $0.handle }.joined(separator: ", "))\n")
 
     // Bluesky session tokens last ~2 h. Long backfills on NYT-class accounts
     // routinely outlast that — several times over, not once — so token upkeep
