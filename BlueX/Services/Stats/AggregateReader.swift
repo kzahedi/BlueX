@@ -219,6 +219,9 @@ final class AggregateReader: @unchecked Sendable {
         let totalAuthors = counts.count
         let totalReplies = counts.map(\.0).reduce(0, +)
 
+        // Convention, deliberate: for an even-sized population this takes the
+        // upper-middle element (index n/2), not an interpolated average of the two
+        // middle values — e.g. counts [1,2,3,4] have median 3, not 2.5. Empty is 0.
         let sortedCounts = counts.map(\.0).sorted()
         let median = sortedCounts.isEmpty ? 0 : sortedCounts[sortedCounts.count / 2]
 
