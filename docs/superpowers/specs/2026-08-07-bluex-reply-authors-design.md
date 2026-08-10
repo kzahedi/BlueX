@@ -73,8 +73,34 @@ spiegel, zeit and theguardian are fully scraped.
 - The **reason** requires a single-actor `app.bsky.actor.getProfile`, which returns HTTP
   400 with `AccountTakedown`, `AccountDeactivated`, or `InvalidRequest` (DID no longer
   resolvable, i.e. deleted).
-- `labels` carries Bluesky's own moderation labels on the account — a second external
-  moderation signal, captured for free.
+- `labels` on a `getProfiles` response does **NOT** carry Bluesky's moderation labels.
+  **Corrected 2026-08-10 by measurement.** Across 500 sampled reply authors, every label
+  returned by `getProfiles` was a user *self-applied* privacy flag (`!no-unauthenticated`)
+  — zero moderation labels. A probe built on `getProfiles` would have collected no
+  moderation signal at all while appearing to work.
+
+  Moderation labels come from the labeler service, queried directly and unauthenticated:
+
+  ```
+  GET https://mod.bsky.app/xrpc/com.atproto.label.queryLabels
+      ?uriPatterns=<did-or-at-uri>&uriPatterns=...&limit=250
+  ```
+
+  Measured against this corpus on 2026-08-10:
+
+  | Subject | Sample | Carrying ≥1 label |
+  |---|---|---|
+  | Reply authors (accounts) | 600 | **46 (7.7%)** — `needs-review` 27, `!suspend` 16, `!takedown` 4, `spam` 2, `rude` 1, `!hide` 1 |
+  | Replies (posts) | 600 | **1 (0.17%)** — `intolerant` |
+
+  Post-level labels are rare but are the highest-value signal in the project: a moderator's
+  judgement on specific content. The relevant vocabulary from `moderation.bsky.app`:
+  `intolerant` (discrimination against protected groups), `extremist`, `threat`, `rude`,
+  and for disinformation `misinformation`, `misleading`, `rumor`, `inauthentic`,
+  `impersonation`, `engagement-farming`.
+
+  There is **no counter-speech label** — moderators label violations, not virtues — so
+  counter-speech still requires human annotation.
 
 ## Architecture
 
