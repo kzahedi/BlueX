@@ -39,20 +39,23 @@ final class SQLiteConnection {
         var handle: OpaquePointer?
         // mode=ro, never immutable=1 — immutable ignores the WAL and has already
         // reported 0 rows on a store that held 6.
+        //
+        // sqlite3_threadsafe() reports the library's compile-time default, and on
+        // this platform's system libsqlite3 that default is 2 (Multi-thread), not 1
+        // (Serialized) — so we cannot rely on the default. SQLITE_OPEN_FULLMUTEX
+        // requests serialized threading mode for THIS connection specifically,
+        // regardless of that default, as long as the library was built with mutex
+        // support at all (sqlite3_threadsafe() != 0). That is the guard below, and
+        // it is the precondition a future Sendable read layer on this connection can
+        // actually rely on — the serialization comes from FULLMUTEX on the open call,
+        // not from the library default.
         let uri = "file:\(url.path)?mode=ro"
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_threadsafe() != 0 else {
+            throw SQLiteError.cannotOpen("sqlite compiled without thread-safety support")
+        }
         guard sqlite3_open_v2(uri, &handle, flags, nil) == SQLITE_OK, let handle else {
             throw SQLiteError.cannotOpen(url.path)
-        }
-        // sqlite3_threadsafe() reflects the compile-time SQLITE_THREADSAFE setting:
-        // 0 means mutexing was omitted entirely (unsafe at any concurrency), while 1
-        // or 2 both mean the mutex code is present. On this machine's system libsqlite3
-        // it reports 2 (multi-thread compiled in), not 1 (serialized default) — a future
-        // Sendable read layer built on this connection must not assume "serialized" from
-        // this value alone. Here we only guard against the truly unsafe case.
-        guard sqlite3_threadsafe() != 0 else {
-            sqlite3_close(handle)
-            throw SQLiteError.cannotOpen("sqlite compiled without thread-safety support")
         }
         self.db = handle
     }
