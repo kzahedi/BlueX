@@ -1533,10 +1533,66 @@ takes 0.50s. Writes still go through SwiftData; now batched, with progress."
 - Produces on `AggregateReader`: `func repliesPerWeek(accountPKs: [Int64]) throws -> [WeekCount]` and `func rootPostsPerWeek(accountPKs: [Int64]) throws -> [WeekCount]`
 - Produces on `ChartsViewModel`: `func load(accountPKs: [Int64], reader: AggregateReader) async`
 
-**This is the task that fixes the freezing.** `AccountChartsView.recompute()` currently
-fetches replies with `rootURIs.contains($0.rootURI)` — a 29,710-element `Set` predicate
-against 844,502 rows — then builds a ~874,000-element `[Post]` and runs eight `.filter`
-passes per bucket, all on the MainActor, to produce twelve numbers.
+**SCOPE WIDENED 2026-08-10 after measuring the app under real use.** The original task
+covered only `AccountChartsView`. That would have fixed roughly half the slowness the user
+actually feels. Measured cost of a single click on the nytimes account:
+
+| Step | Objects materialised |
+|---|---|
+| `AccountContentView` `@Query` — root posts | 39,063 |
+| `AccountContentView.refreshCounts()` — replies via a 39,063-element `Set` predicate | **1,038,073** |
+| `AccountChartsView` `@Query` — the same roots, again | 39,063 |
+| `AccountChartsView.recompute()` — the same replies, again | **1,038,073** |
+
+**~2.15 million `Post` objects per account click**, on the main thread, because the content
+column and the detail column each load the whole account independently and share nothing.
+
+This task now covers **all three** consumers:
+1. `AccountChartsView.recompute()` — the original scope.
+2. `AccountContentView.refreshCounts()` and its root list.
+3. `GroupChartsView` — the same retrofit.
+
+**Already fixed separately, do not redo:** the `ZROOTURI`/`ZURI`/`ZAUTHORDID` indexes were
+built on the live store on 2026-08-10 (4.03s for 1.5M rows). Thread opening went from a
+full scan to **0.009s**; the outlet join from 6.35s to 1.38s. `ThreadView` and
+`ThreadGraphView` were scan-bound, not materialisation-bound, and are now fast enough to
+leave alone.
+
+**Two user proposals evaluated and deliberately NOT adopted**, recorded so they are not
+revisited without new evidence:
+- *Paginating reply trees in batches of 100/1000.* Measured: the largest tree in the
+  corpus is **516 replies**, zero trees exceed 1000, and the average is 14.9. Tree size
+  was never the problem; the unindexed scan to find the tree was, and that is fixed.
+  Pagination would add complexity for no gain.
+- *Pre-generating overview charts daily/weekly.* The full population fold runs in 0.937s
+  in SQL. Pre-generation would buy ~1s at the cost of staleness, an invalidation story,
+  and a scheduled job that can fail silently — while the corpus grows ~200k posts/day.
+
+**NEW REQUIREMENT — reply-count filter.** The existing filter bar
+(`AccountContentView.swift:139`) has text search, speech-class filters and a sort toggle.
+Add a **reply-count range filter** so the user can see only trees with e.g. more than 50
+replies, or between 50 and 100.
+
+This must be applied **in SQL, not in memory** — filtering in memory would require the very
+million-object load this task removes. Measured on the live store: reply counts for all
+39,063 nytimes roots take **0.44s**, and `HAVING c BETWEEN 50 AND 100` returns 3,419 trees
+in the same time.
+
+Suggested reader method, following the existing style in `AggregateReader`:
+
+```swift
+/// Root posts for an account with their reply counts, optionally restricted to a
+/// reply-count range. Filtering happens in SQL: doing it in memory would require
+/// loading every reply, which is what this whole task exists to stop.
+func rootPosts(accountPK: Int64,
+               minReplies: Int? = nil,
+               maxReplies: Int? = nil,
+               limit: Int) throws -> [RootPostSummary]
+```
+
+with `RootPostSummary { uri, text, createdAt, replyCount }` added to `StatsModels.swift`.
+The UI exposes it as a range control; both bounds optional, so "more than 50" and
+"50 to 100" are both expressible. An unbounded-max filter must not silently become a cap.
 
 - [ ] **Step 1: Write the failing test**
 
