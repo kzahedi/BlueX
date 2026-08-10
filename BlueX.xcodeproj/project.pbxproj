@@ -71,6 +71,7 @@
 		40E11094CC1D72F733AAAD72 /* AnnotationDedupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4764EACFFD4E7CEA59F5D618 /* AnnotationDedupTests.swift */; };
 		410D10203CC9AA02E4431851 /* AccountViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5ACFA429CE515472C68804 /* AccountViewModel.swift */; };
 		42F1D5FC3B4DEC5D1D22452B /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
+		433F131177A0C0C9790A9DBA /* SelectionHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7D27B6A55C75710F9E7020 /* SelectionHistoryTests.swift */; };
 		4478E1DE26D746EDB15D6863 /* BlueXSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */; };
 		46777548FF9CB9D36C1BB73B /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
 		4742882AA3FC73FE7B0296DB /* EphemeralHTTPSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CB977A54649A39A935341D /* EphemeralHTTPSession.swift */; };
@@ -190,6 +191,7 @@
 		DECC26838DB6FFB04DF01398 /* ReplyAuthor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3235AE5DB7844DB51A86A7A /* ReplyAuthor.swift */; };
 		E0DCB1E4C6FFFF768AF7656D /* ScrapeLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC50C5E6AA4311BA228330A9 /* ScrapeLog.swift */; };
 		E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */; };
+		E12EFAF89EA0F780BE6641FB /* SelectionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2827B27C334637C64FD1C51 /* SelectionHistory.swift */; };
 		E31DDBBD15F2D382F90FF004 /* StratifiedSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13CE7D5EB4A92BE8095CE6B3 /* StratifiedSampler.swift */; };
 		E8AFE1B01666779C5DE6C390 /* SQLiteConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F32001F88B913F0737047 /* SQLiteConnection.swift */; };
 		E96B057F1122BB9C21E219D3 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
@@ -292,6 +294,7 @@
 		8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientTests.swift; sourceTree = "<group>"; };
 		8B8F1353B230B5CF0586520C /* GroupContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupContentView.swift; sourceTree = "<group>"; };
 		8B998F7FE00D8C6BCB779630 /* PostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTests.swift; sourceTree = "<group>"; };
+		8E7D27B6A55C75710F9E7020 /* SelectionHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionHistoryTests.swift; sourceTree = "<group>"; };
 		8F71722D77776B254C2229DF /* SidebarViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewModelTests.swift; sourceTree = "<group>"; };
 		918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraperTests.swift; sourceTree = "<group>"; };
 		9234364D503F866937BBE86C /* ThreadScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadScraper.swift; sourceTree = "<group>"; };
@@ -311,6 +314,7 @@
 		ADFC3883CAF3F0D75FC2773B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteWriteHelper.swift; sourceTree = "<group>"; };
 		B196EB48B113AFB1FFB67B81 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B2827B27C334637C64FD1C51 /* SelectionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionHistory.swift; sourceTree = "<group>"; };
 		B3235AE5DB7844DB51A86A7A /* ReplyAuthor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyAuthor.swift; sourceTree = "<group>"; };
 		B5589196DEE443DE292FDA88 /* StratifiedSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StratifiedSamplerTests.swift; sourceTree = "<group>"; };
 		B60B1BC949BB1C979F616110 /* AccountGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountGroup.swift; sourceTree = "<group>"; };
@@ -419,6 +423,7 @@
 		12491A1AF87DF3D817DC4EBA /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				8E7D27B6A55C75710F9E7020 /* SelectionHistoryTests.swift */,
 				8F71722D77776B254C2229DF /* SidebarViewModelTests.swift */,
 			);
 			path = ViewModels;
@@ -505,6 +510,7 @@
 				B9A17BA1B0564E23F22F868F /* ChartsViewModel.swift */,
 				3767034503F048488CB75ED8 /* GroupViewModel.swift */,
 				5926ECE6BF88360F64A8A249 /* QueueViewModel.swift */,
+				B2827B27C334637C64FD1C51 /* SelectionHistory.swift */,
 				CF890C358D68F18FEF4165F6 /* SidebarViewModel.swift */,
 				DAFA0B786ADDCE34214193F6 /* ThreadViewModel.swift */,
 			);
@@ -1021,6 +1027,7 @@
 				CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */,
 				1FCE169E806A3375D2D631EA /* ScrapeOrderTests.swift in Sources */,
 				3D3D5FF34A64773027189028 /* ScrapeSessionTests.swift in Sources */,
+				433F131177A0C0C9790A9DBA /* SelectionHistoryTests.swift in Sources */,
 				BFA9F7AB69A2C7E1DB0E9A43 /* SidebarViewModelTests.swift in Sources */,
 				6D4CEB6583DFAD105AB3A554 /* StoreFixture.swift in Sources */,
 				5A01839E4B34769EF95EA961 /* StratifiedSamplerTests.swift in Sources */,
@@ -1131,6 +1138,7 @@
 				1DCCE24743E611AFF30583CE /* ScrapeOrder.swift in Sources */,
 				84D8848E186F57EC7BA70311 /* ScrapeSession.swift in Sources */,
 				76D90D15568F87D55C6F9850 /* ScrapingSettingsView.swift in Sources */,
+				E12EFAF89EA0F780BE6641FB /* SelectionHistory.swift in Sources */,
 				6DCFF3995904B7BA06647C7B /* SentimentIndicator.swift in Sources */,
 				0AF7210CF1F7B7EEA4BF5EF5 /* SettingsView.swift in Sources */,
 				7E54D60EA393803A2B7EB11D /* SidebarView.swift in Sources */,

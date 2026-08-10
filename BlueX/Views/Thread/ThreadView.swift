@@ -4,12 +4,16 @@ import SwiftData
 
 struct ThreadView: View {
     let rootPost: Post
+    var canGoBack: Bool = false
+    var onBack: (() -> Void)? = nil
 
     @State private var viewModel = ThreadViewModel()
     @Query private var allPosts: [Post]
 
-    init(rootPost: Post) {
+    init(rootPost: Post, canGoBack: Bool = false, onBack: (() -> Void)? = nil) {
         self.rootPost = rootPost
+        self.canGoBack = canGoBack
+        self.onBack = onBack
         let rootURI = rootPost.rootURI
         self._allPosts = Query(
             filter: #Predicate<Post> { $0.rootURI == rootURI },
@@ -23,6 +27,18 @@ struct ThreadView: View {
         VStack(spacing: 0) {
             // Thread header
             HStack {
+                Button {
+                    onBack?()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(canGoBack ? Color.secondaryText : Color.mutedText)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canGoBack)
+                .keyboardShortcut("[", modifiers: .command)
+                .help("Back")
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Thread")
                         .font(.headline)
