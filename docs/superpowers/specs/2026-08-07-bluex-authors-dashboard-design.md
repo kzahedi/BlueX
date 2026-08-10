@@ -100,11 +100,22 @@ tested and both failed in the form this spec originally proposed:
    `.indexed` case — it is a compile error, not a silently-ignored no-op as this spec
    assumed. SwiftData's actual mechanism is the `#Index<Model>` macro, which requires
    **macOS 15+**, above this project's `deploymentTarget: macOS 14.0`. Unavailable.
-2. **A one-time `CREATE INDEX IF NOT EXISTS` is not migration-durable.** Forcing a
-   lightweight migration (adding an optional property to `Post`) **dropped all three**
-   hand-created indexes; only Core Data's own `ZPOST_ZACCOUNT_INDEX` survived.
-   `PRAGMA quick_check` remained `ok`, so this is index loss rather than corruption — and
-   it would be silent, degrading queries back to full scans with nothing reporting it.
+2. **A one-time `CREATE INDEX IF NOT EXISTS` did not survive a model change.** After
+   adding an optional property to `Post` and reopening, **all three hand-created indexes
+   were gone**; only Core Data's own `ZPOST_ZACCOUNT_INDEX` remained, with
+   `PRAGMA quick_check` still `ok`. The loss is silent — queries revert to full scans with
+   nothing reporting it.
+
+   **Caveat on the mechanism, recorded honestly.** The probe store held **zero `Post`
+   rows**, so data survival — the strongest evidence of an *in-place* migration — was
+   never observable. It is therefore NOT established whether SwiftData migrated the store
+   and dropped the indexes, or simply rebuilt it from scratch. The observed *outcome*
+   (indexes absent after a model change) is solid; the *mechanism* is not. Anyone
+   re-testing should use a probe store containing rows, so data survival distinguishes the
+   two cases.
+
+   This does not change the decision: under either mechanism the indexes vanish silently
+   after a model change, and the mitigation is identical.
 
 **Decision: assert the indexes idempotently on every store open**, from a short-lived
 write connection opened before any `AggregateReader` read connection.
