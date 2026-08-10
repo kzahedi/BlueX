@@ -92,21 +92,29 @@ All aggregation runs off the MainActor.
 Add indexes on `ZAUTHORDID` and `ZROOTURI`. The store has one index today
 (`ZPOST_ZACCOUNT_INDEX`), which is why the reply scan is a full table scan.
 
-**How the indexes get created is an open question, not a settled decision.** Two candidate
-routes, and the implementation must verify one before relying on it:
+**SETTLED 2026-08-10 by measurement.** Evidence:
+`docs/superpowers/notes/2026-08-07-index-route-measurement.md`. Both candidate routes were
+tested and both failed in the form this spec originally proposed:
 
-1. `@Attribute(.indexed)` on `Post.authorDID` and `Post.rootURI`, letting SwiftData create
-   them via lightweight migration. Native, but SwiftData's indexing support on the
-   deployment target (macOS 14.0) is limited and must be confirmed to actually emit an
-   index rather than being silently ignored.
-2. `CREATE INDEX IF NOT EXISTS` issued directly. Requires a write connection, so it cannot
-   come from the read-only reader, and it must be proven that Core Data tolerates indexes
-   it did not create — including across a future lightweight migration, which rebuilds
-   tables and may drop them.
+1. **`@Attribute(.indexed)` does not exist on this SDK.** `Schema.Attribute.Option` has no
+   `.indexed` case — it is a compile error, not a silently-ignored no-op as this spec
+   assumed. SwiftData's actual mechanism is the `#Index<Model>` macro, which requires
+   **macOS 15+**, above this project's `deploymentTarget: macOS 14.0`. Unavailable.
+2. **A one-time `CREATE INDEX IF NOT EXISTS` is not migration-durable.** Forcing a
+   lightweight migration (adding an optional property to `Post`) **dropped all three**
+   hand-created indexes; only Core Data's own `ZPOST_ZACCOUNT_INDEX` survived.
+   `PRAGMA quick_check` remained `ok`, so this is index loss rather than corruption — and
+   it would be silent, degrading queries back to full scans with nothing reporting it.
 
-Route 1 is preferred if it works, because it survives migrations by construction. The
-first implementation task settles this by measurement — creating the index and confirming
-with `EXPLAIN QUERY PLAN` that the reply query stops being a full scan.
+**Decision: assert the indexes idempotently on every store open**, from a short-lived
+write connection opened before any `AggregateReader` read connection.
+`CREATE INDEX IF NOT EXISTS` against an already-indexed table is a `sqlite_master` lookup,
+not a rebuild, so it costs nothing in the normal case and self-heals exactly when a
+migration has dropped them. This is the same pattern Core Data uses for its own index.
+
+Applying this to the live store is an **attended** step. A corpus scrape and a label
+harvester write to `/Volumes/Eregion/bluex-data` continuously; building an index under an
+active writer risks lock contention on 1.5M rows of irreplaceable research data.
 
 ### Navigation
 
@@ -197,8 +205,12 @@ problem.
 - **Backfill insert time is unmeasured.** The SQL fold is 0.5s; inserting 146,541
   `ReplyAuthor` rows through SwiftData is expected to take minutes, but that is an
   estimate. The first real run replaces it.
-- **Index creation route and cost are both unsettled** — see *Indexes*. Whether
-  `@Attribute(.indexed)` emits a real index on macOS 14, and whether a hand-created index
-  survives lightweight migration, are questions the first task answers by measurement.
+- **Index creation route — RESOLVED 2026-08-10** by measurement; see *Indexes* above and
+  `docs/superpowers/notes/2026-08-07-index-route-measurement.md`. `@Attribute(.indexed)`
+  does not exist on this SDK, and hand-created indexes do not survive a lightweight
+  migration. Resolution: re-assert them idempotently on every store open.
+- **Index build cost on the live store is still unmeasured.** The 874 MB store has never
+  had these indexes built. Expected seconds to low minutes, but that is an estimate, and
+  it must be done with the store idle — not under the active scrape and label harvester.
 - **Cross-outlet participation stays confounded** until spiegel, zeit and theguardian are
   fully scraped.
