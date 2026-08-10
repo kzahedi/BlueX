@@ -124,6 +124,7 @@
 		76251AA5DB29B65FD817AC42 /* BlueskyAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */; };
 		76D90D15568F87D55C6F9850 /* ScrapingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17BD7F5B327BFA1F0C892C6 /* ScrapingSettingsView.swift */; };
 		773553EDED707C260631C287 /* CredentialsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAF14F9783E11604DF39941 /* CredentialsSettingsView.swift */; };
+		77B111A8EB277442180EA969 /* AggregateReaderPopulationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DEF1FF49DE667EF25C3C4B8 /* AggregateReaderPopulationTests.swift */; };
 		783DE29474702F37B0E98656 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
 		7872BD6448F05B7D525636DA /* AnnotationDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */; };
 		78EA1B61E16F4547EBA976F3 /* KeychainAPIKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D8025D5316354901AB67E3 /* KeychainAPIKey.swift */; };
@@ -274,6 +275,7 @@
 		57335A54B79DED201CE8F20B /* AccountChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountChartsView.swift; sourceTree = "<group>"; };
 		5926ECE6BF88360F64A8A249 /* QueueViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueViewModel.swift; sourceTree = "<group>"; };
 		5C5ACFA429CE515472C68804 /* AccountViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountViewModel.swift; sourceTree = "<group>"; };
+		5DEF1FF49DE667EF25C3C4B8 /* AggregateReaderPopulationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateReaderPopulationTests.swift; sourceTree = "<group>"; };
 		5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorState.swift; sourceTree = "<group>"; };
 		5E74DD6D8DEF8F94D6792FCB /* GroupChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChartsView.swift; sourceTree = "<group>"; };
 		62B611ED2E97467D003931E9 /* BlueXAnnotate */ = {isa = PBXFileReference; includeInIndex = 0; path = BlueXAnnotate; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -575,6 +577,7 @@
 			isa = PBXGroup;
 			children = (
 				A5950F24239CC9F25B7E079B /* AggregateReaderAuthorTests.swift */,
+				5DEF1FF49DE667EF25C3C4B8 /* AggregateReaderPopulationTests.swift */,
 				BA7D246687097397C2EF909D /* AggregateReaderSchemaTests.swift */,
 				34A28EFDC3A1BAB049731CB3 /* IndexPlanTests.swift */,
 				64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */,
@@ -996,6 +999,7 @@
 				74A81D98336D962BC66B5100 /* AccountSeederTests.swift in Sources */,
 				85DBCF6E5DD7D09BF4E9E321 /* AccountSnapshotTests.swift in Sources */,
 				BF276F966C37B41C35F449BE /* AggregateReaderAuthorTests.swift in Sources */,
+				77B111A8EB277442180EA969 /* AggregateReaderPopulationTests.swift in Sources */,
 				F008F099C31C89B7E65B9FB3 /* AggregateReaderSchemaTests.swift in Sources */,
 				0EF2E61C34C035AAB144C754 /* AnnotationBadgeTests.swift in Sources */,
 				40E11094CC1D72F733AAAD72 /* AnnotationDedupTests.swift in Sources */,
