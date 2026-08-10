@@ -9,22 +9,33 @@ struct AccountContentView: View {
 
     @State private var viewModel = AccountViewModel()
     @Environment(\.modelContext) private var modelContext
-    @Query private var allPosts: [Post]
+
+    @State private var reader: AggregateReader?
+    @State private var rootRows: [RootPostSummary] = []
+    /// How many trees match the current reply-count filter, in total — not just the
+    /// capped page in `rootRows`. Surfaced so a filter that hides most of the corpus is
+    /// visible, not implied.
+    @State private var matchingCount: Int = 0
+    @State private var loadError: String?
+
+    /// Caps the page pulled from SQL per filter change. Large enough that ordinary
+    /// browsing never notices it; the point is to stop pulling the *whole* account
+    /// (up to 39k roots), not to paginate deliberately — see task-7 brief on why
+    /// pagination was evaluated and rejected for reply trees.
+    private static let rowLimit = 1000
 
     init(account: TrackedAccount, selection: Binding<SidebarItem?>,
          onScrapeAccount: ((TrackedAccount) -> Void)? = nil) {
         self.account = account
         self._selection = selection
         self.onScrapeAccount = onScrapeAccount
-        let did = account.did
-        // `allPosts` are this account's root posts only (replies have account == nil).
-        // The list view shows roots — replies live in the thread view. Stat chips need
-        // BOTH roots and replies, so we fetch replies separately in refreshCounts().
-        self._allPosts = Query(
-            filter: #Predicate<Post> { $0.account?.did == did },
-            sort: \Post.createdAt,
-            order: .reverse
-        )
+    }
+
+    /// Identifies everything a reload depends on: which account, and which reply-count
+    /// range. Changing any of these re-runs the SQL query; nothing else does.
+    private var reloadKey: String {
+        let bounds = viewModel.replyCountBounds
+        return "\(account.did)|\(bounds.min ?? -1)|\(bounds.max ?? -1)"
     }
 
     var body: some View {
@@ -43,6 +54,14 @@ struct AccountContentView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
+                    Button {
+                        Task { await reload() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh from the store")
                     if let onScrapeAccount {
                         Button {
                             onScrapeAccount(account)
@@ -56,6 +75,11 @@ struct AccountContentView: View {
                         .tint(Color.selectedBackground)
                     }
                 }
+                if let loadError {
+                    Text(loadError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.hateBorder)
+                }
                 statsRow
                 filterBar
             }
@@ -66,13 +90,13 @@ struct AccountContentView: View {
                 .background(Color.neutralBorder)
 
             // Post list
-            let filtered = viewModel.filteredPosts(allPosts)
+            let filtered = viewModel.filteredRootPosts(rootRows)
             if filtered.isEmpty {
                 emptyState
             } else {
-                List(filtered, id: \.uri) { post in
-                    PostSummaryRow(post: post) {
-                        selection = .post(post)
+                List(filtered, id: \.uri) { row in
+                    RootPostSummaryRow(row: row, accountHandle: account.handle) {
+                        selectRoot(row)
                     }
                     .listRowBackground(Color.appBackground)
                     .listRowSeparatorTint(Color.neutralBorder)
@@ -83,37 +107,52 @@ struct AccountContentView: View {
             }
         }
         .background(Color.appBackground)
-        .onChange(of: allPosts) { _, _ in
-            refreshCounts()
-        }
-        .onAppear { refreshCounts() }
+        .task(id: reloadKey) { await reload() }
     }
 
-    /// Roots + replies for stat chips. The reply fetch is one query that scoops every
-    /// non-root post whose `rootURI` belongs to one of this account's roots; small
-    /// per-account, and cached by SwiftData.
-    private func refreshCounts() {
-        let rootURIs = Set(allPosts.map(\.uri))
-        if rootURIs.isEmpty {
-            viewModel.updateCounts(from: allPosts)
-            return
-        }
-        let descriptor = FetchDescriptor<Post>(
-            predicate: #Predicate<Post> { post in
-                !post.isRootPost && rootURIs.contains(post.rootURI)
+    /// Loads this account's root posts within the current reply-count range, plus the
+    /// total match count for the same range — both via SQL aggregates
+    /// (`AggregateReader.rootPosts`/`rootPostCount`). Replaces a `@Query` over every root
+    /// post and a `Set`-predicate fetch of every reply belonging to it, which together
+    /// materialised up to ~1.08M `Post` objects per account click.
+    private func reload() async {
+        do {
+            let reader = try self.reader ?? AggregateReader()
+            self.reader = reader
+            guard let pk = try reader.accountPK(did: account.did) else {
+                loadError = "Account not found in the store (did: \(account.did))"
+                rootRows = []
+                matchingCount = 0
+                return
             }
-        )
-        let replies = (try? modelContext.fetch(descriptor)) ?? []
-        viewModel.updateCounts(from: allPosts + replies)
+            let bounds = viewModel.replyCountBounds
+            let rows = try reader.rootPosts(accountPK: pk, minReplies: bounds.min,
+                                             maxReplies: bounds.max, limit: Self.rowLimit)
+            let count = try reader.rootPostCount(accountPK: pk, minReplies: bounds.min,
+                                                  maxReplies: bounds.max)
+            rootRows = rows
+            matchingCount = count
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// Navigation still needs a real `Post` (`SidebarItem.post` is typed to it), so this
+    /// fetches exactly the one row the user tapped — never the whole account.
+    private func selectRoot(_ row: RootPostSummary) {
+        let uri = row.uri
+        let descriptor = FetchDescriptor<Post>(predicate: #Predicate<Post> { $0.uri == uri })
+        if let post = try? modelContext.fetch(descriptor).first {
+            selection = .post(post)
+        }
     }
 
     private var statsRow: some View {
         HStack(spacing: 8) {
-            statBadge(label: "hate", count: viewModel.hateCount, color: .hateBorder)
-            statBadge(label: "counter", count: viewModel.counterCount, color: .counterBorder)
-            statBadge(label: "neutral", count: viewModel.neutralCount, color: .neutralBorder)
-            if viewModel.pendingCount > 0 {
-                statBadge(label: "pending", count: viewModel.pendingCount, color: .mutedText)
+            statBadge(label: "trees loaded", count: rootRows.count, color: .neutralBorder)
+            if matchingCount != rootRows.count {
+                statBadge(label: "match filter", count: matchingCount, color: .counterBorder)
             }
         }
     }
@@ -152,18 +191,7 @@ struct AccountContentView: View {
             .background(Color.appBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            Menu {
-                Button("All") { viewModel.filterClass = nil }
-                Divider()
-                Button("Hate only") { viewModel.filterClass = "hate" }
-                Button("Counter only") { viewModel.filterClass = "counter" }
-                Button("Neutral only") { viewModel.filterClass = "neutral" }
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(viewModel.filterClass != nil ? Color.counterBorder : Color.mutedText)
-            }
-            .menuStyle(.borderlessButton)
+            replyCountFilterMenu
 
             Button {
                 viewModel.sortNewestFirst.toggle()
@@ -174,6 +202,46 @@ struct AccountContentView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Reply-count range filter — "trees with certain sizes are more interesting than
+    /// others." Presets mirror the corpus's measured tree-size distribution; filtering
+    /// happens in SQL (`reload()`), never in memory.
+    private var replyCountFilterMenu: some View {
+        Menu {
+            ForEach(ReplyCountPreset.allCases.filter { $0 != .custom }) { preset in
+                Button {
+                    viewModel.replyCountPreset = preset
+                } label: {
+                    if viewModel.replyCountPreset == preset {
+                        Label(preset.label, systemImage: "checkmark")
+                    } else {
+                        Text(preset.label)
+                    }
+                }
+            }
+            Divider()
+            Menu("More than…") {
+                ForEach([10, 25, 50, 100, 250, 500], id: \.self) { n in
+                    Button("More than \(n)") {
+                        viewModel.customMinReplies = n
+                        viewModel.replyCountPreset = .custom
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 14))
+                Text(viewModel.replyCountPreset == .custom
+                     ? "More than \(viewModel.customMinReplies)"
+                     : viewModel.replyCountPreset.label)
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(viewModel.replyCountPreset != .any ? Color.counterBorder : Color.mutedText)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private var emptyState: some View {
@@ -190,43 +258,37 @@ struct AccountContentView: View {
     }
 }
 
-// MARK: - PostSummaryRow
+// MARK: - RootPostSummaryRow
 
-private struct PostSummaryRow: View {
-    let post: Post
+private struct RootPostSummaryRow: View {
+    let row: RootPostSummary
+    let accountHandle: String
     let onSelect: () -> Void
-
-    private var latestAnnotation: Annotation? {
-        post.currentLLMAnnotation
-    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Rectangle()
-                .fill(borderColor)
+                .fill(statusColor)
                 .frame(width: 3)
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("@\(post.authorHandle)")
+                    Text("@\(accountHandle)")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.secondaryText)
                     Spacer()
-                    SentimentIndicator(score: post.nlTaggerAnnotation?.sentimentScore)
-                    if let annotation = latestAnnotation {
-                        AnnotationBadge(annotation: annotation)
-                    }
-                    Text(post.createdAt, style: .relative)
+                    statusBadge
+                    Text(row.createdAt, style: .relative)
                         .font(.system(size: 10))
                         .foregroundStyle(Color.mutedText)
                 }
-                Text(post.text)
+                Text(row.text)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.primaryText)
                     .lineLimit(2)
-                if post.replyCount > 0 {
-                    Text("\(post.replyCount) replies")
+                if row.replyCount > 0 {
+                    Text("\(row.replyCount) replies")
                         .font(.system(size: 10))
                         .foregroundStyle(Color.mutedText)
                 }
@@ -237,10 +299,35 @@ private struct PostSummaryRow: View {
         .onTapGesture { onSelect() }
     }
 
-    private var borderColor: Color {
-        guard let annotation = latestAnnotation else {
-            return Color(red: 0.200, green: 0.255, blue: 0.333)
+    /// A small tree can mean a genuinely quiet thread, or a scrape that hasn't finished
+    /// yet — `replyTreeStatus` is what tells those apart, so it rides along on every row
+    /// rather than only being available as a filter.
+    private var status: ReplyTreeStatus {
+        ReplyTreeStatus(rawValue: row.replyTreeStatus) ?? .pending
+    }
+
+    private var statusColor: Color {
+        switch status {
+        case .complete:   return Color(red: 0.200, green: 0.255, blue: 0.333)
+        case .inProgress: return Color.counterBorder
+        case .pending:    return Color.mutedText
         }
-        return Color.speechClassBorder(annotation.speechClass)
+    }
+
+    private var statusBadge: some View {
+        Group {
+            switch status {
+            case .complete:
+                EmptyView()
+            case .inProgress:
+                Text("scraping…")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.counterBorder)
+            case .pending:
+                Text("not scraped")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.mutedText)
+            }
+        }
     }
 }

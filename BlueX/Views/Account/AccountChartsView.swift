@@ -1,47 +1,33 @@
 // BlueX/Views/Account/AccountChartsView.swift
 import SwiftUI
 import Charts
-import SwiftData
 
 struct AccountChartsView: View {
     let account: TrackedAccount
 
     @State private var viewModel = ChartsViewModel()
-    @State private var recomputeTask: Task<Void, Never>?
-    @Environment(\.modelContext) private var modelContext
-    @Query private var posts: [Post]      // account's authored root posts
+    @State private var reader: AggregateReader?
+    @State private var loadError: String?
 
     private var sortedSnapshots: [AccountSnapshot] {
         account.snapshots.sorted { $0.timestamp < $1.timestamp }
     }
 
-    init(account: TrackedAccount) {
-        self.account = account
-        let did = account.did
-        self._posts = Query(
-            filter: #Predicate<Post> { $0.account?.did == did },
-            sort: \Post.createdAt
-        )
-    }
-
-    /// Recompute the chart's buckets. Fetches only the replies that belong to this
-    /// account's root posts (replies have no account relationship, so this is the only
-    /// way to scope them). Called via `scheduleRecompute()` which debounces rapid scrape
-    /// saves to keep the main thread responsive.
-    private func recompute() {
-        let rootURIs = Set(posts.map { $0.uri })
-        let replies = (try? modelContext.fetch(FetchDescriptor<Post>(
-            predicate: #Predicate<Post> { !$0.isRootPost && rootURIs.contains($0.rootURI) }
-        ))) ?? []
-        viewModel.computeBuckets(from: posts + replies)
-    }
-
-    private func scheduleRecompute() {
-        recomputeTask?.cancel()
-        recomputeTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000)  // 300 ms
-            guard !Task.isCancelled else { return }
-            recompute()
+    /// Resolves this account's `Z_PK` (SwiftData does not expose it) and loads its
+    /// weekly buckets from the SQL aggregates — off the main actor. Replaces a `@Query`
+    /// over every root post plus a `Set`-predicate fetch of every reply, which together
+    /// materialised up to ~874k `Post` objects per account click.
+    private func load() async {
+        do {
+            let reader = try self.reader ?? AggregateReader()
+            self.reader = reader
+            guard let pk = try reader.accountPK(did: account.did) else {
+                loadError = "Account not found in the store (did: \(account.did))"
+                return
+            }
+            await viewModel.load(accountPKs: [pk], reader: reader)
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 
@@ -59,6 +45,13 @@ struct AccountChartsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
+
+                if let loadError {
+                    Text(loadError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.hateBorder)
+                        .padding(.horizontal, 16)
+                }
 
                 // Summary chips
                 summaryRow
@@ -95,9 +88,7 @@ struct AccountChartsView: View {
             }
         }
         .background(Color.appBackground)
-        .onAppear { recompute() }
-        .onChange(of: posts) { _, _ in scheduleRecompute() }
-        .onDisappear { recomputeTask?.cancel() }
+        .task(id: account.did) { await load() }
     }
 
     // MARK: - Summary Row

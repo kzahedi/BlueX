@@ -43,7 +43,7 @@ final class AggregateReader: @unchecked Sendable {
 
     private static let required: [String: [String]] = [
         "ZPOST": ["ZURI", "ZTEXT", "ZCREATEDAT", "ZAUTHORDID", "ZAUTHORHANDLE",
-                  "ZROOTURI", "ZISROOTPOST", "ZACCOUNT"],
+                  "ZROOTURI", "ZISROOTPOST", "ZACCOUNT", "ZREPLYTREESTATUS"],
         "ZTRACKEDACCOUNT": ["Z_PK", "ZHANDLE"],
         "ZREPLYAUTHOR": ["ZDID", "ZFIRSTSEENAT", "ZLASTSEENAT",
                          "ZCURRENTHANDLE", "ZCURRENTSTATUS", "ZLASTPROBEDAT"],
@@ -307,6 +307,17 @@ final class AggregateReader: @unchecked Sendable {
             .sorted { $0.weekStart < $1.weekStart }
     }
 
+    // MARK: - Account lookup
+
+    /// `TrackedAccount`'s Core Data primary key, resolved by DID. SwiftData does not
+    /// expose `Z_PK` on the model, and the SQL aggregates below key everything off it —
+    /// so views must go through this rather than guessing or hardcoding the PK.
+    func accountPK(did: String) throws -> Int64? {
+        try conn.query(
+            "SELECT Z_PK FROM ZTRACKEDACCOUNT WHERE ZDID = ?", [.text(did)]
+        ) { try $0.int(0) }.first
+    }
+
     // MARK: - Charts (account/group aggregate views)
 
     /// Replies to any root post owned by the given accounts, bucketed by ISO week.
@@ -359,6 +370,57 @@ final class AggregateReader: @unchecked Sendable {
                    maxReplies: Int? = nil,
                    limit: Int) throws -> [RootPostSummary] {
         var bind: [SQLValue] = [.int(accountPK)]
+        let having = Self.havingClause(minReplies: minReplies, maxReplies: maxReplies, bind: &bind)
+        bind.append(.int(Int64(limit)))
+
+        let sql = """
+        SELECT r.ZURI, r.ZTEXT, r.ZCREATEDAT, COUNT(p.ZURI) AS c, r.ZREPLYTREESTATUS
+        FROM ZPOST r
+        LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
+        WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
+        GROUP BY r.ZURI, r.ZTEXT, r.ZCREATEDAT, r.ZREPLYTREESTATUS
+        \(having)
+        ORDER BY c DESC
+        LIMIT ?
+        """
+        return try conn.query(sql, bind) { r in
+            RootPostSummary(
+                uri: try r.text(0) ?? "",
+                text: try r.text(1) ?? "",
+                createdAt: Self.date(fromCoreData: try r.double(2)),
+                replyCount: Int(try r.int(3)),
+                replyTreeStatus: try r.text(4) ?? "pending"
+            )
+        }
+    }
+
+    /// How many of an account's root posts fall in a reply-count range — the same
+    /// `HAVING` filter as `rootPosts(accountPK:minReplies:maxReplies:)`, but counting the
+    /// matches instead of returning a capped page of them. Lets the UI say "3,419 trees
+    /// match" without materialising any of them.
+    func rootPostCount(accountPK: Int64,
+                        minReplies: Int? = nil,
+                        maxReplies: Int? = nil) throws -> Int {
+        var bind: [SQLValue] = [.int(accountPK)]
+        let having = Self.havingClause(minReplies: minReplies, maxReplies: maxReplies, bind: &bind)
+
+        let sql = """
+        SELECT COUNT(*) FROM (
+            SELECT r.ZURI, COUNT(p.ZURI) AS c
+            FROM ZPOST r
+            LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
+            WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
+            GROUP BY r.ZURI
+            \(having)
+        )
+        """
+        return try conn.query(sql, bind) { try Int($0.int(0)) }.first ?? 0
+    }
+
+    /// Shared `HAVING` fragment for the reply-count range filter. An absent `maxReplies`
+    /// must mean unbounded — never a silent cap — so it is simply omitted from the clause.
+    private static func havingClause(minReplies: Int?, maxReplies: Int?,
+                                      bind: inout [SQLValue]) -> String {
         var having: [String] = []
         if let minReplies {
             having.append("c >= ?")
@@ -368,27 +430,6 @@ final class AggregateReader: @unchecked Sendable {
             having.append("c <= ?")
             bind.append(.int(Int64(maxReplies)))
         }
-        bind.append(.int(Int64(limit)))
-
-        let havingClause = having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
-
-        let sql = """
-        SELECT r.ZURI, r.ZTEXT, r.ZCREATEDAT, COUNT(p.ZURI) AS c
-        FROM ZPOST r
-        LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
-        WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
-        GROUP BY r.ZURI, r.ZTEXT, r.ZCREATEDAT
-        \(havingClause)
-        ORDER BY c DESC
-        LIMIT ?
-        """
-        return try conn.query(sql, bind) { r in
-            RootPostSummary(
-                uri: try r.text(0) ?? "",
-                text: try r.text(1) ?? "",
-                createdAt: Self.date(fromCoreData: try r.double(2)),
-                replyCount: Int(try r.int(3))
-            )
-        }
+        return having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
     }
 }

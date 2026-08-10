@@ -157,4 +157,48 @@ final class AggregateReaderChartsTests: XCTestCase {
         XCTAssertEqual(top.text, "text")
         XCTAssertEqual(top.createdAt, StoreFixture.date("2024-01-05T00:00:00Z"))
     }
+
+    func testRootPostsCarriesReplyTreeStatus() throws {
+        // The fixture defaults every ZPOST row's ZREPLYTREESTATUS to 'complete'.
+        let countsReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostCounts())
+        let roots = try countsReader.rootPosts(accountPK: 1, limit: 10)
+        XCTAssertTrue(roots.allSatisfy { $0.replyTreeStatus == "complete" },
+                      "small trees are a lower bound, not necessarily quiet — the scrape " +
+                      "status must ride along so the UI can tell the two apart")
+    }
+
+    // MARK: - rootPostCount
+
+    func testRootPostCountMatchesTheRowCountOfRootPostsForTheSameFilter() throws {
+        let countsReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostCounts())
+        let count = try countsReader.rootPostCount(accountPK: 1, minReplies: 50, maxReplies: 100)
+        XCTAssertEqual(count, 2, "50 and 75 fall in range; 3, 0 and 120 do not")
+    }
+
+    func testRootPostCountWithNoFilterCountsAllRootsIncludingZeroReplies() throws {
+        let countsReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostCounts())
+        XCTAssertEqual(try countsReader.rootPostCount(accountPK: 1), 5)
+    }
+
+    func testRootPostCountAbsentMaxIsUnbounded() throws {
+        let countsReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostCounts())
+        XCTAssertEqual(try countsReader.rootPostCount(accountPK: 1, minReplies: 100), 1,
+                       "only 120 has 100+ replies; no maxReplies must not cap it out")
+    }
+
+    func testRootPostCountUnknownAccountIsZero() throws {
+        let countsReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostCounts())
+        XCTAssertEqual(try countsReader.rootPostCount(accountPK: 999), 0)
+    }
+
+    // MARK: - accountPK
+
+    func testAccountPKResolvesByDID() throws {
+        XCTAssertEqual(try reader.accountPK(did: "did:o1"), 1)
+        XCTAssertEqual(try reader.accountPK(did: "did:o2"), 2)
+    }
+
+    func testAccountPKUnknownDIDReturnsNil() throws {
+        XCTAssertNil(try reader.accountPK(did: "did:does-not-exist"))
+    }
 }

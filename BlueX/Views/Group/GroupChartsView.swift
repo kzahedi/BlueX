@@ -1,13 +1,13 @@
 // BlueX/Views/Group/GroupChartsView.swift
 import SwiftUI
 import Charts
-import SwiftData
 
 struct GroupChartsView: View {
     let group: AccountGroup
 
     @State private var viewModel = ChartsViewModel()
     @State private var selectedMetric: GroupMetric = .hate
+    @State private var loadError: String?
 
     enum GroupMetric: String, CaseIterable {
         case hate = "Hate"
@@ -34,6 +34,13 @@ struct GroupChartsView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
+                if let loadError {
+                    Text(loadError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.hateBorder)
+                        .padding(.horizontal, 16)
+                }
+
                 // Metric selector
                 metricSelector
                     .padding(.horizontal, 16)
@@ -54,8 +61,7 @@ struct GroupChartsView: View {
             }
         }
         .background(Color.appBackground)
-        .onAppear { computeAllBuckets() }
-        .onChange(of: group.accounts) { _, _ in computeAllBuckets() }
+        .task(id: group.accounts.map(\.did)) { await loadAllBuckets() }
     }
 
     // MARK: - Metric Selector
@@ -217,18 +223,30 @@ struct GroupChartsView: View {
 
     // MARK: - Helpers
 
-    private func computeAllBuckets() {
-        var avms: [String: ChartsViewModel] = [:]
-        for account in group.accounts {
-            let avm = ChartsViewModel()
-            avm.computeBuckets(from: account.posts)
-            avms[account.did] = avm
-        }
-        accountViewModels = avms
+    /// Resolves every member account's `Z_PK` and loads weekly buckets from the SQL
+    /// aggregates, off the main actor — both per-account (small multiples) and combined
+    /// across the whole group (overlaid chart). Replaces `computeBuckets(from:)` over
+    /// `account.posts`/`group.accounts.flatMap { $0.posts }`, which materialised every
+    /// root post and reply for every member account.
+    private func loadAllBuckets() async {
+        do {
+            let reader = try AggregateReader()
+            var pks: [Int64] = []
+            var avms: [String: ChartsViewModel] = [:]
 
-        // Combined buckets for the group
-        let allPosts = group.accounts.flatMap { $0.posts }
-        viewModel.computeBuckets(from: allPosts)
+            for account in group.accounts {
+                guard let pk = try reader.accountPK(did: account.did) else { continue }
+                pks.append(pk)
+                let avm = ChartsViewModel()
+                await avm.load(accountPKs: [pk], reader: reader)
+                avms[account.did] = avm
+            }
+            accountViewModels = avms
+            await viewModel.load(accountPKs: pks, reader: reader)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
     }
 
     private func noDataPlaceholder(height: CGFloat) -> some View {

@@ -28,6 +28,10 @@ struct RootPostSummary: Identifiable, Hashable {
     let text: String
     let createdAt: Date
     let replyCount: Int
+    /// Raw value of `ReplyTreeStatus` (pending/inProgress/complete). A small tree is a
+    /// lower bound, not necessarily a genuinely quiet one — it may just be incompletely
+    /// scraped, so this rides along on every row rather than being dropped.
+    let replyTreeStatus: String
 }
 
 struct OutletCount: Identifiable, Hashable {
