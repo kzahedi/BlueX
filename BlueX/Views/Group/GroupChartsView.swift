@@ -235,14 +235,17 @@ struct GroupChartsView: View {
             var avms: [String: ChartsViewModel] = [:]
 
             for account in group.accounts {
+                guard !Task.isCancelled else { return }
                 guard let pk = try reader.accountPK(did: account.did) else { continue }
                 pks.append(pk)
                 let avm = ChartsViewModel()
                 await avm.load(accountPKs: [pk], reader: reader)
                 avms[account.did] = avm
             }
+            guard !Task.isCancelled else { return }
             accountViewModels = avms
             await viewModel.load(accountPKs: pks, reader: reader)
+            guard !Task.isCancelled else { return }
             loadError = nil
         } catch {
             loadError = error.localizedDescription

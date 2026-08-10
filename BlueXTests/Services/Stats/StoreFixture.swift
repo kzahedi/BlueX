@@ -42,8 +42,18 @@ enum StoreFixture {
 
     private static func post(_ pk: Int, _ uri: String, _ did: String, _ handle: String,
                               _ iso: String, root: String, isRoot: Bool, account: Int?) -> String {
+        postWithText(pk, uri, did, handle, "text", iso, root: root, isRoot: isRoot, account: account)
+    }
+
+    /// Same shape as `post`, but with the text column set explicitly — `post` hardcodes
+    /// it to the literal string `'text'`, which is fine for fixtures that only need
+    /// distinct URIs, but useless for anything exercising a text-search filter.
+    private static func postWithText(_ pk: Int, _ uri: String, _ did: String, _ handle: String,
+                                      _ text: String, _ iso: String, root: String, isRoot: Bool,
+                                      account: Int?) -> String {
         let acct = account.map(String.init) ?? "NULL"
-        return "(\(pk),'\(uri)','text',\(cd(date(iso))),'\(did)','\(handle)'," +
+        let escapedText = text.replacingOccurrences(of: "'", with: "''")
+        return "(\(pk),'\(uri)','\(escapedText)',\(cd(date(iso))),'\(did)','\(handle)'," +
                "\(isRoot ? "NULL" : "'\(root)'"),'\(root)',\(isRoot ? 1 : 0)," +
                "\(isRoot ? 0 : 1),\(acct))"
     }
@@ -221,6 +231,70 @@ enum StoreFixture {
         for root in roots {
             rows.append(post(nextPK(), root.uri, "did:root", "outlet-one.com", root.iso,
                               root: root.uri, isRoot: true, account: 1))
+            for i in 0..<root.replies {
+                rows.append(post(nextPK(), "\(root.uri)-reply\(i)", "did:reply\(i % 5)",
+                                  "replier\(i % 5).test", root.iso, root: root.uri,
+                                  isRoot: false, account: nil))
+            }
+        }
+
+        try w.exec("""
+        INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                           ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+        VALUES \(rows.joined(separator: ","))
+        """)
+        try w.close()
+        return url
+    }
+
+    /// One account, four root posts with distinct text and reply counts, chosen to pin
+    /// down the text-search filter independently of the reply-count filter:
+    ///
+    ///   at://t-weather — "Breaking news about the weather today" — 5 replies
+    ///   at://t-percent — "Special offer: 50% off everything this week" — 3 replies —
+    ///       the literal `%` this tree exists to protect: searching for `%` must match
+    ///       only this root (its text contains a literal percent sign), not every row,
+    ///       which is what would happen if the wildcard were not escaped.
+    ///   at://t-needle  — "A quiet little needle post" — 0 replies — the LOWEST reply
+    ///       count of the four, so `ORDER BY c DESC` ranks it last. A `limit` small
+    ///       enough to exclude it from an unfiltered page must still surface it when
+    ///       searching for "needle" — proving the search runs in SQL against the whole
+    ///       account, not against whatever page happened to already be loaded.
+    ///   at://t-highest — "Nothing special here" — 100 replies — highest count, gives an
+    ///       unfiltered `ORDER BY c DESC` something to rank first, and a search with no
+    ///       matches ("giraffe") something to correctly find nothing among.
+    static func makeRootPostsWithText() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        let roots: [(uri: String, text: String, iso: String, replies: Int)] = [
+            ("at://t-weather", "Breaking news about the weather today",
+             "2024-01-01T00:00:00Z", 5),
+            ("at://t-percent", "Special offer: 50% off everything this week",
+             "2024-01-02T00:00:00Z", 3),
+            ("at://t-needle", "A quiet little needle post",
+             "2024-01-03T00:00:00Z", 0),
+            ("at://t-highest", "Nothing special here",
+             "2024-01-04T00:00:00Z", 100),
+        ]
+
+        var rows: [String] = []
+        for root in roots {
+            rows.append(postWithText(nextPK(), root.uri, "did:root", "outlet-one.com",
+                                      root.text, root.iso, root: root.uri, isRoot: true,
+                                      account: 1))
             for i in 0..<root.replies {
                 rows.append(post(nextPK(), "\(root.uri)-reply\(i)", "did:reply\(i % 5)",
                                   "replier\(i % 5).test", root.iso, root: root.uri,

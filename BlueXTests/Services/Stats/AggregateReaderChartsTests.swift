@@ -201,4 +201,75 @@ final class AggregateReaderChartsTests: XCTestCase {
     func testAccountPKUnknownDIDReturnsNil() throws {
         XCTAssertNil(try reader.accountPK(did: "did:does-not-exist"))
     }
+
+    // MARK: - rootPosts / rootPostCount textSearch
+
+    func testRootPostsTextSearchMatchesSubstringCaseInsensitively() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        let roots = try textReader.rootPosts(accountPK: 1, textSearch: "WEATHER", limit: 10)
+        XCTAssertEqual(roots.map(\.uri), ["at://t-weather"])
+    }
+
+    func testRootPostsTextSearchWithNoMatchesReturnsEmpty() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        XCTAssertTrue(try textReader.rootPosts(accountPK: 1, textSearch: "giraffe", limit: 10).isEmpty)
+    }
+
+    /// The whole point of Finding 2: a small `limit` that would exclude the lowest-ranked
+    /// root from an unfiltered page must still surface it when the search text matches —
+    /// proving the search runs in SQL against the whole account, not against whatever
+    /// page happened to already be loaded in memory.
+    func testRootPostsTextSearchFindsARowBeyondTheDisplayLimit() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+
+        // Unfiltered, limit 1: "needle" (0 replies) ranks last by reply count and does
+        // not appear.
+        let unfiltered = try textReader.rootPosts(accountPK: 1, limit: 1)
+        XCTAssertEqual(unfiltered.map(\.uri), ["at://t-highest"])
+
+        // Same limit, but searching for "needle" finds it anyway.
+        let searched = try textReader.rootPosts(accountPK: 1, textSearch: "needle", limit: 1)
+        XCTAssertEqual(searched.map(\.uri), ["at://t-needle"])
+    }
+
+    /// A literal `%` typed by the user must be matched literally, never treated as an SQL
+    /// `LIKE` wildcard — otherwise searching for "%" would match every row in the account
+    /// instead of just the one whose text contains a percent sign.
+    func testRootPostsTextSearchEscapesPercentWildcard() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        let roots = try textReader.rootPosts(accountPK: 1, textSearch: "%", limit: 10)
+        XCTAssertEqual(roots.map(\.uri), ["at://t-percent"],
+                       "an unescaped '%' would match all four roots, not just this one")
+    }
+
+    /// Same protection for `_`, SQL LIKE's single-character wildcard.
+    func testRootPostsTextSearchEscapesUnderscoreWildcard() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        // No root's text contains a literal underscore, so an escaped "_" must match
+        // nothing — an unescaped "_" would match any single character, i.e. everything.
+        XCTAssertTrue(try textReader.rootPosts(accountPK: 1, textSearch: "_", limit: 10).isEmpty)
+    }
+
+    func testRootPostsTextSearchCombinesWithReplyCountRange() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        // "weather" (5 replies) and "percent" (3 replies) both mention nothing in
+        // common except reply count; restrict to 4+ to keep only "weather".
+        let roots = try textReader.rootPosts(accountPK: 1, minReplies: 4,
+                                              textSearch: "weather", limit: 10)
+        XCTAssertEqual(roots.map(\.uri), ["at://t-weather"])
+    }
+
+    func testRootPostCountTextSearchMatchesTheSameFilterAsRootPosts() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        XCTAssertEqual(try textReader.rootPostCount(accountPK: 1, textSearch: "needle"), 1)
+        XCTAssertEqual(try textReader.rootPostCount(accountPK: 1, textSearch: "%"), 1,
+                       "count must apply the same escaped-wildcard match as rootPosts")
+        XCTAssertEqual(try textReader.rootPostCount(accountPK: 1, textSearch: "giraffe"), 0)
+    }
+
+    func testRootPostsEmptyTextSearchIsTreatedAsNoFilter() throws {
+        let textReader = try AggregateReader(storeURL: try StoreFixture.makeRootPostsWithText())
+        let roots = try textReader.rootPosts(accountPK: 1, textSearch: "", limit: 10)
+        XCTAssertEqual(roots.count, 4)
+    }
 }

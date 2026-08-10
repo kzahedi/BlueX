@@ -359,8 +359,11 @@ final class AggregateReader: @unchecked Sendable {
     }
 
     /// Root posts for an account with their reply counts, optionally restricted to a
-    /// reply-count range. Filtering happens in SQL, via `HAVING`: doing it in memory
-    /// would require loading every reply, which is what this whole task exists to stop.
+    /// reply-count range and/or a text search. Both filters happen in SQL — the reply
+    /// count via `HAVING`, the text search via `WHERE ... LIKE` — never in memory: doing
+    /// either in memory would require loading every reply, or searching only whatever
+    /// capped page happened to be in memory rather than the whole account, which is
+    /// what this whole task exists to stop.
     ///
     /// `LEFT JOIN`, not an inner join: roots with zero replies must still appear when
     /// `minReplies` is nil — an inner join would silently drop them. An absent
@@ -368,8 +371,10 @@ final class AggregateReader: @unchecked Sendable {
     func rootPosts(accountPK: Int64,
                    minReplies: Int? = nil,
                    maxReplies: Int? = nil,
+                   textSearch: String? = nil,
                    limit: Int) throws -> [RootPostSummary] {
         var bind: [SQLValue] = [.int(accountPK)]
+        let textClause = Self.textSearchClause(textSearch, bind: &bind)
         let having = Self.havingClause(minReplies: minReplies, maxReplies: maxReplies, bind: &bind)
         bind.append(.int(Int64(limit)))
 
@@ -377,7 +382,7 @@ final class AggregateReader: @unchecked Sendable {
         SELECT r.ZURI, r.ZTEXT, r.ZCREATEDAT, COUNT(p.ZURI) AS c, r.ZREPLYTREESTATUS
         FROM ZPOST r
         LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
-        WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
+        WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ? \(textClause)
         GROUP BY r.ZURI, r.ZTEXT, r.ZCREATEDAT, r.ZREPLYTREESTATUS
         \(having)
         ORDER BY c DESC
@@ -394,14 +399,17 @@ final class AggregateReader: @unchecked Sendable {
         }
     }
 
-    /// How many of an account's root posts fall in a reply-count range — the same
-    /// `HAVING` filter as `rootPosts(accountPK:minReplies:maxReplies:)`, but counting the
-    /// matches instead of returning a capped page of them. Lets the UI say "3,419 trees
-    /// match" without materialising any of them.
+    /// How many of an account's root posts match a reply-count range and/or text search —
+    /// the same filters as `rootPosts(accountPK:minReplies:maxReplies:textSearch:)`, but
+    /// counting the matches instead of returning a capped page of them. Lets the UI say
+    /// "3,419 trees match" — against the whole account, not just the loaded page — without
+    /// materialising any of them.
     func rootPostCount(accountPK: Int64,
                         minReplies: Int? = nil,
-                        maxReplies: Int? = nil) throws -> Int {
+                        maxReplies: Int? = nil,
+                        textSearch: String? = nil) throws -> Int {
         var bind: [SQLValue] = [.int(accountPK)]
+        let textClause = Self.textSearchClause(textSearch, bind: &bind)
         let having = Self.havingClause(minReplies: minReplies, maxReplies: maxReplies, bind: &bind)
 
         let sql = """
@@ -409,7 +417,7 @@ final class AggregateReader: @unchecked Sendable {
             SELECT r.ZURI, COUNT(p.ZURI) AS c
             FROM ZPOST r
             LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
-            WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
+            WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ? \(textClause)
             GROUP BY r.ZURI
             \(having)
         )
@@ -431,5 +439,28 @@ final class AggregateReader: @unchecked Sendable {
             bind.append(.int(Int64(maxReplies)))
         }
         return having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
+    }
+
+    /// Shared `WHERE` fragment for the text-search filter. Matches root post text OR
+    /// author handle — the same scope the old in-memory `AccountViewModel.filteredPosts`
+    /// covered before this task moved the search into SQL.
+    ///
+    /// The pattern is always bound as a parameter, never interpolated into the SQL
+    /// string, and `%`/`_` (SQL `LIKE` wildcards) are escaped in the user's input first —
+    /// so a literal `%` typed by the user is matched literally, not treated as a wildcard.
+    private static func textSearchClause(_ textSearch: String?, bind: inout [SQLValue]) -> String {
+        guard let textSearch, !textSearch.isEmpty else { return "" }
+        let pattern = "%\(likeEscaped(textSearch))%"
+        bind.append(.text(pattern))
+        bind.append(.text(pattern))
+        return "AND (r.ZTEXT LIKE ? ESCAPE '\\' OR r.ZAUTHORHANDLE LIKE ? ESCAPE '\\')"
+    }
+
+    /// Escapes `\`, `%`, and `_` so `textSearchClause`'s `LIKE ... ESCAPE '\'` treats
+    /// every character of the input literally rather than as a wildcard.
+    private static func likeEscaped(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "\\", with: "\\\\")
+           .replacingOccurrences(of: "%", with: "\\%")
+           .replacingOccurrences(of: "_", with: "\\_")
     }
 }
