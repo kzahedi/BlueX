@@ -42,7 +42,7 @@ final class AggregateReader: @unchecked Sendable {
     // MARK: - Schema guard
 
     private static let required: [String: [String]] = [
-        "ZPOST": ["ZURI", "ZCREATEDAT", "ZAUTHORDID", "ZAUTHORHANDLE",
+        "ZPOST": ["ZURI", "ZTEXT", "ZCREATEDAT", "ZAUTHORDID", "ZAUTHORHANDLE",
                   "ZROOTURI", "ZISROOTPOST", "ZACCOUNT"],
         "ZTRACKEDACCOUNT": ["Z_PK", "ZHANDLE"],
         "ZREPLYAUTHOR": ["ZDID", "ZFIRSTSEENAT", "ZLASTSEENAT",
@@ -305,5 +305,90 @@ final class AggregateReader: @unchecked Sendable {
         }
         return counts.map { WeekCount(weekStart: $0.key, count: $0.value) }
             .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    // MARK: - Charts (account/group aggregate views)
+
+    /// Replies to any root post owned by the given accounts, bucketed by ISO week.
+    /// Replaces a `Set.contains` predicate over up to ~1M rows materialised as `Post`.
+    func repliesPerWeek(accountPKs: [Int64]) throws -> [WeekCount] {
+        guard !accountPKs.isEmpty else { return [] }
+        let placeholders = accountPKs.map { _ in "?" }.joined(separator: ",")
+        let stamps = try conn.query("""
+            SELECT p.ZCREATEDAT
+            FROM ZPOST p
+            JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+            WHERE p.ZISROOTPOST = 0 AND r.ZACCOUNT IN (\(placeholders))
+            """, accountPKs.map { .int($0) }) { Self.date(fromCoreData: try $0.double(0)) }
+        return Self.weekly(stamps)
+    }
+
+    /// Root posts owned by the given accounts, bucketed by ISO week.
+    func rootPostsPerWeek(accountPKs: [Int64]) throws -> [WeekCount] {
+        guard !accountPKs.isEmpty else { return [] }
+        let placeholders = accountPKs.map { _ in "?" }.joined(separator: ",")
+        let stamps = try conn.query("""
+            SELECT ZCREATEDAT FROM ZPOST
+            WHERE ZISROOTPOST = 1 AND ZACCOUNT IN (\(placeholders))
+            """, accountPKs.map { .int($0) }) { Self.date(fromCoreData: try $0.double(0)) }
+        return Self.weekly(stamps)
+    }
+
+    /// ISO-week bucketing, Monday-aligned. SQLite has no ISO-week function, so the
+    /// alignment happens in Swift against the raw timestamps.
+    static func weekly(_ stamps: [Date]) -> [WeekCount] {
+        let calendar = Calendar(identifier: .iso8601)
+        var counts: [Date: Int] = [:]
+        for stamp in stamps {
+            let start = calendar.dateInterval(of: .weekOfYear, for: stamp)?.start ?? stamp
+            counts[start, default: 0] += 1
+        }
+        return counts.map { WeekCount(weekStart: $0.key, count: $0.value) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    /// Root posts for an account with their reply counts, optionally restricted to a
+    /// reply-count range. Filtering happens in SQL, via `HAVING`: doing it in memory
+    /// would require loading every reply, which is what this whole task exists to stop.
+    ///
+    /// `LEFT JOIN`, not an inner join: roots with zero replies must still appear when
+    /// `minReplies` is nil — an inner join would silently drop them. An absent
+    /// `maxReplies` means unbounded, never a silent cap.
+    func rootPosts(accountPK: Int64,
+                   minReplies: Int? = nil,
+                   maxReplies: Int? = nil,
+                   limit: Int) throws -> [RootPostSummary] {
+        var bind: [SQLValue] = [.int(accountPK)]
+        var having: [String] = []
+        if let minReplies {
+            having.append("c >= ?")
+            bind.append(.int(Int64(minReplies)))
+        }
+        if let maxReplies {
+            having.append("c <= ?")
+            bind.append(.int(Int64(maxReplies)))
+        }
+        bind.append(.int(Int64(limit)))
+
+        let havingClause = having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
+
+        let sql = """
+        SELECT r.ZURI, r.ZTEXT, r.ZCREATEDAT, COUNT(p.ZURI) AS c
+        FROM ZPOST r
+        LEFT JOIN ZPOST p ON p.ZROOTURI = r.ZURI AND p.ZISROOTPOST = 0
+        WHERE r.ZISROOTPOST = 1 AND r.ZACCOUNT = ?
+        GROUP BY r.ZURI, r.ZTEXT, r.ZCREATEDAT
+        \(havingClause)
+        ORDER BY c DESC
+        LIMIT ?
+        """
+        return try conn.query(sql, bind) { r in
+            RootPostSummary(
+                uri: try r.text(0) ?? "",
+                text: try r.text(1) ?? "",
+                createdAt: Self.date(fromCoreData: try r.double(2)),
+                replyCount: Int(try r.int(3))
+            )
+        }
     }
 }

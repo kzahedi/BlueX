@@ -22,6 +22,14 @@ struct WeekCount: Identifiable, Hashable {
     let count: Int
 }
 
+struct RootPostSummary: Identifiable, Hashable {
+    var id: String { uri }
+    let uri: String
+    let text: String
+    let createdAt: Date
+    let replyCount: Int
+}
+
 struct OutletCount: Identifiable, Hashable {
     var id: Int64 { accountPK }
     let accountPK: Int64

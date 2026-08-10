@@ -186,6 +186,56 @@ enum StoreFixture {
         return url
     }
 
+    /// One account, five root posts with reply counts 0, 3, 50, 75, 120 — chosen to
+    /// straddle the `HAVING` boundaries a reply-count range filter needs to get right:
+    /// a root with **zero** replies (must survive a `LEFT JOIN`, not an inner join),
+    /// one exactly at a `minReplies` boundary (50), one exactly at a `maxReplies`
+    /// boundary (75 sits inside 50–100; 120 sits outside it), and one with the highest
+    /// count so `ORDER BY ... DESC` + `LIMIT` has something to discriminate against.
+    static func makeRootPostCounts() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        let roots: [(uri: String, iso: String, replies: Int)] = [
+            ("at://z0", "2024-01-01T00:00:00Z", 0),
+            ("at://z1", "2024-01-02T00:00:00Z", 3),
+            ("at://z2", "2024-01-03T00:00:00Z", 50),
+            ("at://z3", "2024-01-04T00:00:00Z", 75),
+            ("at://z4", "2024-01-05T00:00:00Z", 120),
+        ]
+
+        var rows: [String] = []
+        for root in roots {
+            rows.append(post(nextPK(), root.uri, "did:root", "outlet-one.com", root.iso,
+                              root: root.uri, isRoot: true, account: 1))
+            for i in 0..<root.replies {
+                rows.append(post(nextPK(), "\(root.uri)-reply\(i)", "did:reply\(i % 5)",
+                                  "replier\(i % 5).test", root.iso, root: root.uri,
+                                  isRoot: false, account: nil))
+            }
+        }
+
+        try w.exec("""
+        INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                           ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+        VALUES \(rows.joined(separator: ","))
+        """)
+        try w.close()
+        return url
+    }
+
     /// The full Z-schema with zero rows in every table — no accounts, no posts, no reply
     /// authors. Exists to pin down `populationStats` on an empty store: no crash, and a
     /// median of 0 rather than a divide-by-zero or out-of-range index.
