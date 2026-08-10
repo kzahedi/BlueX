@@ -59,17 +59,25 @@ final class ScrapeSession {
     /// enough that createSession traffic stays negligible (~1/h).
     static let defaultRefreshAfter: TimeInterval = 75 * 60
 
-    /// Hard ceiling on re-auths (proactive *and* reactive) within a single
-    /// `withToken` call, i.e. per account phase.
+    /// Hard ceiling on re-auths that indicate *trouble* — a spurious
+    /// `TokenRefreshDue` signal, or a genuine `.authFailed` — within a single
+    /// `withToken` call, i.e. per account phase. Scheduled refreshes (the session
+    /// legitimately crossing `refreshAfter`) do not draw on this budget at all: see
+    /// `withToken`.
     ///
     /// Why a flat cap rather than a progress requirement: "progress" during a feed
     /// scrape is not observable from here (a page of already-stored posts yields
     /// nothing new yet is legitimate work), so a progress rule would either be
     /// wrong or need plumbing through the scrapers. A cap is honest and provably
-    /// finite. 16 covers ~20 h of continuous work at the 75-minute cadence — far
-    /// more than any single account phase has ever needed (the whole 12 h run
-    /// covers five accounts) — yet a server answering `.authFailed` to everything
-    /// terminates after 16 createSession round-trips instead of spinning forever.
+    /// finite: a server answering `.authFailed` to everything terminates after 16
+    /// createSession round-trips instead of spinning forever.
+    ///
+    /// This used to be justified as "~20 h of continuous work at the 75-minute
+    /// cadence", on the theory that no phase runs longer. That reasoning is what
+    /// caused the 2026-08-07 bug: it is not a duration budget, and treating it as
+    /// one truncated spiegel.de at 20h41m and tagesschau at 21h15m — both cut off
+    /// mid-scrape, with zero actual auth failures, just healthy scheduled refreshes
+    /// rationed as if they were trouble.
     static let defaultMaxReauths = 16
 
     enum RefreshReason: Equatable {
@@ -123,24 +131,36 @@ final class ScrapeSession {
     /// a genuine network failure — propagate untouched, so the caller's existing
     /// clean-exit paths keep working.
     func withToken<T>(_ operation: (String) async throws -> T) async throws -> T {
-        var reauths = 0
+        // Budget covers only re-auths that indicate trouble. Scheduled refreshes are
+        // uncapped: they are driven by wall-clock time, each one resets `issuedAt` so
+        // `isRefreshDue` goes false immediately, and they signal progress rather than
+        // failure. Rationing them killed spiegel.de at 20h41m and tagesschau at 21h15m
+        // on 2026-08-07 while both were scraping successfully.
+        var failureReauths = 0
 
-        func spend(_ reason: RefreshReason) async throws {
-            guard reauths < maxReauths else { throw AuthRetryBudgetExhausted(limit: maxReauths) }
-            reauths += 1
+        func spendFailure(_ reason: RefreshReason) async throws {
+            guard failureReauths < maxReauths else {
+                throw AuthRetryBudgetExhausted(limit: maxReauths)
+            }
+            failureReauths += 1
             try await reauthenticate(reason: reason)
         }
 
         while true {
-            if isRefreshDue { try await spend(.scheduled) }
+            if isRefreshDue { try await reauthenticate(reason: .scheduled) }
             do {
                 return try await operation(token)
             } catch is TokenRefreshDue {
-                // Spends budget even when the session is no longer due: an operation
-                // that signalled spuriously must not be able to restart forever.
-                try await spend(.scheduled)
+                if isRefreshDue {
+                    // Legitimate: the operation noticed the horizon before we did.
+                    try await reauthenticate(reason: .scheduled)
+                } else {
+                    // Spurious — an operation signalling when nothing is due could
+                    // restart forever, so this draws on the budget.
+                    try await spendFailure(.scheduled)
+                }
             } catch let error where ScrapeSession.isAuthFailure(error) {
-                try await spend(.expired)
+                try await spendFailure(.expired)
             }
         }
     }

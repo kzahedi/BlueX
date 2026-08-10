@@ -143,6 +143,113 @@ final class ScrapeSessionTests: XCTestCase {
         }
     }
 
+    /// The 2026-08-07 regression: spiegel.de (20h41m) and tagesschau (21h15m) were both
+    /// killed by `AuthRetryBudgetExhausted` while scraping successfully, because 16
+    /// scheduled refreshes at the 75-minute cadence is only 20 hours. A long, healthy
+    /// phase must never exhaust a budget meant for failures.
+    func testLongHealthyPhaseIsNotKilledByScheduledRefreshes() async throws {
+        var clock = Date(timeIntervalSince1970: 0)
+        var authCount = 0
+        let session = ScrapeSession(
+            token: "t0",
+            issuedAt: clock,
+            refreshAfter: 75 * 60,
+            maxReauths: 16,
+            now: { clock },
+            authenticate: {
+                authCount += 1
+                return .success("t\(authCount)")
+            }
+        )
+
+        // 40 scheduled refreshes = ~50 hours of continuous healthy work, well past the
+        // 20 hours that 16 refreshes covers.
+        var operationRuns = 0
+        for _ in 0..<40 {
+            clock = clock.addingTimeInterval(76 * 60)   // push past the refresh horizon
+            let result = try await session.withToken { token -> String in
+                operationRuns += 1
+                return token
+            }
+            XCTAssertFalse(result.isEmpty)
+        }
+
+        XCTAssertEqual(operationRuns, 40, "every phase must complete")
+        XCTAssertEqual(authCount, 40, "each one should have refreshed on schedule")
+    }
+
+    /// Scheduled refreshes must not eat the budget reserved for failures: after many
+    /// hours of healthy work, a full failure budget must still be available.
+    func testScheduledRefreshesDoNotConsumeTheFailureBudget() async throws {
+        var clock = Date(timeIntervalSince1970: 0)
+        var authCount = 0
+        let session = ScrapeSession(
+            token: "t0",
+            issuedAt: clock,
+            refreshAfter: 75 * 60,
+            maxReauths: 3,
+            now: { clock },
+            authenticate: {
+                authCount += 1
+                return .success("t\(authCount)")
+            }
+        )
+
+        // Burn 10 scheduled refreshes — more than maxReauths.
+        for _ in 0..<10 {
+            clock = clock.addingTimeInterval(76 * 60)
+            _ = try await session.withToken { $0 }
+        }
+
+        // The failure budget must be untouched: 2 genuine auth failures then success.
+        var attempts = 0
+        let value = try await session.withToken { _ -> String in
+            attempts += 1
+            if attempts <= 2 { throw BlueskyError.authFailed }
+            return "recovered"
+        }
+        XCTAssertEqual(value, "recovered")
+        XCTAssertEqual(attempts, 3)
+    }
+
+    /// The field bug as it actually occurs: a SINGLE `withToken` call spanning one
+    /// account phase, whose long-running operation (the per-post callback, as in
+    /// production) throws `TokenRefreshDue` each time it notices the session has
+    /// crossed the refresh horizon. Unlike the two tests above — which each make
+    /// many independent top-level `withToken` calls, and so never accumulate budget
+    /// across calls — this reproduces the one continuous call spiegel.de and
+    /// tagesschau were actually killed inside. Every signal here is legitimate
+    /// (the clock really is past `refreshAfter` each time), so none of it should
+    /// draw on the failure budget.
+    func testSingleLongPhaseWithManyLegitimateMidFlightSignalsIsNotKilled() async throws {
+        var clock = Date(timeIntervalSince1970: 0)
+        var authCount = 0
+        let session = ScrapeSession(
+            token: "t0",
+            issuedAt: clock,
+            refreshAfter: 75 * 60,
+            maxReauths: 16,
+            now: { clock },
+            authenticate: {
+                authCount += 1
+                return .success("t\(authCount)")
+            }
+        )
+
+        var operationCalls = 0
+        let result = try await session.withToken { token -> String in
+            operationCalls += 1
+            if operationCalls <= 40 {
+                clock = clock.addingTimeInterval(76 * 60)   // cross the horizon mid-flight
+                throw TokenRefreshDue()
+            }
+            return token
+        }
+
+        XCTAssertFalse(result.isEmpty)
+        XCTAssertEqual(authCount, 40, "40 legitimate mid-flight refreshes, none rationed")
+    }
+
     // MARK: - Proactive refresh
 
     func testProactiveRefreshFiresWhenSessionIsOlderThanThreshold() async throws {
