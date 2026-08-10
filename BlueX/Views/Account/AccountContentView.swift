@@ -12,11 +12,16 @@ struct AccountContentView: View {
 
     @State private var reader: AggregateReader?
     @State private var rootRows: [RootPostSummary] = []
-    /// How many trees match the current reply-count filter, in total — not just the
-    /// capped page in `rootRows`. Surfaced so a filter that hides most of the corpus is
-    /// visible, not implied.
+    /// How many trees match the current reply-count + text filters, in total — not just
+    /// the capped page in `rootRows`. Surfaced so a filter that hides most of the corpus
+    /// is visible, not implied, and so the count reflects what search actually finds
+    /// across the whole account rather than only the loaded page.
     @State private var matchingCount: Int = 0
     @State private var loadError: String?
+    /// When `rootRows` was last (re)loaded from the store. Shown next to the refresh
+    /// button so, during a multi-day scrape, stale data is visibly stale rather than
+    /// indistinguishable from current.
+    @State private var lastLoadedAt: Date?
 
     /// Caps the page pulled from SQL per filter change. Large enough that ordinary
     /// browsing never notices it; the point is to stop pulling the *whole* account
@@ -31,11 +36,12 @@ struct AccountContentView: View {
         self.onScrapeAccount = onScrapeAccount
     }
 
-    /// Identifies everything a reload depends on: which account, and which reply-count
-    /// range. Changing any of these re-runs the SQL query; nothing else does.
+    /// Identifies everything a reload depends on: which account, which reply-count
+    /// range, and the search text. Changing any of these re-runs the SQL query; nothing
+    /// else does.
     private var reloadKey: String {
         let bounds = viewModel.replyCountBounds
-        return "\(account.did)|\(bounds.min ?? -1)|\(bounds.max ?? -1)"
+        return "\(account.did)|\(bounds.min ?? -1)|\(bounds.max ?? -1)|\(viewModel.searchText)"
     }
 
     var body: some View {
@@ -54,6 +60,15 @@ struct AccountContentView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
+                    if let lastLoadedAt {
+                        HStack(spacing: 3) {
+                            Text("Updated")
+                            Text(lastLoadedAt, style: .relative)
+                        }
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.mutedText)
+                        .help("Data as of \(lastLoadedAt.formatted(date: .abbreviated, time: .standard)) — press refresh for the latest")
+                    }
                     Button {
                         Task { await reload() }
                     } label: {
@@ -110,30 +125,51 @@ struct AccountContentView: View {
         .task(id: reloadKey) { await reload() }
     }
 
-    /// Loads this account's root posts within the current reply-count range, plus the
-    /// total match count for the same range — both via SQL aggregates
+    /// Loads this account's root posts within the current reply-count range and text
+    /// search, plus the total match count for the same filters — both via SQL aggregates
     /// (`AggregateReader.rootPosts`/`rootPostCount`). Replaces a `@Query` over every root
     /// post and a `Set`-predicate fetch of every reply belonging to it, which together
     /// materialised up to ~1.08M `Post` objects per account click.
+    ///
+    /// **Debounce.** The leading sleep is not decorative: `.task(id: reloadKey)` cancels
+    /// this call and starts a fresh one on every keystroke in the search field. If the
+    /// sleep is cancelled (a new keystroke arrived), `Task.isCancelled` is true and this
+    /// returns before touching the store — so typing "hate speech" runs one query, not
+    /// eleven.
+    ///
+    /// **Cancellation vs. staleness.** Every `Task.isCancelled` check below exists to stop
+    /// a superseded load (previous account, previous filter) from publishing its result
+    /// after a newer one has already started — `.task(id:)` cancellation is cooperative,
+    /// so without these checks a slow load for account A can finish after a fast switch
+    /// to account B and overwrite B's rows with A's.
     private func reload() async {
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        guard !Task.isCancelled else { return }
         do {
             let reader = try self.reader ?? AggregateReader()
+            guard !Task.isCancelled else { return }
             self.reader = reader
             guard let pk = try reader.accountPK(did: account.did) else {
+                guard !Task.isCancelled else { return }
                 loadError = "Account not found in the store (did: \(account.did))"
                 rootRows = []
                 matchingCount = 0
                 return
             }
             let bounds = viewModel.replyCountBounds
+            let search = viewModel.searchText.isEmpty ? nil : viewModel.searchText
             let rows = try reader.rootPosts(accountPK: pk, minReplies: bounds.min,
-                                             maxReplies: bounds.max, limit: Self.rowLimit)
+                                             maxReplies: bounds.max, textSearch: search,
+                                             limit: Self.rowLimit)
             let count = try reader.rootPostCount(accountPK: pk, minReplies: bounds.min,
-                                                  maxReplies: bounds.max)
+                                                  maxReplies: bounds.max, textSearch: search)
+            guard !Task.isCancelled else { return }
             rootRows = rows
             matchingCount = count
             loadError = nil
+            lastLoadedAt = Date()
         } catch {
+            guard !Task.isCancelled else { return }
             loadError = error.localizedDescription
         }
     }

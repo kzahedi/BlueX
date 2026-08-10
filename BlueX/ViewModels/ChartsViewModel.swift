@@ -52,6 +52,15 @@ final class ChartsViewModel {
     /// and ran eight filter passes per bucket on the MainActor to produce twelve numbers.
     /// Speech-class and sentiment fields stay zero: `ZANNOTATION` is empty right now, so
     /// there is nothing to classify by yet.
+    ///
+    /// **Cancellation.** `.task(id:)` cancellation is cooperative: switching accounts
+    /// mid-load cancels this call's `Task`, but the `Task.detached` work below is not a
+    /// child of it and keeps running to completion regardless. The `Task.isCancelled`
+    /// check right after `await`ing it is what stops a slow, superseded load from
+    /// overwriting `weekBuckets` with stale data after a fast switch — without it, a
+    /// slow load for account A can finish after a quick switch to account B and publish
+    /// A's buckets under B's header. With accounts holding up to a million replies, a
+    /// slow load is the normal case here, not the exotic one.
     @MainActor
     func load(accountPKs: [Int64], reader: AggregateReader) async {
         let buckets: [WeekBucket] = await Task.detached(priority: .userInitiated) {
@@ -73,6 +82,7 @@ final class ChartsViewModel {
                 )
             }.sorted { $0.weekStart < $1.weekStart }
         }.value
+        guard !Task.isCancelled else { return }
         self.weekBuckets = buckets
     }
 

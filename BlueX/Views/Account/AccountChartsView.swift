@@ -22,11 +22,17 @@ struct AccountChartsView: View {
             let reader = try self.reader ?? AggregateReader()
             self.reader = reader
             guard let pk = try reader.accountPK(did: account.did) else {
+                guard !Task.isCancelled else { return }
                 loadError = "Account not found in the store (did: \(account.did))"
                 return
             }
+            // `viewModel.load` itself guards its own publish against cancellation; this
+            // guard covers `loadError` below, which is set outside that call.
             await viewModel.load(accountPKs: [pk], reader: reader)
+            guard !Task.isCancelled else { return }
+            loadError = nil
         } catch {
+            guard !Task.isCancelled else { return }
             loadError = error.localizedDescription
         }
     }
