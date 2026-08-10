@@ -16,6 +16,11 @@ struct RootView: View {
     @State private var sidebarVM = SidebarViewModel()
     @State private var selectedItem: SidebarItem? = nil
     @State private var coordinator: ScrapeCoordinator? = nil
+    @State private var history = SelectionHistory()
+    /// Set for the duration of a programmatic `goBack()` assignment so the resulting
+    /// `onChange` does not record the very selection we just navigated away from —
+    /// otherwise pressing back twice would bounce between two items forever.
+    @State private var isNavigatingBack = false
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
@@ -62,6 +67,19 @@ struct RootView: View {
         .onChange(of: coordinator?.accountStatuses) { _, newStatuses in
             sidebarVM.accountStatuses = newStatuses ?? [:]
         }
+        .onChange(of: selectedItem) { oldValue, _ in
+            if isNavigatingBack {
+                isNavigatingBack = false
+                return
+            }
+            history.record(oldValue)
+        }
+    }
+
+    private func goBack() {
+        guard let previous = history.goBack() else { return }
+        isNavigatingBack = true
+        selectedItem = previous
     }
 
     @ViewBuilder
@@ -76,7 +94,7 @@ struct RootView: View {
                 onScrapeAccount: { acct in coordinator?.startScrape(accountDID: acct.did) }
             )
         case .post(let post):
-            ThreadView(rootPost: post)
+            ThreadView(rootPost: post, canGoBack: history.canGoBack, onBack: goBack)
         case .queue, .settings, nil:
             Color.appBackground
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
