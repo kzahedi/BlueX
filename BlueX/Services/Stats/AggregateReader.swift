@@ -66,6 +66,14 @@ final class AggregateReader: @unchecked Sendable {
         }
     }
 
+    // MARK: - Query plan inspection
+
+    /// Returns SQLite's plan for a statement. Used to prove an index is actually used
+    /// rather than assumed.
+    func explainQueryPlan(_ sql: String) throws -> [String] {
+        try conn.query("EXPLAIN QUERY PLAN \(sql)") { try $0.text(3) ?? "" }
+    }
+
     // MARK: - Date helpers
 
     static func date(fromCoreData seconds: Double) -> Date {
