@@ -324,4 +324,67 @@ enum StoreFixture {
         try w.close()
         return url
     }
+
+    /// One outlet, one author with `slowAuthorReplyCount` replies spread across distinct
+    /// days (so `repliesPerWeek`'s per-row `Calendar` bucketing has real work to do, not
+    /// 100 rows landing in one week), and one author ("did:fast") with a single reply.
+    ///
+    /// Exists solely so a per-author detail query can be made measurably slow in a test —
+    /// `AuthorStatsViewModelTests.testRapidSelectionSettlesOnTheLastRequest` needs the
+    /// *first* of two rapid selections to still be genuinely in flight when the *second*
+    /// finishes, so that only the cancellation check (not incidental ordering) determines
+    /// which one's data survives. `StoreFixture.make()`'s existing did:n100 (100 replies)
+    /// is not remotely slow enough for that on real hardware.
+    static func makeAuthorRace(slowAuthorReplyCount: Int = 20_000) throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        var rows: [String] = [
+            post(nextPK(), "at://r1", "did:root", "outlet-one.com", "2018-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: true, account: 1),
+            post(nextPK(), "at://fast1", "did:fast", "fast.test", "2024-06-01T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+        ]
+        // Spread across ~8 years, one reply per day, so every reply lands in its own
+        // ISO week rather than collapsing into a handful of buckets.
+        for i in 0..<slowAuthorReplyCount {
+            let day = 60 * 60 * 24 * i
+            let iso = ISO8601DateFormatter().string(
+                from: date("2018-01-01T00:00:00Z").addingTimeInterval(TimeInterval(day)))
+            rows.append(post(nextPK(), "at://slow\(i)", "did:slow", "slow.test", iso,
+                              root: "at://r1", isRoot: false, account: nil))
+        }
+
+        // Batch the insert in chunks — a single multi-tens-of-thousands-row VALUES clause
+        // is unnecessarily slow to build and execute.
+        for chunk in rows.chunked(into: 2000) {
+            try w.exec("""
+            INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                               ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+            VALUES \(chunk.joined(separator: ","))
+            """)
+        }
+        try w.close()
+        return url
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
+    }
 }
