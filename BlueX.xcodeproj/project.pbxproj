@@ -20,6 +20,7 @@
 		0EF2E61C34C035AAB144C754 /* AnnotationBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F136056F3E9BB02AFAEFE67 /* AnnotationBadgeTests.swift */; };
 		0FBE46374EFB4D1BA47FE24B /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
 		0FC1F1BE0757B1D3AD971E0A /* EphemeralHTTPSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CB977A54649A39A935341D /* EphemeralHTTPSession.swift */; };
+		10917887F0A69C132338481D /* IndexPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A28EFDC3A1BAB049731CB3 /* IndexPlanTests.swift */; };
 		10927B80798DB368A17C741D /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A32BE361802D4B8EE09320 /* Post.swift */; };
 		10F8892EE9DAE78AB7FAD296 /* LLMResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12A6162BC4C739F203659BC /* LLMResponseParser.swift */; };
 		110059F2FBD068015F522851 /* ScrapeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BE93ADFAC5607ABDDAEDBC /* ScrapeCoordinator.swift */; };
@@ -248,6 +249,7 @@
 		26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXStoreTests.swift; sourceTree = "<group>"; };
 		2B7F11C9D2CD6D7FF8582CF1 /* CLISupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISupport.swift; sourceTree = "<group>"; };
 		2F292150D0DBA4A6ABFABB5E /* Post+Annotations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Post+Annotations.swift"; sourceTree = "<group>"; };
+		34A28EFDC3A1BAB049731CB3 /* IndexPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexPlanTests.swift; sourceTree = "<group>"; };
 		34D266795CDA4976FE6A23BC /* FeedScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScraper.swift; sourceTree = "<group>"; };
 		352DDD304ADAFEDB76FA5D5D /* ReplyAuthorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyAuthorTests.swift; sourceTree = "<group>"; };
 		35D4CB1A5F075F1A527CD589 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
@@ -565,6 +567,7 @@
 			isa = PBXGroup;
 			children = (
 				BA7D246687097397C2EF909D /* AggregateReaderSchemaTests.swift */,
+				34A28EFDC3A1BAB049731CB3 /* IndexPlanTests.swift */,
 				64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */,
 				B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */,
 				E66A545D1CB4C9D819D0B8BE /* StoreFixture.swift */,
@@ -998,6 +1001,7 @@
 				804A1FB217259224F689E5A1 /* CredentialsSettingsViewTests.swift in Sources */,
 				A812025F8F77F22DFE599130 /* EphemeralHTTPSessionTests.swift in Sources */,
 				EFEDBB626709738F0B1EE7A7 /* FeedScraperTests.swift in Sources */,
+				10917887F0A69C132338481D /* IndexPlanTests.swift in Sources */,
 				5740EBB6BAB0AF7293344028 /* LLMPaceTests.swift in Sources */,
 				C9E1D8459606AF2C580DEACF /* LLMResponseParserTests.swift in Sources */,
 				7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */,
