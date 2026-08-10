@@ -83,4 +83,118 @@ final class AggregateReader: @unchecked Sendable {
     static func coreData(from date: Date) -> Double {
         date.timeIntervalSince1970 - coreDataEpochOffset
     }
+
+    // MARK: - Authors
+
+    /// Distinct reply authors. Root posts are excluded: their authors are the tracked
+    /// outlets, not members of the public.
+    func authorCount() throws -> Int {
+        let rows = try conn.query(
+            "SELECT COUNT(DISTINCT ZAUTHORDID) FROM ZPOST WHERE ZISROOTPOST = 0"
+        ) { try Int($0.int(0)) }
+        return rows.first ?? 0
+    }
+
+    /// `limit` caps what is returned, never what is considered — ordering happens across
+    /// the whole population before the cap applies.
+    func authors(sort: AuthorSort,
+                 limit: Int,
+                 minReplies: Int = 1,
+                 outletPK: Int64? = nil) throws -> [AuthorSummary] {
+        var bind: [SQLValue] = []
+        var outletFilter = ""
+        if let outletPK {
+            outletFilter = "AND r.ZACCOUNT = ?"
+            bind.append(.int(outletPK))
+        }
+        bind.append(.int(Int64(minReplies)))
+        bind.append(.int(Int64(limit)))
+
+        let sql = """
+        SELECT p.ZAUTHORDID AS did,
+               COUNT(*) AS reply_count,
+               MIN(p.ZCREATEDAT) AS first_seen,
+               MAX(p.ZCREATEDAT) AS last_seen,
+               COUNT(DISTINCT r.ZACCOUNT) AS outlet_count,
+               (SELECT a.ZCURRENTHANDLE FROM ZREPLYAUTHOR a WHERE a.ZDID = p.ZAUTHORDID)
+        FROM ZPOST p
+        JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+        WHERE p.ZISROOTPOST = 0 \(outletFilter)
+        GROUP BY p.ZAUTHORDID
+        HAVING reply_count >= ?
+        ORDER BY \(sort.orderBy)
+        LIMIT ?
+        """
+        return try conn.query(sql, bind) { r in
+            AuthorSummary(
+                did: try r.text(0) ?? "",
+                handle: try r.text(5),
+                replyCount: try Int(r.int(1)),
+                firstSeen: Self.date(fromCoreData: try r.double(2)),
+                lastSeen: Self.date(fromCoreData: try r.double(3)),
+                outletCount: try Int(r.int(4))
+            )
+        }
+    }
+
+    func authorDetail(did: String) throws -> AuthorSummary? {
+        let sql = """
+        SELECT p.ZAUTHORDID,
+               COUNT(*),
+               MIN(p.ZCREATEDAT),
+               MAX(p.ZCREATEDAT),
+               COUNT(DISTINCT r.ZACCOUNT),
+               (SELECT a.ZCURRENTHANDLE FROM ZREPLYAUTHOR a WHERE a.ZDID = p.ZAUTHORDID)
+        FROM ZPOST p
+        JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+        WHERE p.ZISROOTPOST = 0 AND p.ZAUTHORDID = ?
+        GROUP BY p.ZAUTHORDID
+        """
+        return try conn.query(sql, [.text(did)]) { r in
+            AuthorSummary(
+                did: try r.text(0) ?? "",
+                handle: try r.text(5),
+                replyCount: try Int(r.int(1)),
+                firstSeen: Self.date(fromCoreData: try r.double(2)),
+                lastSeen: Self.date(fromCoreData: try r.double(3)),
+                outletCount: try Int(r.int(4))
+            )
+        }.first
+    }
+
+    /// Weekly buckets, aligned to ISO Monday. SQLite has no ISO-week function, so the
+    /// alignment happens in Swift against the raw timestamps.
+    func repliesPerWeek(did: String) throws -> [WeekCount] {
+        let stamps = try conn.query(
+            "SELECT ZCREATEDAT FROM ZPOST WHERE ZISROOTPOST = 0 AND ZAUTHORDID = ?",
+            [.text(did)]
+        ) { Self.date(fromCoreData: try $0.double(0)) }
+
+        let calendar = Calendar(identifier: .iso8601)
+        var counts: [Date: Int] = [:]
+        for stamp in stamps {
+            let start = calendar.dateInterval(of: .weekOfYear, for: stamp)?.start ?? stamp
+            counts[start, default: 0] += 1
+        }
+        return counts.map { WeekCount(weekStart: $0.key, count: $0.value) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    func outletBreakdown(did: String) throws -> [OutletCount] {
+        let sql = """
+        SELECT r.ZACCOUNT, t.ZHANDLE, COUNT(*)
+        FROM ZPOST p
+        JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+        JOIN ZTRACKEDACCOUNT t ON t.Z_PK = r.ZACCOUNT
+        WHERE p.ZISROOTPOST = 0 AND p.ZAUTHORDID = ?
+        GROUP BY r.ZACCOUNT, t.ZHANDLE
+        ORDER BY COUNT(*) DESC
+        """
+        return try conn.query(sql, [.text(did)]) { r in
+            OutletCount(accountPK: try r.int(0),
+                        handle: try r.text(1) ?? "unknown",
+                        authors: 1,
+                        replies: try Int(r.int(2)))
+        }
+    }
 }
