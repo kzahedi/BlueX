@@ -275,6 +275,22 @@ final class AggregateReader: @unchecked Sendable {
         )
     }
 
+    /// One first/last-reply range per distinct author DID. The whole fold, in one query.
+    /// Backs `AuthorBackfill`, which used to page `Post` through SwiftData sorted by
+    /// `uri` — re-sorting ~892k unindexed strings on every page (measured 1.9–4.8s per
+    /// page across ~1,786 pages; a live run hit 2h44m without writing a row). This
+    /// `GROUP BY` does the same fold in 0.50s.
+    func authorSeenRanges() throws -> [(did: String, first: Date, last: Date)] {
+        try conn.query("""
+            SELECT ZAUTHORDID, MIN(ZCREATEDAT), MAX(ZCREATEDAT)
+            FROM ZPOST WHERE ZISROOTPOST = 0 GROUP BY ZAUTHORDID
+            """) { r in
+            (did: try r.text(0) ?? "",
+             first: Self.date(fromCoreData: try r.double(1)),
+             last: Self.date(fromCoreData: try r.double(2)))
+        }
+    }
+
     /// An author is "new" in the week of their first reply, and never again.
     func newAuthorsPerWeek() throws -> [WeekCount] {
         let firsts = try conn.query("""

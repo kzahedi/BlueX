@@ -57,7 +57,12 @@ func runCLI() async {
     if args.backfill {
         let start = Date()
         do {
-            let r = try AuthorBackfill(container: container).run()
+            let reader = try AggregateReader()
+            try reader.verifySchema()
+            let r = try AuthorBackfill(container: container, reader: reader)
+                .run { done, total in
+                    writeFinalLine("backfill — \(done)/\(total) authors")
+                }
             writeFinalLine("backfill — \(r.created) created, \(r.updated) updated in \(formatDuration(Date().timeIntervalSince(start)))")
         } catch { fail("blueX-authors", "backfill failed: \(error)") }
     }
