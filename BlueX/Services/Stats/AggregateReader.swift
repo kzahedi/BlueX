@@ -95,6 +95,30 @@ final class AggregateReader: @unchecked Sendable {
         return rows.first ?? 0
     }
 
+    /// Authors matching the same filters `authors(sort:limit:minReplies:outletPK:)` uses,
+    /// ignoring any display cap — lets a view model report how many authors match beyond
+    /// whatever page it actually loaded.
+    func authorCount(minReplies: Int, outletPK: Int64?) throws -> Int {
+        var bind: [SQLValue] = []
+        var outletFilter = ""
+        if let outletPK {
+            outletFilter = "AND r.ZACCOUNT = ?"
+            bind.append(.int(outletPK))
+        }
+        bind.append(.int(Int64(minReplies)))
+        let sql = """
+        SELECT COUNT(*) FROM (
+          SELECT p.ZAUTHORDID
+          FROM ZPOST p
+          JOIN ZPOST r ON p.ZROOTURI = r.ZURI AND r.ZISROOTPOST = 1
+          WHERE p.ZISROOTPOST = 0 \(outletFilter)
+          GROUP BY p.ZAUTHORDID
+          HAVING COUNT(*) >= ?
+        )
+        """
+        return try conn.query(sql, bind) { try Int($0.int(0)) }.first ?? 0
+    }
+
     /// `limit` caps what is returned, never what is considered — ordering happens across
     /// the whole population before the cap applies.
     func authors(sort: AuthorSort,
