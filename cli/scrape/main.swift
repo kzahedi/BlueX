@@ -211,8 +211,16 @@ func runCLI() async {
     let threadScraper = ThreadScraper(api: api, context: context)
     let window = TimeInterval(args.maxWindowDays) * 86400
 
-    print("Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window")
-    print("Order: \(accounts.map { $0.handle }.joined(separator: ", "))\n")
+    // print() is block-buffered when stdout is redirected to a file — which the
+    // nightly job always does — so these two lines could sit unflushed for hours
+    // on a long run that gets killed rather than exiting cleanly. Write directly,
+    // like writeProgress/writeFinalLine do, so the order is on disk immediately.
+    FileHandle.standardOutput.write(Data(
+        "Scraping \(accounts.count) account\(accounts.count == 1 ? "" : "s") · pace \(args.pace.rawValue) · \(args.maxWindowDays)-day reply window\n".utf8
+    ))
+    FileHandle.standardOutput.write(Data(
+        "Order: \(accounts.map { $0.handle }.joined(separator: ", "))\n\n".utf8
+    ))
 
     // Bluesky session tokens last ~2 h. Long backfills on NYT-class accounts
     // routinely outlast that — several times over, not once — so token upkeep
