@@ -86,6 +86,7 @@ targets:
       - path: BlueX/Data
       - path: BlueX/Services/API
       - path: BlueX/Services/Authors
+      - path: BlueX/Services/Stats
     settings:
       base:
         PRODUCT_NAME: blueX-authors
