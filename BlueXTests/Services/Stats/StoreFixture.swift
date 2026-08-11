@@ -487,6 +487,55 @@ enum StoreFixture {
         try w.close()
         return url
     }
+
+    /// One author, `did:probed`, whose most recent reply carries `ZPOST.ZAUTHORHANDLE =
+    /// "old.test"` but who also has a `ZREPLYAUTHOR` row (i.e. the profile probe has run
+    /// for them) with `ZCURRENTHANDLE = "current.test"` — a deliberate disagreement
+    /// between the two sources. Exists to pin down that `AggregateReader.authors(...)`
+    /// prefers the probed `ZREPLYAUTHOR` value over the `ZPOST` fallback whenever both are
+    /// present, not just whichever query plan happens to run first.
+    static func makeWithProbedAuthor() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        let rows: [String] = [
+            post(nextPK(), "at://r1", "did:root", "outlet-one.com", "2024-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: true, account: 1),
+            post(nextPK(), "at://probed-1", "did:probed", "old.test", "2024-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            post(nextPK(), "at://probed-2", "did:probed", "old.test", "2024-02-01T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+        ]
+
+        try w.exec("""
+        INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                           ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+        VALUES \(rows.joined(separator: ","))
+        """)
+
+        try w.exec("""
+        INSERT INTO ZREPLYAUTHOR (Z_PK, ZDID, ZFIRSTSEENAT, ZLASTSEENAT, ZCURRENTHANDLE,
+                                   ZCURRENTSTATUS, ZLASTPROBEDAT)
+        VALUES (1,'did:probed',\(cd(date("2024-01-01T00:00:00Z"))),\
+        \(cd(date("2024-02-01T00:00:00Z"))),'current.test','active',\
+        \(cd(date("2024-02-02T00:00:00Z"))))
+        """)
+
+        try w.close()
+        return url
+    }
 }
 
 private extension Array {
