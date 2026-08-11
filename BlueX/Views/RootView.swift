@@ -7,6 +7,7 @@ enum SidebarItem: Hashable {
     case group(AccountGroup)
     case account(TrackedAccount)
     case post(Post)
+    case authors
     case queue
     case settings
 }
@@ -14,6 +15,7 @@ enum SidebarItem: Hashable {
 // MARK: - RootView
 struct RootView: View {
     @State private var sidebarVM = SidebarViewModel()
+    @State private var authorsVM = AuthorStatsViewModel()
     @State private var selectedItem: SidebarItem? = nil
     @State private var coordinator: ScrapeCoordinator? = nil
     @State private var history = SelectionHistory()
@@ -95,6 +97,8 @@ struct RootView: View {
             )
         case .post(let post):
             ThreadView(rootPost: post, canGoBack: history.canGoBack, onBack: goBack)
+        case .authors:
+            AuthorListView(viewModel: authorsVM)
         case .queue, .settings, nil:
             Color.appBackground
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -110,6 +114,8 @@ struct RootView: View {
             AccountChartsView(account: account)
         case .post(let post):
             ThreadGraphView(rootPost: post)
+        case .authors:
+            AuthorsOverviewView(viewModel: authorsVM)
         case .queue:
             if let coordinator = coordinator {
                 QueueView(coordinator: coordinator, modelContainer: modelContext.container)
