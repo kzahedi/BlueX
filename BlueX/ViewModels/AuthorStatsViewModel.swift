@@ -38,6 +38,61 @@ final class AuthorStatsViewModel {
         case failed(String)
     }
 
+    /// `UserDefaults` keys for the filter/sort/cap state persisted below. Namespaced
+    /// under `authors.` alongside the account dashboard's `account.` keys.
+    ///
+    /// `outletFilter` is deliberately absent here and never persisted: it stores an
+    /// account primary key, and a PK from a previous launch is not guaranteed to still
+    /// exist (an outlet can be removed between launches). Restoring a stale PK would
+    /// silently filter the list to an outlet that no longer exists and show an empty
+    /// table with no explanation — worse than just resetting to "All outlets" every
+    /// launch, so it resets every launch instead.
+    private enum PersistenceKey {
+        static let minReplies = "authors.minReplies"
+        /// Set once `minReplies` has ever been written for this `UserDefaults` (by the
+        /// user or by the first-run default below) — distinguishes "never set, apply
+        /// the default" from "deliberately cleared, restore the empty string."
+        static let minRepliesInitialized = "authors.minReplies.initialized"
+        static let maxReplies = "authors.maxReplies"
+        static let sort = "authors.sort"
+        static let displayCap = "authors.displayCap"
+    }
+
+    /// Backing store for persistence. Injectable so tests can use an isolated
+    /// `UserDefaults(suiteName:)` instead of polluting the real `.standard` domain.
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// Restores persisted sort/cap/filter state in one pass (so the first render already
+    /// reflects it — no follow-up write-then-reload) and applies the one-time `"100"`
+    /// default to `minRepliesText` on a domain that has never set it before.
+    ///
+    /// Invalid or corrupt stored values (an unknown sort raw value, a non-positive or
+    /// non-numeric display cap) fall back to the compiled-in defaults rather than
+    /// trapping — a value written by an older build, or hand-edited, must not crash.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+
+        if defaults.bool(forKey: PersistenceKey.minRepliesInitialized) {
+            minRepliesText = defaults.string(forKey: PersistenceKey.minReplies) ?? ""
+        } else {
+            minRepliesText = "100"
+            defaults.set("100", forKey: PersistenceKey.minReplies)
+            defaults.set(true, forKey: PersistenceKey.minRepliesInitialized)
+        }
+
+        maxRepliesText = defaults.string(forKey: PersistenceKey.maxReplies) ?? ""
+
+        if let storedSort = defaults.string(forKey: PersistenceKey.sort),
+           let restoredSort = AuthorSort(rawValue: storedSort) {
+            sort = restoredSort
+        }
+
+        if let storedCap = defaults.object(forKey: PersistenceKey.displayCap) as? Int,
+           storedCap > 0 {
+            displayCap = storedCap
+        }
+    }
+
     var population: PopulationStats = .empty
     var authors: [AuthorSummary] = []
     /// How many authors match the current filters, regardless of `displayCap`. Tracked
@@ -45,8 +100,12 @@ final class AuthorStatsViewModel {
     /// hides how much it hides misrepresents coverage.
     var totalMatching: Int = 0
 
-    var sort: AuthorSort = .replyCount
-    var displayCap: Int = 500
+    var sort: AuthorSort = .replyCount {
+        didSet { defaults.set(sort.rawValue, forKey: PersistenceKey.sort) }
+    }
+    var displayCap: Int = 500 {
+        didSet { defaults.set(displayCap, forKey: PersistenceKey.displayCap) }
+    }
 
     /// Typed reply-count bounds, mirroring `AccountViewModel.minRepliesText`/
     /// `maxRepliesText`. The view commits these on `.onSubmit`/focus-loss only — never
@@ -54,8 +113,21 @@ final class AuthorStatsViewModel {
     /// live store (measured 5.2s unjoined / 27.8s joined against 2.16M posts). Both
     /// independently optional: an empty string means "no bound" in that direction, not
     /// zero, and an absent max must never become a silent cap.
-    var minRepliesText: String = ""
-    var maxRepliesText: String = ""
+    ///
+    /// Persisted across launches (see `PersistenceKey`/`init(defaults:)`). `minRepliesText`
+    /// additionally gets a one-time first-run default of `"100"` — measured on the live
+    /// corpus, 2,544 of 256,655 authors have ≥100 replies, a useful working set rather
+    /// than the full population. That default must apply exactly once: if the user later
+    /// clears the field on purpose, `PersistenceKey.minRepliesInitialized` (set the first
+    /// time this class ever runs against a given `UserDefaults`) records that the default
+    /// has already been applied, so a later empty string is restored as empty rather than
+    /// snapping back to `"100"`.
+    var minRepliesText: String = "" {
+        didSet { defaults.set(minRepliesText, forKey: PersistenceKey.minReplies) }
+    }
+    var maxRepliesText: String = "" {
+        didSet { defaults.set(maxRepliesText, forKey: PersistenceKey.maxReplies) }
+    }
     var outletFilter: Int64? = nil
 
     /// The `(minReplies, maxReplies)` to pass to `AggregateReader.authors`/
@@ -126,6 +198,26 @@ final class AuthorStatsViewModel {
 
     var loadState: LoadState = .idle
 
+    /// Identifies everything `loadAuthors` depends on: sort, cap, outlet, and the
+    /// *committed* reply-count range. `AuthorListView` compares this against
+    /// `loadedAuthorsKey` to decide whether a re-appearance (as opposed to a genuine
+    /// filter change) needs a fresh query at all — the data for this exact key is
+    /// already sitting in `authors`/`totalMatching`.
+    var authorsFilterKey: String {
+        "\(sort)|\(displayCap)|\(outletFilter ?? -1)|\(minRepliesText)|\(maxRepliesText)"
+    }
+
+    /// The `authorsFilterKey` that `authors`/`totalMatching` currently reflect, set only
+    /// once `loadAuthors` has *successfully* completed for that key — `nil` beforehand,
+    /// and reset to `nil` on failure. Never set optimistically at the start of a load:
+    /// a load that fails must not be mistaken for "already loaded" (that would make an
+    /// error state permanent, since the caller-side skip would never let a retry fire),
+    /// and a load that is merely in flight for the same key must not be mistaken for
+    /// done either. A key that loaded to zero matching authors is still a real value
+    /// here — an empty result is a legitimate loaded state, not a reason to re-query
+    /// forever, so this is not gated on `authors` being non-empty.
+    var loadedAuthorsKey: String? = nil
+
     // MARK: - Population
 
     func loadPopulation(reader: AggregateReader) async {
@@ -165,6 +257,9 @@ final class AuthorStatsViewModel {
         loadState = .loading
         let sort = self.sort, cap = self.displayCap
         let bounds = self.replyCountBounds, outlet = self.outletFilter
+        // Captured before either `await` below: the key this call's result will belong
+        // to once it lands, regardless of whatever `authorsFilterKey` reads as by then.
+        let key = authorsFilterKey
         do {
             let rows = try await Task.detached(priority: .userInitiated) {
                 try reader.authors(sort: sort, limit: cap, minReplies: bounds.min,
@@ -179,11 +274,18 @@ final class AuthorStatsViewModel {
             }.value
             guard !Task.isCancelled else { return }
             totalMatching = total
+            // Only a fully-succeeded round trip (rows *and* the total) marks this key as
+            // loaded — a zero-row result still lands here and is a legitimate loaded
+            // state, never mistaken for "never queried."
+            loadedAuthorsKey = key
         } catch {
             guard !Task.isCancelled else { return }
             authors = []
             totalMatching = 0
             loadState = .failed(String(describing: error))
+            // A failure must never look like "already loaded" to the caller-side skip —
+            // otherwise the error state becomes permanent and the user can never retry.
+            loadedAuthorsKey = nil
         }
     }
 
