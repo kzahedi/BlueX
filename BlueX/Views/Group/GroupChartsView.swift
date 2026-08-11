@@ -124,9 +124,11 @@ struct GroupChartsView: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let allWeekStarts = group.accounts.flatMap { accountViewModels[$0.did]?.visibleBuckets ?? [] }.map(\.weekStart)
+                    let spanDays = ChartAxisFormatting.spanDays(allWeekStarts)
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }

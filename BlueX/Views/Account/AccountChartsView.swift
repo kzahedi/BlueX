@@ -196,9 +196,10 @@ struct AccountChartsView: View {
                 ])
                 .chartLegend(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(viewModel.visibleBuckets.map(\.weekStart))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -269,9 +270,10 @@ struct AccountChartsView: View {
                 ])
                 .chartLegend(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(viewModel.visibleBuckets.map(\.weekStart))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -350,9 +352,10 @@ struct AccountChartsView: View {
                 }
                 .chartYScale(domain: -1...1)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(viewModel.visibleBuckets.map(\.weekStart))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -402,9 +405,10 @@ struct AccountChartsView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                 }
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(viewModel.visibleBuckets.map(\.weekStart))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -464,9 +468,10 @@ struct AccountChartsView: View {
                 ])
                 .chartLegend(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(sortedSnapshots.map(\.timestamp))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -545,9 +550,10 @@ struct AccountChartsView: View {
                 ])
                 .chartLegend(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 2)) {
+                    let spanDays = ChartAxisFormatting.spanDays(sortedSnapshots.map(\.timestamp))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
