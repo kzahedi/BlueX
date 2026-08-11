@@ -14,11 +14,42 @@ import Charts
 /// identifier, and handles are reused/changed — exactly why the identity model is
 /// DID-keyed in the first place. When an author's replies carry more than one distinct
 /// handle, that is shown too — a handle change is an evasion indicator, not noise.
+/// Pure sizing logic for `AuthorDetailView`'s top/replies vertical split, extracted so it is
+/// unit-testable without SwiftUI layout.
+enum AuthorDetailLayout {
+    /// The reply list's minimum usable height — never squeezed below this even when the
+    /// window is short.
+    static let repliesFloor: CGFloat = 150
+
+    /// Vertical gap between the top section and `repliesSection`.
+    static let sectionSpacing: CGFloat = 16
+
+    /// Padding below `repliesSection`, applied by the outer `VStack`.
+    static let bottomPadding: CGFloat = 16
+
+    /// The height to give the top (scrollable) section: exactly its measured content
+    /// height when the pane is tall enough for both sections at their natural/floor sizes,
+    /// otherwise however much remains above the replies floor — never more than the
+    /// content actually needs, never so little that it goes negative.
+    static func topSectionHeight(contentHeight: CGFloat, availableHeight: CGFloat) -> CGFloat {
+        guard contentHeight.isFinite, availableHeight.isFinite else { return contentHeight }
+        let maxAllowed = availableHeight - repliesFloor - sectionSpacing - bottomPadding
+        return min(contentHeight, max(maxAllowed, 0))
+    }
+}
+
 struct AuthorDetailView: View {
     var viewModel: AuthorStatsViewModel
     @Binding var selection: SidebarItem?
 
     @Environment(\.modelContext) private var modelContext
+
+    /// Measured height of the top section's actual content (identity, chips, chart, outlet
+    /// breakdown), fed by `onGeometryChange` below. Seeded with a sentinel far larger than
+    /// any real content so that before the first measurement lands, the top section simply
+    /// claims all the room it would if it were still `.infinity`-flexible — the same frame
+    /// the very next layout pass corrects to the real, capped height.
+    @State private var topContentHeight: CGFloat = 10_000
 
     /// Only `repliesSection`'s row list scrolls independently. Everything above it
     /// (identity, chips, chart, outlet breakdown) sits in its own `ScrollView` rather than
@@ -29,25 +60,44 @@ struct AuthorDetailView: View {
     /// the pane's primary navigation surface — always keeps a usable minimum, and it is
     /// the fixed section that yields by becoming scrollable instead.
     ///
+    /// A plain `ScrollView` is greedy on its scroll axis: offered any height, it takes all
+    /// of it, regardless of how tall its content actually is. Left alone, that splits the
+    /// pane's height between the top `ScrollView` and the (also flexible) `repliesSection`
+    /// and opens a gap of dead space above "Replies" whose size tracks how much shorter the
+    /// top content is than what it was handed — worse with fewer outlets, since there is
+    /// less content to fill the space. So the top `ScrollView`'s frame height is explicitly
+    /// capped to `min(contentHeight, availableHeight - repliesFloor - spacing)` via
+    /// `AuthorDetailLayout.topSectionHeight`: it gets exactly its content height when that
+    /// fits, and only yields (becomes actually scrollable) when the window is too short for
+    /// both — never wider open than its content requires.
+    ///
     /// This is two independent, vertically-stacked scroll regions, not one nested inside
     /// the other — nesting (a `ScrollView` inside another `ScrollView` on the same axis)
     /// is what behaves badly on macOS; siblings do not.
     var body: some View {
         Group {
             if let author = viewModel.selected {
-                VStack(alignment: .leading, spacing: 16) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            identityHeader(author)
-                            chips(author)
-                            timelineChart
-                            outletBreakdown
+                GeometryReader { proxy in
+                    VStack(alignment: .leading, spacing: 16) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                identityHeader(author)
+                                chips(author)
+                                timelineChart
+                                outletBreakdown
+                            }
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                                topContentHeight = newHeight
+                            }
                         }
+                        .frame(height: AuthorDetailLayout.topSectionHeight(
+                            contentHeight: topContentHeight,
+                            availableHeight: proxy.size.height))
+                        repliesSection
+                            .frame(minHeight: AuthorDetailLayout.repliesFloor, maxHeight: .infinity)
                     }
-                    repliesSection
-                        .frame(minHeight: 150, maxHeight: .infinity)
+                    .padding(.bottom, AuthorDetailLayout.bottomPadding)
                 }
-                .padding(.bottom, 16)
             } else {
                 ScrollView {
                     emptyState
