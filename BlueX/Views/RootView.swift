@@ -115,7 +115,7 @@ struct RootView: View {
         case .post(let post):
             ThreadGraphView(rootPost: post)
         case .authors:
-            AuthorsOverviewView(viewModel: authorsVM)
+            AuthorsOverviewView(viewModel: authorsVM, selection: $selectedItem)
         case .queue:
             if let coordinator = coordinator {
                 QueueView(coordinator: coordinator, modelContainer: modelContext.container)

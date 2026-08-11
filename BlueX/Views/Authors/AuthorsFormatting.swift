@@ -52,4 +52,22 @@ struct AuthorsFormatting {
     /// The handle-missing note shown in place of a blank field — never render an empty
     /// handle silently, since that reads as "no handle exists" rather than "not probed".
     static let handleNotCollectedMessage = "Handle requires the profile probe."
+
+    /// Caption under the most-recent-reply handle in the author detail pane. This handle
+    /// comes from `ZPOST.ZAUTHORHANDLE` on the author's newest reply, not from a profile
+    /// probe — it is honest about *when* it was observed, never implying it is current.
+    static let mostRecentHandleCaption = "Handle at time of most recent reply — not necessarily current."
+
+    /// "N handles seen" — shown only when an author's replies carry more than one
+    /// distinct handle. A handle change across the corpus is itself an evasion signal,
+    /// not noise, so it is surfaced rather than silently collapsed to the latest handle.
+    static func multipleHandlesNote(_ handles: [String]) -> String {
+        "\(handles.count) handles seen: \(handles.joined(separator: ", "))"
+    }
+
+    /// "Showing N of M replies" — the same honesty pattern as `matchingSummary`, applied
+    /// to the per-author reply list's display cap.
+    static func repliesShownSummary(shown: Int, total: Int) -> String {
+        "Showing \(shown) of \(total) replies"
+    }
 }

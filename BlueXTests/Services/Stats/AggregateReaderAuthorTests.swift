@@ -122,4 +122,75 @@ final class AggregateReaderAuthorTests: XCTestCase {
             .first { $0.did == "did:b" }
         XCTAssertEqual(b?.outletCount, 2, "did:b replies to both outlets, even off the no-join path")
     }
+
+    // MARK: - authorReplies / authorReplyCount
+
+    func testAuthorRepliesOrderedNewestFirst() throws {
+        // did:c has three replies a month apart: 2024-01-01, 2024-02-01, 2024-03-01.
+        let replies = try reader.authorReplies(did: "did:c", limit: 10)
+        XCTAssertEqual(replies.map(\.uri), ["at://c3", "at://c2", "at://c1"])
+        XCTAssertEqual(replies.map(\.createdAt), replies.map(\.createdAt).sorted(by: >),
+                       "newest first")
+    }
+
+    func testAuthorRepliesCarryTheirRootURI() throws {
+        let replies = try reader.authorReplies(did: "did:c", limit: 10)
+        XCTAssertTrue(replies.allSatisfy { $0.rootURI == "at://r1" })
+    }
+
+    /// `limit` caps what's returned, never what's considered — the newest rows must win
+    /// the cap, not whatever happens to be inserted/encountered first.
+    func testAuthorRepliesLimitCapsButKeepsNewestFirst() throws {
+        let capped = try reader.authorReplies(did: "did:n100", limit: 5)
+        XCTAssertEqual(capped.count, 5)
+    }
+
+    func testAuthorReplyCountMatchesReplyCountRegardlessOfLimit() throws {
+        XCTAssertEqual(try reader.authorReplyCount(did: "did:c"), 3)
+        XCTAssertEqual(try reader.authorReplyCount(did: "did:n100"), 100)
+        let capped = try reader.authorReplies(did: "did:n100", limit: 5)
+        XCTAssertEqual(capped.count, 5, "the cap must not silently shrink the reported total")
+    }
+
+    func testAuthorRepliesAndCountAreEmptyForUnknownAuthor() throws {
+        XCTAssertEqual(try reader.authorReplies(did: "did:nobody", limit: 10), [])
+        XCTAssertEqual(try reader.authorReplyCount(did: "did:nobody"), 0)
+    }
+}
+
+/// `mostRecentHandle`/`distinctHandles` against `StoreFixture.makeAuthorHandleHistory()`,
+/// which is purpose-built with a handle-changing author, a handle-stable author, and an
+/// author whose one reply carries a NULL handle.
+final class AggregateReaderAuthorHandleTests: XCTestCase {
+    private var reader: AggregateReader!
+
+    override func setUpWithError() throws {
+        reader = try AggregateReader(storeURL: try StoreFixture.makeAuthorHandleHistory())
+    }
+
+    func testMostRecentHandleIsTheNewestReplysHandleNotTheOldest() throws {
+        // did:multi replied as "old.test" on 2024-01-01, then "new.test" on 2024-02-01.
+        XCTAssertEqual(try reader.mostRecentHandle(did: "did:multi"), "new.test")
+    }
+
+    func testDistinctHandlesReturnsBothForAHandleChangingAuthor() throws {
+        XCTAssertEqual(try reader.distinctHandles(did: "did:multi"), ["new.test", "old.test"])
+    }
+
+    func testDistinctHandlesReturnsOneForAHandleStableAuthor() throws {
+        XCTAssertEqual(try reader.distinctHandles(did: "did:single"), ["solo.test"])
+        XCTAssertEqual(try reader.mostRecentHandle(did: "did:single"), "solo.test")
+    }
+
+    /// A NULL `ZAUTHORHANDLE` must report as no handle — not a crash, and not the
+    /// literal string "NULL".
+    func testNullHandleReportsAsNilNotAsTheStringNull() throws {
+        XCTAssertNil(try reader.mostRecentHandle(did: "did:nohandle"))
+        XCTAssertEqual(try reader.distinctHandles(did: "did:nohandle"), [])
+    }
+
+    func testUnknownAuthorHasNoHandleHistory() throws {
+        XCTAssertNil(try reader.mostRecentHandle(did: "did:ghost"))
+        XCTAssertEqual(try reader.distinctHandles(did: "did:ghost"), [])
+    }
 }

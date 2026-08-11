@@ -75,6 +75,42 @@ final class AuthorStatsViewModelTests: XCTestCase {
         await vm.select(nil, reader: reader)
         XCTAssertNil(vm.selected)
         XCTAssertTrue(vm.selectedWeeks.isEmpty)
+        XCTAssertNil(vm.selectedHandle)
+        XCTAssertTrue(vm.selectedHandleHistory.isEmpty)
+        XCTAssertTrue(vm.selectedReplies.isEmpty)
+        XCTAssertEqual(vm.selectedReplyTotal, 0)
+    }
+
+    /// `select` also loads the most-recent-reply handle and the full reply list —
+    /// did:c's three replies all carry the same handle ("carol.test"), newest first.
+    func testSelectLoadsHandleAndReplies() async throws {
+        let vm = AuthorStatsViewModel()
+        await vm.select("did:c", reader: try makeReader())
+        XCTAssertEqual(vm.selectedHandle, "carol.test")
+        XCTAssertEqual(vm.selectedHandleHistory, ["carol.test"])
+        XCTAssertEqual(vm.selectedReplies.map(\.uri), ["at://c3", "at://c2", "at://c1"])
+        XCTAssertEqual(vm.selectedReplyTotal, 3)
+    }
+
+    /// A handle-changing author's most recent handle wins the title, but every handle
+    /// they've used is still surfaced — a handle change is signal, not noise.
+    func testSelectSurfacesMultipleHandles() async throws {
+        let vm = AuthorStatsViewModel()
+        let reader = try AggregateReader(storeURL: try StoreFixture.makeAuthorHandleHistory())
+        await vm.select("did:multi", reader: reader)
+        XCTAssertEqual(vm.selectedHandle, "new.test", "the most recent reply's handle wins")
+        XCTAssertEqual(vm.selectedHandleHistory, ["new.test", "old.test"])
+    }
+
+    /// The reply list is capped, and the cap must never silently hide how much it hides —
+    /// did:n100 has 100 replies, more than `AuthorStatsViewModel.replyDisplayCap` (100 by
+    /// default, but this pins the relationship rather than assuming the constant's value).
+    func testSelectRepliesAreCappedButTotalReflectsEverything() async throws {
+        let vm = AuthorStatsViewModel()
+        await vm.select("did:n100", reader: try makeReader())
+        XCTAssertEqual(vm.selectedReplyTotal, 100)
+        XCTAssertLessThanOrEqual(vm.selectedReplies.count, AuthorStatsViewModel.replyDisplayCap)
+        XCTAssertEqual(vm.selectedReplies.count, min(100, AuthorStatsViewModel.replyDisplayCap))
     }
 
     /// Rapid selection must not leave a slower earlier load overwriting a newer one.

@@ -109,6 +109,20 @@ final class AuthorStatsViewModel {
     var selected: AuthorSummary? = nil
     var selectedWeeks: [WeekCount] = []
     var selectedOutlets: [OutletCount] = []
+    /// The handle on `selected`'s most recent reply — see `AggregateReader.mostRecentHandle`
+    /// for why this is not the same thing as `selected?.handle`.
+    var selectedHandle: String? = nil
+    /// Every distinct handle `selected` has used across their replies. More than one entry
+    /// is a handle-change — signal, not noise — surfaced rather than collapsed away.
+    var selectedHandleHistory: [String] = []
+    var selectedReplies: [AuthorReply] = []
+    /// How many replies `selected` has in total, regardless of `selectedReplies`'s cap —
+    /// tracked separately so the view can say "showing N of M", never a silent cap.
+    var selectedReplyTotal: Int = 0
+
+    /// Cap on `selectedReplies`. Always displayed alongside `selectedReplyTotal` — never
+    /// a silent cap.
+    static let replyDisplayCap = 100
 
     var loadState: LoadState = .idle
 
@@ -185,14 +199,23 @@ final class AuthorStatsViewModel {
             selected = nil
             selectedWeeks = []
             selectedOutlets = []
+            selectedHandle = nil
+            selectedHandleHistory = []
+            selectedReplies = []
+            selectedReplyTotal = 0
             return
         }
+        let cap = Self.replyDisplayCap
         let task = Task { @MainActor [weak self] in
             do {
                 let detail = try await Task.detached(priority: .userInitiated) {
                     (try reader.authorDetail(did: did),
                      try reader.repliesPerWeek(did: did),
-                     try reader.outletBreakdown(did: did))
+                     try reader.outletBreakdown(did: did),
+                     try reader.mostRecentHandle(did: did),
+                     try reader.distinctHandles(did: did),
+                     try reader.authorReplies(did: did, limit: cap),
+                     try reader.authorReplyCount(did: did))
                 }.value
                 // A cancelled load must publish nothing — the newer selection owns state.
                 guard !Task.isCancelled else { return }
@@ -200,6 +223,10 @@ final class AuthorStatsViewModel {
                 self.selected = detail.0
                 self.selectedWeeks = Decimator.downsample(detail.1, to: 400)
                 self.selectedOutlets = detail.2
+                self.selectedHandle = detail.3
+                self.selectedHandleHistory = detail.4
+                self.selectedReplies = detail.5
+                self.selectedReplyTotal = detail.6
             } catch {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }

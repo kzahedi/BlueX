@@ -323,6 +323,69 @@ final class AggregateReader: @unchecked Sendable {
             .sorted { $0.weekStart < $1.weekStart }
     }
 
+    /// The handle on this author's most recent reply (`ZPOST.ZAUTHORHANDLE`, ordered by
+    /// `ZCREATEDAT DESC`, one row).
+    ///
+    /// **This is not `AuthorSummary.handle`.** That comes from
+    /// `ZREPLYAUTHOR.ZCURRENTHANDLE`, which the profile probe would populate — and the
+    /// probe has never run, so it is always nil (see `testHandleIsNilWhenNotProbed`).
+    /// `ZPOST.ZAUTHORHANDLE`, by contrast, is written on every reply row at scrape time
+    /// and is populated on all 2,001,731 reply rows in the live store, with zero missing.
+    /// It is therefore the handle *at the time of that reply*, not necessarily the
+    /// author's handle today — callers must label it that way rather than implying it is
+    /// current.
+    func mostRecentHandle(did: String) throws -> String? {
+        let rows = try conn.query("""
+            SELECT ZAUTHORHANDLE FROM ZPOST
+            WHERE ZISROOTPOST = 0 AND ZAUTHORDID = ?
+            ORDER BY ZCREATEDAT DESC LIMIT 1
+            """, [.text(did)]) { try $0.text(0) }
+        guard let row = rows.first else { return nil }
+        return row
+    }
+
+    /// Every distinct handle this author's replies have carried, sorted for a stable
+    /// display order. More than one entry is signal, not noise: the research spec calls
+    /// out handle changes as an evasion indicator, so a multi-handle author should be
+    /// surfaced rather than silently collapsed to just their latest handle.
+    func distinctHandles(did: String) throws -> [String] {
+        try conn.query("""
+            SELECT DISTINCT ZAUTHORHANDLE FROM ZPOST
+            WHERE ZISROOTPOST = 0 AND ZAUTHORDID = ? AND ZAUTHORHANDLE IS NOT NULL
+            ORDER BY ZAUTHORHANDLE
+            """, [.text(did)]) { try $0.text(0) }.compactMap { $0 }
+    }
+
+    /// An author's replies, newest first, capped at `limit`. Measured on the live store
+    /// (100 newest replies for the heaviest author): 0.012s — `IDX_ZPOST_AUTHOR_COVERING`
+    /// makes this trivial. `authorReplyCount` is the companion query for "showing N of M" —
+    /// never present this list without also stating the total it was capped from.
+    func authorReplies(did: String, limit: Int) throws -> [AuthorReply] {
+        try conn.query("""
+            SELECT ZURI, ZTEXT, ZCREATEDAT, ZROOTURI
+            FROM ZPOST
+            WHERE ZISROOTPOST = 0 AND ZAUTHORDID = ?
+            ORDER BY ZCREATEDAT DESC
+            LIMIT ?
+            """, [.text(did), .int(Int64(limit))]) { r in
+            AuthorReply(
+                uri: try r.text(0) ?? "",
+                text: try r.text(1) ?? "",
+                createdAt: Self.date(fromCoreData: try r.double(2)),
+                rootURI: try r.text(3) ?? ""
+            )
+        }
+    }
+
+    /// How many replies this author has in total — the "of N" half of "showing 100 of N
+    /// replies", so `authorReplies`'s cap is always stated, never silent.
+    func authorReplyCount(did: String) throws -> Int {
+        try conn.query(
+            "SELECT COUNT(*) FROM ZPOST WHERE ZISROOTPOST = 0 AND ZAUTHORDID = ?",
+            [.text(did)]
+        ) { try Int($0.int(0)) }.first ?? 0
+    }
+
     func outletBreakdown(did: String) throws -> [OutletCount] {
         let sql = """
         SELECT r.ZACCOUNT, t.ZHANDLE, COUNT(*)
