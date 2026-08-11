@@ -325,6 +325,57 @@ enum StoreFixture {
         return url
     }
 
+    /// One outlet, one root, one ordinary author (2 replies to that root), and one author
+    /// whose single reply points at a root URI (`at://missing-root`) that does not exist
+    /// anywhere in `ZPOST` — an orphaned reply, as if its root was never scraped or was
+    /// later pruned.
+    ///
+    /// Exists to pin down `AggregateReader.authors`/`authorCount`'s deliberate join/no-join
+    /// disagreement: joining every reply to its root (`p.ZROOTURI = r.ZURI AND
+    /// r.ZISROOTPOST = 1`) drops a reply whose root isn't in the store, so a query that
+    /// joins purely to support the optional outlet filter silently undercounts by however
+    /// many orphaned replies exist. The unjoined path counts every row the author actually
+    /// wrote, orphaned or not — see `AggregateReaderAuthorTests
+    /// .testUnjoinedCountIncludesOrphanedReplyAuthorsThatTheJoinedOutletFilterExcludes`.
+    static func makeWithOrphanedReply() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        let rows: [String] = [
+            post(nextPK(), "at://r1", "did:root", "outlet-one.com", "2024-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: true, account: 1),
+            post(nextPK(), "at://n1", "did:normal", "normal.test", "2024-01-02T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            post(nextPK(), "at://n2", "did:normal", "normal.test", "2024-01-03T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            // did:orphan's reply names a root URI that never appears anywhere in ZPOST —
+            // no row has ZURI = 'at://missing-root'. A join to the root drops this row
+            // entirely; a query straight off ZPOST still counts it.
+            post(nextPK(), "at://orphan1", "did:orphan", "orphan.test", "2024-01-04T00:00:00Z",
+                 root: "at://missing-root", isRoot: false, account: nil),
+        ]
+
+        try w.exec("""
+        INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                           ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+        VALUES \(rows.joined(separator: ","))
+        """)
+        try w.close()
+        return url
+    }
+
     /// One outlet, one author with `slowAuthorReplyCount` replies spread across distinct
     /// days (so `repliesPerWeek`'s per-row `Calendar` bucketing has real work to do, not
     /// 100 rows landing in one week), and one author ("did:fast") with a single reply.

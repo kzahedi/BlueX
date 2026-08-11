@@ -77,4 +77,49 @@ final class AggregateReaderAuthorTests: XCTestCase {
         let a = try XCTUnwrap(try reader.authorDetail(did: "did:a"))
         XCTAssertNil(a.handle)
     }
+
+    func testMaxRepliesFilter() throws {
+        let light = try reader.authors(sort: .replyCount, limit: 10, maxReplies: 9)
+        XCTAssertEqual(Set(light.map(\.did)), ["did:a", "did:b", "did:c", "did:n9"])
+    }
+
+    func testMinAndMaxRepliesTogether() throws {
+        let mid = try reader.authors(sort: .replyCount, limit: 10, minReplies: 2, maxReplies: 9)
+        XCTAssertEqual(Set(mid.map(\.did)), ["did:b", "did:c", "did:n9"])
+    }
+
+    func testMaxRepliesFilterAppliesToCountToo() throws {
+        XCTAssertEqual(try reader.authorCount(minReplies: 1, maxReplies: 9, outletPK: nil), 4)
+    }
+
+    /// Pins down the deliberate join/no-join disagreement: `authors`/`authorCount` omit
+    /// the join to the root post whenever there's no outlet filter to support (measured
+    /// 5.2s vs. 27.8s against the live store), and that join is exactly what drops a
+    /// reply whose root post never made it into the store. The two paths must therefore
+    /// return the same authors EXCEPT for orphaned-reply authors, which only the unjoined
+    /// (no outlet filter) path counts.
+    func testUnjoinedCountIncludesOrphanedReplyAuthorsThatTheJoinedOutletFilterExcludes() throws {
+        let orphanReader = try AggregateReader(storeURL: try StoreFixture.makeWithOrphanedReply())
+
+        // Unjoined path (no outlet filter): every author who wrote a reply is counted,
+        // including did:orphan, whose reply's root URI isn't in the store at all.
+        XCTAssertEqual(try orphanReader.authorCount(minReplies: 1, outletPK: nil), 2)
+        let unjoined = try orphanReader.authors(sort: .replyCount, limit: 10, outletPK: nil)
+        XCTAssertEqual(Set(unjoined.map(\.did)), ["did:normal", "did:orphan"])
+
+        // Joined path (outlet filter set): did:orphan's reply has no matching root row,
+        // so the join silently drops it — a real semantic difference, not rounding.
+        XCTAssertEqual(try orphanReader.authorCount(minReplies: 1, outletPK: 1), 1)
+        let joined = try orphanReader.authors(sort: .replyCount, limit: 10, outletPK: 1)
+        XCTAssertEqual(joined.map(\.did), ["did:normal"])
+    }
+
+    /// The unjoined path (no outlet filter) still reports an honest `outletCount` for
+    /// each returned author — it is back-filled from a second, small query scoped to
+    /// just the returned page, not silently zeroed out for lack of the join.
+    func testUnjoinedPathStillReportsOutletCountCorrectly() throws {
+        let b = try reader.authors(sort: .replyCount, limit: 10, outletPK: nil)
+            .first { $0.did == "did:b" }
+        XCTAssertEqual(b?.outletCount, 2, "did:b replies to both outlets, even off the no-join path")
+    }
 }

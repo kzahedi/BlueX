@@ -36,11 +36,28 @@ final class AuthorStatsViewModelTests: XCTestCase {
 
     func testMinRepliesFilterNarrowsBothListAndTotal() async throws {
         let vm = AuthorStatsViewModel()
-        vm.minReplies = 2
+        vm.minRepliesText = "2"
         await vm.loadAuthors(reader: try makeReader())
         // Excludes only did:a (1 reply): b, c, n9, n10, n99, n100 remain.
         XCTAssertEqual(vm.totalMatching, 6)
         XCTAssertFalse(vm.authors.map(\.did).contains("did:a"))
+    }
+
+    func testMaxRepliesFilterNarrowsBothListAndTotal() async throws {
+        let vm = AuthorStatsViewModel()
+        vm.maxRepliesText = "9"
+        await vm.loadAuthors(reader: try makeReader())
+        // Excludes n10(10), n99(99), n100(100): a, b, c, n9 remain.
+        XCTAssertEqual(vm.totalMatching, 4)
+        XCTAssertFalse(vm.authors.map(\.did).contains("did:n10"))
+    }
+
+    func testMinAndMaxTogetherNarrowToOneAuthor() async throws {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "2"
+        vm.maxRepliesText = "9"
+        await vm.loadAuthors(reader: try makeReader())
+        XCTAssertEqual(vm.authors.map(\.did), ["did:n9", "did:c", "did:b"])
     }
 
     func testSelectLoadsPerAuthorDetail() async throws {
@@ -135,5 +152,80 @@ final class AuthorStatsViewModelTests: XCTestCase {
             XCTFail("expected .failed, got \(vm.loadState)")
         }
         XCTAssertEqual(vm.population.totalAuthors, 0)
+    }
+
+    // MARK: - replyCountBounds / rangeError mapping
+    //
+    // Pure, synchronous, and independently testable — this is the one place that
+    // decides what typed min/max text means as a SQL range. No reader, no store,
+    // no async: these exercise `AuthorStatsViewModel.replyCountBounds`/`rangeError`
+    // directly in isolation.
+
+    func testBoundsDefaultToMinOneMaxUnboundedWhenBothEmpty() {
+        let vm = AuthorStatsViewModel()
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 1, "empty min means 'at least one reply', not zero")
+        XCTAssertNil(bounds.max, "empty max must mean unbounded, never a silent cap")
+        XCTAssertNil(vm.rangeError)
+    }
+
+    func testBoundsWithMinOnly() {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "5"
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 5)
+        XCTAssertNil(bounds.max)
+        XCTAssertNil(vm.rangeError)
+    }
+
+    func testBoundsWithMaxOnly() {
+        let vm = AuthorStatsViewModel()
+        vm.maxRepliesText = "50"
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 1, "no typed min still defaults to 1, not 0")
+        XCTAssertEqual(bounds.max, 50)
+        XCTAssertNil(vm.rangeError)
+    }
+
+    func testBoundsWithBothMinAndMax() {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "5"
+        vm.maxRepliesText = "50"
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 5)
+        XCTAssertEqual(bounds.max, 50)
+        XCTAssertNil(vm.rangeError)
+    }
+
+    func testMinGreaterThanMaxProducesInlineErrorInsteadOfAQuery() {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "50"
+        vm.maxRepliesText = "5"
+        XCTAssertNotNil(vm.rangeError, "an inverted range can only ever match zero rows")
+        XCTAssertTrue(vm.rangeError?.contains("50") == true)
+        XCTAssertTrue(vm.rangeError?.contains("5") == true)
+    }
+
+    func testNonNumericTextParsesToNoBoundButSurfacesAnError() {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "abc"
+        XCTAssertEqual(vm.replyCountBounds.min, 1, "junk text must not become a numeric bound — it falls back to the no-bound default of 1")
+        XCTAssertNotNil(vm.rangeError, "junk text must be flagged, not silently ignored")
+    }
+
+    func testNegativeTextParsesToNoBoundButSurfacesAnError() {
+        let vm = AuthorStatsViewModel()
+        vm.maxRepliesText = "-3"
+        XCTAssertNil(vm.replyCountBounds.max, "a negative bound must not be passed to the query")
+        XCTAssertNotNil(vm.rangeError, "a negative number must be flagged, not silently dropped")
+    }
+
+    func testWhitespaceOnlyTextBehavesLikeEmpty() {
+        let vm = AuthorStatsViewModel()
+        vm.minRepliesText = "   "
+        vm.maxRepliesText = "  "
+        XCTAssertEqual(vm.replyCountBounds.min, 1)
+        XCTAssertNil(vm.replyCountBounds.max)
+        XCTAssertNil(vm.rangeError, "whitespace-only text is 'empty on purpose', not garbage")
     }
 }

@@ -47,8 +47,64 @@ final class AuthorStatsViewModel {
 
     var sort: AuthorSort = .replyCount
     var displayCap: Int = 500
-    var minReplies: Int = 1
+
+    /// Typed reply-count bounds, mirroring `AccountViewModel.minRepliesText`/
+    /// `maxRepliesText`. The view commits these on `.onSubmit`/focus-loss only — never
+    /// per keystroke, since each change re-runs a multi-second SQL aggregate against the
+    /// live store (measured 5.2s unjoined / 27.8s joined against 2.16M posts). Both
+    /// independently optional: an empty string means "no bound" in that direction, not
+    /// zero, and an absent max must never become a silent cap.
+    var minRepliesText: String = ""
+    var maxRepliesText: String = ""
     var outletFilter: Int64? = nil
+
+    /// The `(minReplies, maxReplies)` to pass to `AggregateReader.authors`/
+    /// `authorCount`. Pure and independently testable — this is the one place that
+    /// decides what the typed text means as a SQL range. `minReplies` defaults to `1`
+    /// when unset (this dashboard's population is "authors who replied at least once",
+    /// not "every DID including those with zero replies") — everything else defaults to
+    /// no bound.
+    ///
+    /// Non-numeric or negative text parses to `nil` (no bound in that direction) rather
+    /// than crashing or defaulting to zero; `rangeError` is what tells the view *that*
+    /// the text didn't parse, or that the range is inverted, so it can withhold the query
+    /// instead of firing one that provably returns nothing. This property itself never
+    /// withholds — it always reflects what the text parses to.
+    var replyCountBounds: (min: Int, max: Int?) {
+        let min = Self.parseNonNegativeInt(minRepliesText) ?? 1
+        let max = Self.parseNonNegativeInt(maxRepliesText)
+        return (min, max)
+    }
+
+    /// Inline validation message for the typed min/max fields, or `nil` if it's safe to
+    /// query. Non-nil for: non-numeric text, negative numbers, or `min > max` (a range
+    /// that can only ever match zero rows — the view should show this message instead of
+    /// firing that query).
+    var rangeError: String? {
+        let minTrimmed = minRepliesText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maxTrimmed = maxRepliesText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !minTrimmed.isEmpty && Self.parseNonNegativeInt(minTrimmed) == nil {
+            return "Min must be a whole number ≥ 0"
+        }
+        if !maxTrimmed.isEmpty && Self.parseNonNegativeInt(maxTrimmed) == nil {
+            return "Max must be a whole number ≥ 0"
+        }
+        let min = Self.parseNonNegativeInt(minTrimmed)
+        let max = Self.parseNonNegativeInt(maxTrimmed)
+        if let min, let max, min > max {
+            return "Min (\(min)) is greater than max (\(max))"
+        }
+        return nil
+    }
+
+    /// Empty/whitespace-only, non-numeric, or negative text all parse to `nil` — "no
+    /// bound in this direction" for the query. `rangeError` is the layer that
+    /// distinguishes "empty on purpose" from "typed garbage" for the user.
+    private static func parseNonNegativeInt(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Int(trimmed), value >= 0 else { return nil }
+        return value
+    }
 
     var selected: AuthorSummary? = nil
     var selectedWeeks: [WeekCount] = []
@@ -84,21 +140,31 @@ final class AuthorStatsViewModel {
 
     // MARK: - Author list
 
+    /// Loads the author list, then separately loads how many authors match beyond the
+    /// cap. Split into two awaits rather than one `Task.detached` doing both, so rows
+    /// publish (and `loadState` becomes `.loaded`) as soon as they arrive instead of
+    /// waiting on the count too: `authors(...)` is `LIMIT`-ed, but `authorCount(...)`
+    /// must scan every matching author, which roughly doubles the wait if bundled
+    /// together — and with multi-second queries against the live store, that's the
+    /// difference between "rows appear" and "still nothing after twice as long."
     func loadAuthors(reader: AggregateReader) async {
         loadState = .loading
         let sort = self.sort, cap = self.displayCap
-        let minReplies = self.minReplies, outlet = self.outletFilter
+        let bounds = self.replyCountBounds, outlet = self.outletFilter
         do {
-            let result = try await Task.detached(priority: .userInitiated) {
-                let rows = try reader.authors(sort: sort, limit: cap,
-                                               minReplies: minReplies, outletPK: outlet)
-                let total = try reader.authorCount(minReplies: minReplies, outletPK: outlet)
-                return (rows, total)
+            let rows = try await Task.detached(priority: .userInitiated) {
+                try reader.authors(sort: sort, limit: cap, minReplies: bounds.min,
+                                    maxReplies: bounds.max, outletPK: outlet)
             }.value
             guard !Task.isCancelled else { return }
-            authors = result.0
-            totalMatching = result.1
+            authors = rows
             loadState = .loaded
+
+            let total = try await Task.detached(priority: .userInitiated) {
+                try reader.authorCount(minReplies: bounds.min, maxReplies: bounds.max, outletPK: outlet)
+            }.value
+            guard !Task.isCancelled else { return }
+            totalMatching = total
         } catch {
             guard !Task.isCancelled else { return }
             authors = []
