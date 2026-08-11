@@ -20,6 +20,16 @@ struct AuthorListView: View {
     @FocusState private var focusedReplyCountField: ReplyCountField?
     private enum ReplyCountField: Hashable { case min, max }
 
+    /// Seeds the draft text fields from the view model's (possibly persisted/defaulted)
+    /// values, so the text fields show "100" on a first run — or a restored value on a
+    /// later launch — instead of starting blank while the model underneath already holds
+    /// something else.
+    init(viewModel: AuthorStatsViewModel) {
+        self.viewModel = viewModel
+        _minRepliesDraft = State(initialValue: viewModel.minRepliesText)
+        _maxRepliesDraft = State(initialValue: viewModel.maxRepliesText)
+    }
+
     /// The most recently started `loadAuthors` call. A synchronous SQL call cannot be
     /// cancelled mid-flight, so a new `reload()` awaits this to finish rather than
     /// starting a second one concurrently — without this, a rapid sequence of filter
@@ -32,10 +42,12 @@ struct AuthorListView: View {
     /// `.task(id:)` re-runs `reload()` whenever this changes and cancels any reload still
     /// waiting out its debounce, which is what replaces the untracked `Task { await
     /// reload() }` per `onChange` this view used to spawn one of per filter change.
-    private var reloadKey: String {
-        "\(viewModel.sort)|\(viewModel.displayCap)|\(viewModel.outletFilter ?? -1)|" +
-        "\(viewModel.minRepliesText)|\(viewModel.maxRepliesText)"
-    }
+    ///
+    /// Delegates to `viewModel.authorsFilterKey` rather than duplicating the definition —
+    /// `reload()` compares this same string against `viewModel.loadedAuthorsKey` to decide
+    /// whether the currently-held `authors`/`totalMatching` already answer the current
+    /// filter, so the two must never be able to drift apart.
+    private var reloadKey: String { viewModel.authorsFilterKey }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -81,12 +93,44 @@ struct AuthorListView: View {
         viewModel.maxRepliesText = maxRepliesDraft
     }
 
+    /// The reload-skip decision, pulled out of `reload()` as a pure function precisely
+    /// because it is where a plausible implementation goes subtly wrong:
+    /// - `force` always reloads, regardless of the other three arguments — the manual
+    ///   refresh control's whole point is to bypass the skip.
+    /// - A different `currentKey` than `loadedKey` always reloads — a genuine filter
+    ///   change must never be swallowed by this check.
+    /// - `loadState != .loaded` always reloads, even when `loadedKey == currentKey` —
+    ///   this is what keeps a *failed* load from looking "already loaded" forever (a
+    ///   failure clears `loadedAuthorsKey` on the view-model side, but this check does
+    ///   not rely on that alone: it also insists `loadState` itself says `.loaded`).
+    /// - `loadedKey == currentKey && loadState == .loaded` skips — including when the
+    ///   loaded result was zero authors: an empty match is a real answer to the current
+    ///   filter, not a reason to treat the filter as never having been queried.
+    static func shouldSkipReload(force: Bool, loadedKey: String?, currentKey: String,
+                                  loadState: AuthorStatsViewModel.LoadState) -> Bool {
+        guard !force else { return false }
+        return loadedKey == currentKey && loadState == .loaded
+    }
+
     /// Debounces, then serializes against any still-running load before starting a new
     /// one. `.task(id: reloadKey)` cancels this call outright whenever `reloadKey`
     /// changes again before it finishes — the `Task.isCancelled` checks below stop it
     /// from doing further work once that happens, but cannot stop a SQL query already in
     /// flight (see `inFlightLoadTask`).
-    private func reload() async {
+    ///
+    /// `.task(id:)` re-runs this on every re-appearance of the view, not only when
+    /// `reloadKey` actually changes — clicking into a reply's thread and back recreates
+    /// this view, and without the check below that would silently re-run the multi-second
+    /// query even though nothing about the filter changed. `force: true` (the manual
+    /// refresh control) bypasses the skip unconditionally; see `shouldSkipReload` for the
+    /// decision itself, pulled out as a pure function so it can be tested without
+    /// instantiating this view.
+    private func reload(force: Bool = false) async {
+        if Self.shouldSkipReload(force: force, loadedKey: viewModel.loadedAuthorsKey,
+                                  currentKey: reloadKey, loadState: viewModel.loadState) {
+            return
+        }
+
         // A generous debounce: the query behind this is multi-second against the live
         // store (5.2s unjoined / 27.8s joined, measured against 2.16M posts), so a short
         // debounce would still let several fire before the first one lands.
@@ -145,6 +189,17 @@ struct AuthorListView: View {
             .frame(width: 100)
 
             Spacer()
+
+            // The one way to force a fresh query for a filter whose results are already
+            // loaded — `reload()`'s re-appearance skip means nothing else will.
+            Button {
+                Task { await reload(force: true) }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .help("Refresh from the store")
         }
         .padding(10)
         .background(Color.panelBackground)

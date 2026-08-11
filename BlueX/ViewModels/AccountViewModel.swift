@@ -54,20 +54,60 @@ enum ReplyCountPreset: String, CaseIterable, Identifiable {
 
 @Observable
 final class AccountViewModel {
+    /// `UserDefaults` keys for the reply-count filter persisted below. Namespaced under
+    /// `account.`, alongside the authors dashboard's `authors.` keys.
+    ///
+    /// Unlike `AuthorStatsViewModel`, nothing here gets a first-run default: this filter
+    /// means "tree size" (how many replies a root post has), not "author volume" — the
+    /// user hasn't asked for a default on this one, only that their choice survive a
+    /// relaunch.
+    private enum PersistenceKey {
+        static let replyCountPreset = "account.replyCountPreset"
+        static let minReplies = "account.minReplies"
+        static let maxReplies = "account.maxReplies"
+    }
+
+    /// Backing store for persistence. Injectable so tests can use an isolated
+    /// `UserDefaults(suiteName:)` instead of polluting the real `.standard` domain.
+    @ObservationIgnored private let defaults: UserDefaults
+
     var searchText: String = ""
     var sortNewestFirst: Bool = true
     var isLoading: Bool = false
 
     // Reply-count range filter — applied in SQL via `AggregateReader.rootPosts`, never
     // in memory. See `replyCountBounds`.
-    var replyCountPreset: ReplyCountPreset = .any
+    var replyCountPreset: ReplyCountPreset = .any {
+        didSet { defaults.set(replyCountPreset.rawValue, forKey: PersistenceKey.replyCountPreset) }
+    }
 
     /// Typed reply-count bounds. The view commits these on `.onSubmit`/focus-loss only —
     /// never per keystroke, since each change re-runs a ~2.8s SQL aggregate against the
     /// live store (see `AccountContentView.reload`). Both independently optional: an
     /// empty string means "no bound" in that direction, not zero.
-    var minRepliesText: String = ""
-    var maxRepliesText: String = ""
+    ///
+    /// Persisted across launches — restored in `init(defaults:)`, with no default applied
+    /// (see `PersistenceKey`).
+    var minRepliesText: String = "" {
+        didSet { defaults.set(minRepliesText, forKey: PersistenceKey.minReplies) }
+    }
+    var maxRepliesText: String = "" {
+        didSet { defaults.set(maxRepliesText, forKey: PersistenceKey.maxReplies) }
+    }
+
+    /// Restores the persisted reply-count filter in one pass. An unknown stored preset
+    /// raw value (an older/newer build, or a hand-edited default) falls back to `.any`
+    /// rather than trapping.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+
+        if let storedPreset = defaults.string(forKey: PersistenceKey.replyCountPreset),
+           let restoredPreset = ReplyCountPreset(rawValue: storedPreset) {
+            replyCountPreset = restoredPreset
+        }
+        minRepliesText = defaults.string(forKey: PersistenceKey.minReplies) ?? ""
+        maxRepliesText = defaults.string(forKey: PersistenceKey.maxReplies) ?? ""
+    }
 
     /// The `(minReplies, maxReplies)` to pass to `AggregateReader.rootPosts`/
     /// `rootPostCount`. Pure and independently testable — this is the one place that

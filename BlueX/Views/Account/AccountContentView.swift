@@ -45,6 +45,13 @@ struct AccountContentView: View {
         self.account = account
         self._selection = selection
         self.onScrapeAccount = onScrapeAccount
+        // Seed the draft fields from the (possibly persisted) view model so they don't
+        // start blank while `viewModel.minRepliesText`/`maxRepliesText` already hold a
+        // restored value.
+        let vm = AccountViewModel()
+        _viewModel = State(initialValue: vm)
+        _minRepliesDraft = State(initialValue: vm.minRepliesText)
+        _maxRepliesDraft = State(initialValue: vm.maxRepliesText)
     }
 
     /// Identifies everything a reload depends on: which account, which reply-count
