@@ -20,19 +20,38 @@ struct AuthorDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
 
+    /// Only `repliesSection`'s row list scrolls independently. Everything above it
+    /// (identity, chips, chart, outlet breakdown) sits in its own `ScrollView` rather than
+    /// a plain `VStack` — not because it is expected to scroll in ordinary use, but so
+    /// that on a short window it can, instead of either clipping silently or squeezing the
+    /// reply list toward zero height. `repliesSection` below carries a `minHeight` floor
+    /// for exactly that reason: whichever section runs out of room first, the reply list —
+    /// the pane's primary navigation surface — always keeps a usable minimum, and it is
+    /// the fixed section that yields by becoming scrollable instead.
+    ///
+    /// This is two independent, vertically-stacked scroll regions, not one nested inside
+    /// the other — nesting (a `ScrollView` inside another `ScrollView` on the same axis)
+    /// is what behaves badly on macOS; siblings do not.
     var body: some View {
-        ScrollView {
+        Group {
             if let author = viewModel.selected {
                 VStack(alignment: .leading, spacing: 16) {
-                    identityHeader(author)
-                    chips(author)
-                    timelineChart
-                    outletBreakdown
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            identityHeader(author)
+                            chips(author)
+                            timelineChart
+                            outletBreakdown
+                        }
+                    }
                     repliesSection
+                        .frame(minHeight: 150, maxHeight: .infinity)
                 }
                 .padding(.bottom, 16)
             } else {
-                emptyState
+                ScrollView {
+                    emptyState
+                }
             }
         }
         .background(Color.appBackground)
@@ -192,6 +211,9 @@ struct AuthorDetailView: View {
     /// This author's replies, newest first, capped at
     /// `AuthorStatsViewModel.replyDisplayCap`. The cap is always stated next to the list
     /// ("Showing N of M replies") — never silent, per the dashboard's recurring bug class.
+    ///
+    /// The "Replies" label and the "Showing N of M" cap sit outside the inner `ScrollView`
+    /// below, so they stay visible above the row list rather than scrolling away with it.
     private var repliesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -211,13 +233,15 @@ struct AuthorDetailView: View {
             if viewModel.selectedReplies.isEmpty {
                 noDataPlaceholder(height: 60)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(viewModel.selectedReplies) { reply in
-                        AuthorReplyRow(reply: reply) {
-                            selectReplyRoot(reply)
-                        }
-                        if reply.id != viewModel.selectedReplies.last?.id {
-                            Divider().background(Color.neutralBorder)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(viewModel.selectedReplies) { reply in
+                            AuthorReplyRow(reply: reply) {
+                                selectReplyRoot(reply)
+                            }
+                            if reply.id != viewModel.selectedReplies.last?.id {
+                                Divider().background(Color.neutralBorder)
+                            }
                         }
                     }
                 }
