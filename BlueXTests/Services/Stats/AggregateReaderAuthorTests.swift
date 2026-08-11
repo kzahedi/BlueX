@@ -72,10 +72,47 @@ final class AggregateReaderAuthorTests: XCTestCase {
         XCTAssertNil(try reader.authorDetail(did: "did:nobody"))
     }
 
-    func testHandleIsNilWhenNotProbed() throws {
-        // ZREPLYAUTHOR is empty in the fixture, mirroring the real store before probing.
+    func testAuthorDetailHandleIsNilWhenNotProbed() throws {
+        // `authorDetail` (unlike `authors`) has no ZPOST fallback — it is untouched by
+        // this change, and ZREPLYAUTHOR is empty in the fixture, mirroring the real store
+        // before probing.
         let a = try XCTUnwrap(try reader.authorDetail(did: "did:a"))
         XCTAssertNil(a.handle)
+    }
+
+    // MARK: - authors(...) handle fallback
+    //
+    // `authors(...)`'s handle now falls back to `ZPOST.ZAUTHORHANDLE` (the author's most
+    // recent reply) when `ZREPLYAUTHOR.ZCURRENTHANDLE` is absent — see
+    // `AggregateReader.handleSubquery`. `authorDetail` is untouched (see the test above).
+
+    /// An author with a handle in `ZPOST` only (the fixture's default shape: ZREPLYAUTHOR
+    /// is empty) must get that handle in the list, not nil.
+    func testAuthorsHandleFallsBackToPostHandleWhenNotProbed() throws {
+        let authors = try reader.authors(sort: .replyCount, limit: 10)
+        let a = try XCTUnwrap(authors.first { $0.did == "did:a" })
+        XCTAssertEqual(a.handle, "alice.test")
+    }
+
+    /// A value in `ZREPLYAUTHOR.ZCURRENTHANDLE` must win over `ZPOST.ZAUTHORHANDLE`, even
+    /// when the two disagree — the probe's answer is the more current one.
+    func testAuthorsHandlePrefersReplyAuthorCurrentHandleOverPostHandle() throws {
+        let probedReader = try AggregateReader(storeURL: try StoreFixture.makeWithProbedAuthor())
+        let authors = try probedReader.authors(sort: .replyCount, limit: 10)
+        let probed = try XCTUnwrap(authors.first { $0.did == "did:probed" })
+        XCTAssertEqual(probed.handle, "current.test",
+                       "ZREPLYAUTHOR.ZCURRENTHANDLE must win over the older ZPOST.ZAUTHORHANDLE")
+    }
+
+    /// An author with neither a `ZREPLYAUTHOR` row nor any non-null `ZPOST.ZAUTHORHANDLE`
+    /// must report nil, not a crash or the literal string "NULL". `did:nohandle` in
+    /// `makeAuthorHandleHistory()` has exactly one reply, whose `ZAUTHORHANDLE` is a
+    /// genuine SQL NULL.
+    func testAuthorsHandleIsNilWhenNeitherSourceHasOne() throws {
+        let nullReader = try AggregateReader(storeURL: try StoreFixture.makeAuthorHandleHistory())
+        let authors = try nullReader.authors(sort: .replyCount, limit: 10)
+        let noHandle = try XCTUnwrap(authors.first { $0.did == "did:nohandle" })
+        XCTAssertNil(noHandle.handle)
     }
 
     func testMaxRepliesFilter() throws {

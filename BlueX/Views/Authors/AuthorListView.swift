@@ -256,10 +256,28 @@ struct AuthorListView: View {
     private var table: some View {
         Table(viewModel.authors, selection: $selection) {
             TableColumn("Author") { author in
-                Text(author.handle ?? author.did)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.primaryText)
-                    .lineLimit(1)
+                // The handle is the primary identifier for readability, but it is reused
+                // and changed by design, and — unless the profile probe has run — is only
+                // the handle *at the time of this author's most recent reply in our
+                // corpus* (see `AuthorsFormatting.mostRecentHandleCaption`, the same
+                // wording `AuthorDetailView` already carries). The DID is the stable,
+                // DID-keyed identity this whole model rests on, so it stays visible as a
+                // subtitle rather than being demoted to tooltip-only.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(author.handle ?? author.did)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.primaryText)
+                        .lineLimit(1)
+                    if author.handle != nil {
+                        Text(author.did)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.mutedText)
+                            .lineLimit(1)
+                    }
+                }
+                .help(author.handle != nil
+                      ? "\(author.did)\n\(AuthorsFormatting.mostRecentHandleCaption)"
+                      : author.did)
             }
             TableColumn("Replies") { author in
                 Text("\(author.replyCount)")
