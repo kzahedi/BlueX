@@ -55,4 +55,7 @@ Carthage/Build/
 # Python
 __pycache__/
 *.pyc
+
+# tools/benchmark: compiled swift scorer, rebuilt on demand by support/nl_score.py
+tools/benchmark/support/nl_score
 .pytest_cache/
