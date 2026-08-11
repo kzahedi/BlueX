@@ -209,6 +209,7 @@ class FailureHandlingTests(unittest.TestCase):
                 _, summary_path, summary = score_corpus.run(
                     store_path, out_dir, batch_size=2, limit=None, resume=False,
                     model_loader=fake_loader, sleep_fn=lambda s: None,
+                    cool_seconds=0,
                 )
             finally:
                 score_corpus.make_score_fn = original_make_score_fn
@@ -358,6 +359,7 @@ class RunIntegrationTests(unittest.TestCase):
                 jsonl_path, summary_path, summary = score_corpus.run(
                     store_path, out_dir, batch_size=2, limit=None, resume=False,
                     model_loader=fake_loader, sleep_fn=lambda s: None,
+                    cool_seconds=0,
                 )
             finally:
                 score_corpus.make_score_fn = original_make_score_fn

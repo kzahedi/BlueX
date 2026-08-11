@@ -78,6 +78,14 @@ to the store and never invokes any other BlueX binary.
 
 Output lands on the external volume `/Volumes/Eregion/bluex-incivility`,
 never inside `/Volumes/Eregion/bluex-data` (the live store's own directory).
+
+PACING
+------
+Multi-hour runs keep the SoC at full GPU utilization. `pacing.py` (see its
+own docstring) adds the same two-layer cool-down `BlueX/Data/LLMPace.swift`
+uses for the LLM annotation pass: an unconditional duty cycle plus
+thermal-aware escalation via `ProcessInfo.processInfo.thermalState`. Default
+60s work / 5s cool costs about 8% throughput; `--cool-seconds 0` disables it.
 """
 import argparse
 import datetime as dt
@@ -87,6 +95,8 @@ import sqlite3
 import sys
 import tempfile
 import time
+
+import pacing
 
 MODEL_ID = "unitary/unbiased-toxic-roberta"
 # Pinned to the commit the local HF cache's "main" ref resolves to, so a run
@@ -284,7 +294,8 @@ class ProgressWriter:
 def score_corpus(replies, score_fn, batch_size=DEFAULT_BATCH_SIZE,
                   already_done=None, progress=None, on_record=None,
                   max_retries=DEFAULT_MAX_RETRIES, sleep_fn=time.sleep,
-                  heads=HEADS, model_id=MODEL_ID, model_revision=MODEL_REVISION):
+                  heads=HEADS, model_id=MODEL_ID, model_revision=MODEL_REVISION,
+                  pacer=None):
     """Score `replies` ([(uri, text), ...]), emitting one record per
     (post, head) via on_record(record_dict).
 
@@ -293,6 +304,13 @@ def score_corpus(replies, score_fn, batch_size=DEFAULT_BATCH_SIZE,
     SKIPPED, not marked as progress — so a later --resume run will retry it
     rather than silently treating it as done. Never aborts the whole run for
     one batch failure.
+
+    `pacer` (a `pacing.Pacer`, or None to disable pacing entirely — used by
+    most tests) has its `maybe_pace()` called once per batch, success or
+    failure, AFTER progress is marked for that batch. Cooling the hardware
+    never touches resume state and can never double-count progress, because
+    it happens strictly after the state that matters has already been
+    recorded.
 
     Returns a stats dict: requested, skipped_resume, processed,
     failed_batches, failed_posts.
@@ -319,6 +337,8 @@ def score_corpus(replies, score_fn, batch_size=DEFAULT_BATCH_SIZE,
         except ScoreFailed:
             stats["failed_batches"] += 1
             stats["failed_posts"] += len(batch)
+            if pacer is not None:
+                pacer.maybe_pace()
             continue
 
         scored_at = now_iso()
@@ -338,6 +358,8 @@ def score_corpus(replies, score_fn, batch_size=DEFAULT_BATCH_SIZE,
         stats["processed"] += len(batch)
         if progress is not None:
             progress.mark(uris)
+        if pacer is not None:
+            pacer.maybe_pace()
 
     return stats
 
@@ -423,11 +445,24 @@ truncated to 512 tokens by the tokenizer (`max_position_embeddings` is 514
 for this checkpoint) — the same limit the benchmark itself used, so results
 are comparable.
 
+## Pacing
+
+Multi-hour runs are paced to spare the hardware, following the same
+two-layer scheme `BlueX/Data/LLMPace.swift` uses for the LLM annotation
+pass: an unconditional duty cycle (default 60s of work, then 5s cooling —
+about 8%% throughput cost) plus thermal-aware escalation that adds 3s
+(`serious`) or 10s (`critical`) more when `ProcessInfo.processInfo.thermalState`
+reports heat pressure. `.summary.json`'s `"pacing"` block records total
+cooling time and how many escalations fired at each level; if it shows zero
+escalations, the machine stayed `nominal` throughout and the duty cycle
+alone did the job. `--cool-seconds 0` disables all of it.
+
 ## How it was generated
 
 ```
 python3 tools/incivility/score_corpus.py \\
-    [--limit N] [--batch-size 32] [--out DIR] [--store PATH] [--resume]
+    [--limit N] [--batch-size 32] [--out DIR] [--store PATH] [--resume] \\
+    [--work-seconds 60] [--cool-seconds 5]
 ```
 
 The store is opened strictly read-only (`file:...?mode=ro`, never
@@ -446,8 +481,16 @@ def write_readme(out_dir):
 # --------------------------------------------------------------------------
 
 def run(store_path, out_dir, batch_size, limit, resume, device=None,
-        model_loader=load_model, sleep_fn=time.sleep):
-    """Execute one full scoring run. Returns (jsonl_path, summary_path, summary)."""
+        model_loader=load_model, sleep_fn=time.sleep,
+        work_seconds=pacing.DEFAULT_WORK_SECONDS, cool_seconds=pacing.DEFAULT_COOL_SECONDS,
+        thermal_poll_seconds=pacing.DEFAULT_THERMAL_POLL_SECONDS, pacer=None):
+    """Execute one full scoring run. Returns (jsonl_path, summary_path, summary).
+
+    `pacer` lets callers (mainly tests) inject a pre-built `pacing.Pacer`;
+    otherwise one is constructed from `work_seconds`/`cool_seconds`/
+    `thermal_poll_seconds`. Pass `cool_seconds=0` (the CLI's
+    `--cool-seconds 0`) to disable pacing entirely.
+    """
     replies = fetch_replies(store_path, limit=limit)
 
     now = dt.datetime.now(dt.timezone.utc)
@@ -463,6 +506,12 @@ def run(store_path, out_dir, batch_size, limit, resume, device=None,
     tokenizer, model, resolved_device = model_loader(device=device)
     score_fn = make_score_fn(tokenizer, model, resolved_device)
 
+    if pacer is None:
+        pacer = pacing.Pacer(
+            work_seconds=work_seconds, cool_seconds=cool_seconds,
+            thermal_poll_seconds=thermal_poll_seconds,
+        )
+
     jsonl_fd = open(jsonl_path, "w", encoding="utf-8")
     progress = ProgressWriter(progress_path) if progress_path else None
 
@@ -476,7 +525,7 @@ def run(store_path, out_dir, batch_size, limit, resume, device=None,
         stats = score_corpus(
             replies, score_fn, batch_size=batch_size,
             already_done=already_done, progress=progress, on_record=on_record,
-            sleep_fn=sleep_fn,
+            sleep_fn=sleep_fn, pacer=pacer,
         )
     finally:
         jsonl_fd.close()
@@ -507,6 +556,7 @@ def run(store_path, out_dir, batch_size, limit, resume, device=None,
         "failed_posts": stats["failed_posts"],
         "throughput_posts_per_sec": throughput,
         "run_status": "complete" if complete else "partial",
+        "pacing": pacer.summary(),
     }
 
     def write_summary(handle):
@@ -536,6 +586,13 @@ def main(argv=None):
                          help="skip posts already recorded in the progress file")
     parser.add_argument("--device", default=None,
                          help="override device (default: mps if available, else cpu)")
+    parser.add_argument("--work-seconds", type=float, default=pacing.DEFAULT_WORK_SECONDS,
+                         help="unconditional duty cycle: seconds of scoring work "
+                              "between cool-downs (default: %(default)s)")
+    parser.add_argument("--cool-seconds", type=float, default=pacing.DEFAULT_COOL_SECONDS,
+                         help="unconditional duty cycle: seconds to sleep after each "
+                              "--work-seconds window; 0 disables ALL pacing, including "
+                              "thermal escalation (default: %(default)s)")
     args = parser.parse_args(argv)
 
     store_dir = args.store or DEFAULT_STORE_DIR
@@ -546,6 +603,7 @@ def main(argv=None):
 
     jsonl_path, summary_path, summary = run(
         store_path, args.out, args.batch_size, args.limit, args.resume, device=args.device,
+        work_seconds=args.work_seconds, cool_seconds=args.cool_seconds,
     )
 
     write_readme(args.out)
