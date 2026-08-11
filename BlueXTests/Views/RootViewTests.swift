@@ -17,10 +17,11 @@ final class RootViewTests: XCTestCase {
             .account(sampleAccount),
             .group(sampleGroup),
             .post(samplePost),
+            .authors,
             .queue,
             .settings,
         ]
-        XCTAssertEqual(items.count, 5, "All 5 SidebarItem cases must be handled")
+        XCTAssertEqual(items.count, 6, "All 6 SidebarItem cases must be handled")
     }
     func testCoordinatorStateChangesForwardedToSidebarVM() {
         let sidebarVM = SidebarViewModel()
