@@ -1,13 +1,24 @@
 // BlueX/Views/Authors/AuthorDetailView.swift
 import SwiftUI
+import SwiftData
 import Charts
 
-/// Per-author detail: identity, headline chips, a weekly reply timeline, and the outlet
-/// breakdown for this one author. `ZREPLYAUTHOR` is currently empty, so `handle` is nil for
-/// everyone — that is shown as a note that the probe has not run, never as a blank field,
-/// which would read as "this author has no handle" rather than "not yet collected".
+/// Per-author detail: identity, headline chips, a weekly reply timeline, the outlet
+/// breakdown, and the author's reply list, for this one author.
+///
+/// **Identity.** The pane's title is the handle on the author's *most recent reply*
+/// (`AuthorStatsViewModel.selectedHandle`, backed by `ZPOST.ZAUTHORHANDLE` — populated on
+/// every reply row already) — not `AuthorSummary.handle`, which comes from the
+/// still-empty `ZREPLYAUTHOR.ZCURRENTHANDLE` and is nil for everyone until the profile
+/// probe runs. The DID stays visible underneath, always: it is the stable research
+/// identifier, and handles are reused/changed — exactly why the identity model is
+/// DID-keyed in the first place. When an author's replies carry more than one distinct
+/// handle, that is shown too — a handle change is an evasion indicator, not noise.
 struct AuthorDetailView: View {
     var viewModel: AuthorStatsViewModel
+    @Binding var selection: SidebarItem?
+
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         ScrollView {
@@ -17,6 +28,7 @@ struct AuthorDetailView: View {
                     chips(author)
                     timelineChart
                     outletBreakdown
+                    repliesSection
                 }
                 .padding(.bottom, 16)
             } else {
@@ -30,23 +42,38 @@ struct AuthorDetailView: View {
 
     private func identityHeader(_ author: AuthorSummary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(author.handle ?? author.did)
+            Text(viewModel.selectedHandle ?? author.did)
                 .font(.title2)
                 .foregroundStyle(Color.primaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if author.handle != nil {
-                Text(author.did)
-                    .font(.caption)
+            // The DID is always shown, and always secondary — it is the stable research
+            // identifier, never replaced by the handle even when one is available.
+            Text(author.did)
+                .font(.caption)
+                .foregroundStyle(Color.mutedText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if viewModel.selectedHandle != nil {
+                // The handle is honestly labelled as of the most recent reply, not
+                // implied to be the author's handle today.
+                Text(AuthorsFormatting.mostRecentHandleCaption)
+                    .font(.caption2)
                     .foregroundStyle(Color.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
             } else {
                 // Handle-not-collected: shown as an explicit note, not an empty field.
                 Text(AuthorsFormatting.handleNotCollectedMessage)
                     .font(.caption)
                     .foregroundStyle(Color.mutedText)
+            }
+
+            if viewModel.selectedHandleHistory.count > 1 {
+                Text(AuthorsFormatting.multipleHandlesNote(viewModel.selectedHandleHistory))
+                    .font(.caption2)
+                    .foregroundStyle(Color.counterBorder)
+                    .lineLimit(2)
             }
 
             // No per-author status exists in the data model yet (ZREPLYAUTHOR is empty),
@@ -108,9 +135,10 @@ struct AuthorDetailView: View {
                     .interpolationMethod(.catmullRom)
                 }
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .weekOfYear, count: 4)) {
+                    let spanDays = ChartAxisFormatting.spanDays(viewModel.selectedWeeks.map(\.weekStart))
+                    AxisMarks(values: .automatic(desiredCount: ChartAxisFormatting.desiredTickCount)) {
                         AxisGridLine().foregroundStyle(Color.neutralBorder.opacity(0.3))
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        AxisValueLabel(format: ChartAxisFormatting.dateFormat(spanDays: spanDays))
                             .foregroundStyle(Color.mutedText)
                     }
                 }
@@ -159,6 +187,59 @@ struct AuthorDetailView: View {
         .padding(.horizontal, 16)
     }
 
+    // MARK: - Replies
+
+    /// This author's replies, newest first, capped at
+    /// `AuthorStatsViewModel.replyDisplayCap`. The cap is always stated next to the list
+    /// ("Showing N of M replies") — never silent, per the dashboard's recurring bug class.
+    private var repliesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Replies")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.secondaryText)
+                Spacer()
+                if viewModel.selectedReplyTotal > 0 {
+                    Text(AuthorsFormatting.repliesShownSummary(
+                        shown: viewModel.selectedReplies.count,
+                        total: viewModel.selectedReplyTotal))
+                        .font(.caption2)
+                        .foregroundStyle(Color.mutedText)
+                }
+            }
+
+            if viewModel.selectedReplies.isEmpty {
+                noDataPlaceholder(height: 60)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(viewModel.selectedReplies) { reply in
+                        AuthorReplyRow(reply: reply) {
+                            selectReplyRoot(reply)
+                        }
+                        if reply.id != viewModel.selectedReplies.last?.id {
+                            Divider().background(Color.neutralBorder)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 16)
+    }
+
+    /// Fetches exactly the one `Post` this reply's root URI names — never materialising
+    /// anything broader — and navigates into its thread, mirroring
+    /// `AccountContentView.selectRoot`.
+    private func selectReplyRoot(_ reply: AuthorReply) {
+        let rootURI = reply.rootURI
+        let descriptor = FetchDescriptor<Post>(predicate: #Predicate<Post> { $0.uri == rootURI })
+        if let post = try? modelContext.fetch(descriptor).first {
+            selection = .post(post)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.questionmark")
@@ -176,5 +257,34 @@ struct AuthorDetailView: View {
             .font(.system(size: 12))
             .foregroundStyle(Color.mutedText)
             .frame(maxWidth: .infinity, minHeight: height)
+    }
+}
+
+/// One reply row: text, relative timestamp, and a tap target into its thread. Mirrors
+/// `RootPostSummaryRow`'s (`AccountContentView.swift`) layout, minus the per-tree status
+/// stripe/badge that has no equivalent on a single reply.
+private struct AuthorReplyRow: View {
+    let reply: AuthorReply
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(reply.text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primaryText)
+                    .lineLimit(2)
+                Text(reply.createdAt, style: .relative)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.mutedText)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
     }
 }
