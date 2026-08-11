@@ -12,6 +12,17 @@ struct AccountContentView: View {
 
     @State private var reader: AggregateReader?
     @State private var rootRows: [RootPostSummary] = []
+    /// The reply-count bounds portion of `reloadKey` as of the last call to `reload()`,
+    /// used only to pick a debounce duration (see `reload()`) — not correctness-critical.
+    @State private var previousBoundsKey: String = ""
+    /// The most recently started SQL work (`AggregateReader.rootPosts`/`rootPostCount`),
+    /// used to serialize queries: a synchronous SQL call cannot be cancelled mid-flight,
+    /// so a new `reload()` waits for this to finish rather than starting a second one
+    /// concurrently — see FIX 2 in the reply-count-filter perf fix.
+    @State private var inFlightSQLTask: Task<ReloadOutcome, Never>?
+    @FocusState private var focusedReplyCountField: ReplyCountField?
+    @State private var minRepliesDraft: String = ""
+    @State private var maxRepliesDraft: String = ""
     /// How many trees match the current reply-count + text filters, in total — not just
     /// the capped page in `rootRows`. Surfaced so a filter that hides most of the corpus
     /// is visible, not implied, and so the count reflects what search actually finds
@@ -40,8 +51,25 @@ struct AccountContentView: View {
     /// range, and the search text. Changing any of these re-runs the SQL query; nothing
     /// else does.
     private var reloadKey: String {
+        "\(account.did)|\(boundsKey)|\(viewModel.searchText)"
+    }
+
+    /// Just the reply-count-range portion of `reloadKey`, used to decide which debounce
+    /// duration applies (see `reload()`).
+    private var boundsKey: String {
         let bounds = viewModel.replyCountBounds
-        return "\(account.did)|\(bounds.min ?? -1)|\(bounds.max ?? -1)|\(viewModel.searchText)"
+        return "\(bounds.min ?? -1)|\(bounds.max ?? -1)"
+    }
+
+    private enum ReplyCountField: Hashable { case min, max }
+
+    /// The outcome of one `AggregateReader` round-trip, computed entirely off the
+    /// MainActor inside `Task.detached` and carried back across the `await` boundary as
+    /// plain data — mirrors `ChartsViewModel.load`.
+    private enum ReloadOutcome {
+        case success(reader: AggregateReader, rows: [RootPostSummary], count: Int)
+        case accountNotFound(reader: AggregateReader)
+        case failure(Error)
     }
 
     var body: some View {
@@ -97,6 +125,7 @@ struct AccountContentView: View {
                 }
                 statsRow
                 filterBar
+                replyCountRangeRow
             }
             .padding(12)
             .background(Color.panelBackground)
@@ -131,11 +160,35 @@ struct AccountContentView: View {
     /// post and a `Set`-predicate fetch of every reply belonging to it, which together
     /// materialised up to ~1.08M `Post` objects per account click.
     ///
+    /// **Off the MainActor.** `.task(id:)` on a `View` inherits the MainActor, so the SQL
+    /// calls themselves must not run inline here — they're wrapped in `Task.detached`
+    /// below and only the plain-data `ReloadOutcome` crosses back over `await`, mirroring
+    /// `ChartsViewModel.load`. Measured against the live store (2.15M posts), the
+    /// reply-count aggregate alone takes ~2.8s; running that synchronously on this
+    /// `.task`'s MainActor Task blocked the whole UI for the duration of every filter
+    /// change, which is the 790% CPU freeze this fixes.
+    ///
     /// **Debounce.** The leading sleep is not decorative: `.task(id: reloadKey)` cancels
-    /// this call and starts a fresh one on every keystroke in the search field. If the
-    /// sleep is cancelled (a new keystroke arrived), `Task.isCancelled` is true and this
-    /// returns before touching the store — so typing "hate speech" runs one query, not
-    /// eleven.
+    /// this call and starts a fresh one whenever `reloadKey` changes. If the sleep is
+    /// cancelled (a new change arrived first), `Task.isCancelled` is true and this
+    /// returns before touching the store. Two durations apply depending on *what*
+    /// changed since the last call:
+    ///   - Reply-count bounds changed (preset click, or a min/max field committed via
+    ///     `.onSubmit`/focus-loss): 600ms. That query is the ~2.8s aggregate, and every
+    ///     trigger on this path already fires once per user action (never per keystroke —
+    ///     see `commitReplyCountDraft`), so a longer debounce only protects against rapid
+    ///     preset-clicking without costing perceived responsiveness.
+    ///   - Only the search text changed (still fires once per keystroke): kept at the
+    ///     original 250ms, since that query is the fast `LIKE` path (~0.22s measured).
+    ///
+    /// **Single-flight.** A synchronous SQL call cannot be cancelled once started, so
+    /// after the debounce this awaits `inFlightSQLTask` (the previous call's SQL work, if
+    /// still running) *before* starting its own `Task.detached`. Without this, a rapid
+    /// sequence of filter changes each waits out its own debounce but their detached SQL
+    /// calls can still overlap — several 2.8s aggregates running at once is exactly how
+    /// multiple cores got pinned to produce the reported 790% CPU. Cancellation still
+    /// supersedes stale *results* (see below); this only prevents stale *queries* from
+    /// running concurrently with the current one.
     ///
     /// **Cancellation vs. staleness.** Every `Task.isCancelled` check below exists to stop
     /// a superseded load (previous account, previous filter) from publishing its result
@@ -143,34 +196,78 @@ struct AccountContentView: View {
     /// so without these checks a slow load for account A can finish after a fast switch
     /// to account B and overwrite B's rows with A's.
     private func reload() async {
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        let currentBoundsKey = boundsKey
+        let boundsChanged = currentBoundsKey != previousBoundsKey
+        previousBoundsKey = currentBoundsKey
+
+        let debounceNanos: UInt64 = boundsChanged ? 600_000_000 : 250_000_000
+        try? await Task.sleep(nanoseconds: debounceNanos)
         guard !Task.isCancelled else { return }
-        do {
-            let reader = try self.reader ?? AggregateReader()
-            guard !Task.isCancelled else { return }
-            self.reader = reader
-            guard let pk = try reader.accountPK(did: account.did) else {
-                guard !Task.isCancelled else { return }
-                loadError = "Account not found in the store (did: \(account.did))"
-                rootRows = []
-                matchingCount = 0
-                return
+
+        // An inverted range (min > max) can only ever match zero rows — surface the
+        // inline message instead of spending 2.8s to confirm that.
+        guard viewModel.customRangeError == nil else { return }
+
+        if let prior = inFlightSQLTask {
+            _ = await prior.value
+        }
+        guard !Task.isCancelled else { return }
+
+        let did = account.did
+        let bounds = viewModel.replyCountBounds
+        let search = viewModel.searchText.isEmpty ? nil : viewModel.searchText
+        let rowLimit = Self.rowLimit
+        let existingReader = self.reader
+
+        let sqlTask = Task.detached(priority: .userInitiated) { () -> ReloadOutcome in
+            do {
+                let reader = try existingReader ?? AggregateReader()
+                guard let pk = try reader.accountPK(did: did) else {
+                    return .accountNotFound(reader: reader)
+                }
+                let rows = try reader.rootPosts(accountPK: pk, minReplies: bounds.min,
+                                                 maxReplies: bounds.max, textSearch: search,
+                                                 limit: rowLimit)
+                let count = try reader.rootPostCount(accountPK: pk, minReplies: bounds.min,
+                                                      maxReplies: bounds.max, textSearch: search)
+                return .success(reader: reader, rows: rows, count: count)
+            } catch {
+                return .failure(error)
             }
-            let bounds = viewModel.replyCountBounds
-            let search = viewModel.searchText.isEmpty ? nil : viewModel.searchText
-            let rows = try reader.rootPosts(accountPK: pk, minReplies: bounds.min,
-                                             maxReplies: bounds.max, textSearch: search,
-                                             limit: Self.rowLimit)
-            let count = try reader.rootPostCount(accountPK: pk, minReplies: bounds.min,
-                                                  maxReplies: bounds.max, textSearch: search)
-            guard !Task.isCancelled else { return }
+        }
+        inFlightSQLTask = sqlTask
+
+        let outcome = await sqlTask.value
+        guard !Task.isCancelled else { return }
+
+        switch outcome {
+        case .success(let reader, let rows, let count):
+            self.reader = reader
             rootRows = rows
             matchingCount = count
             loadError = nil
             lastLoadedAt = Date()
-        } catch {
-            guard !Task.isCancelled else { return }
+        case .accountNotFound(let reader):
+            self.reader = reader
+            loadError = "Account not found in the store (did: \(did))"
+            rootRows = []
+            matchingCount = 0
+        case .failure(let error):
             loadError = error.localizedDescription
+        }
+    }
+
+    /// Copies the drafts into the view model and — if either is non-empty — switches to
+    /// `.custom` so the typed range actually takes effect. Called from `.onSubmit` and on
+    /// focus loss, never from an `onChange` of the text itself: that's the one thing that
+    /// must not happen, or every keystroke would re-run the ~2.8s aggregate and recreate
+    /// the freeze this fix exists for.
+    private func commitReplyCountDraft() {
+        guard viewModel.minRepliesText != minRepliesDraft || viewModel.maxRepliesText != maxRepliesDraft else { return }
+        viewModel.minRepliesText = minRepliesDraft
+        viewModel.maxRepliesText = maxRepliesDraft
+        if !minRepliesDraft.isEmpty || !maxRepliesDraft.isEmpty {
+            viewModel.replyCountPreset = .custom
         }
     }
 
@@ -256,28 +353,65 @@ struct AccountContentView: View {
                     }
                 }
             }
-            Divider()
-            Menu("More than…") {
-                ForEach([10, 25, 50, 100, 250, 500], id: \.self) { n in
-                    Button("More than \(n)") {
-                        viewModel.customMinReplies = n
-                        viewModel.replyCountPreset = .custom
-                    }
-                }
-            }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
                     .font(.system(size: 14))
-                Text(viewModel.replyCountPreset == .custom
-                     ? "More than \(viewModel.customMinReplies)"
-                     : viewModel.replyCountPreset.label)
+                Text(viewModel.replyCountPreset.label)
                     .font(.system(size: 11))
             }
             .foregroundStyle(viewModel.replyCountPreset != .any ? Color.counterBorder : Color.mutedText)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    /// Typed min/max reply-count fields — precision alongside the presets above. Commits
+    /// only on `.onSubmit` or focus loss (`commitReplyCountDraft`), never per keystroke:
+    /// each commit can trigger a ~2.8s SQL aggregate, so re-running it per character would
+    /// recreate the freeze this whole fix exists for.
+    private var replyCountRangeRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Text("Replies")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+                TextField("min", text: $minRepliesDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .frame(width: 44)
+                    .focused($focusedReplyCountField, equals: .min)
+                    .onSubmit { commitReplyCountDraft() }
+                Text("–")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.mutedText)
+                TextField("max", text: $maxRepliesDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .frame(width: 44)
+                    .focused($focusedReplyCountField, equals: .max)
+                    .onSubmit { commitReplyCountDraft() }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.appBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            if let error = viewModel.customRangeError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.hateBorder)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .onChange(of: focusedReplyCountField) { oldValue, newValue in
+            // Fires on focus loss (tab away, click elsewhere) as well as focus change
+            // between the two fields — `.onSubmit` alone wouldn't catch a plain click-away.
+            if oldValue != nil && oldValue != newValue {
+                commitReplyCountDraft()
+            }
+        }
     }
 
     private var emptyState: some View {

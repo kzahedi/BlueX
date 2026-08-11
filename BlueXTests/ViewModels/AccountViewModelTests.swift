@@ -36,20 +36,102 @@ final class AccountViewModelTests: XCTestCase {
         XCTAssertNil(bounds.max)
     }
 
-    func testCustomPresetUsesTheEnteredMinimumWithNoUpperBound() {
+    // MARK: - replyCountBounds / customRangeError (typed min/max fields)
+
+    func testCustomEmptyEmptyIsUnbounded() {
         let vm = AccountViewModel()
-        vm.customMinReplies = 37
         vm.replyCountPreset = .custom
+        vm.minRepliesText = ""
+        vm.maxRepliesText = ""
         let bounds = vm.replyCountBounds
-        XCTAssertEqual(bounds.min, 37)
-        XCTAssertNil(bounds.max, "\"more than N\" must never silently become a range with a cap")
+        XCTAssertNil(bounds.min)
+        XCTAssertNil(bounds.max)
+        XCTAssertNil(vm.customRangeError)
     }
 
-    func testCustomPresetClampsNegativeEntryToZero() {
+    func testCustomMinOnlyHasNoUpperBound() {
         let vm = AccountViewModel()
-        vm.customMinReplies = -5
         vm.replyCountPreset = .custom
-        XCTAssertEqual(vm.replyCountBounds.min, 0)
+        vm.minRepliesText = "37"
+        vm.maxRepliesText = ""
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 37)
+        XCTAssertNil(bounds.max, "an absent maximum must never silently become a cap")
+        XCTAssertNil(vm.customRangeError)
+    }
+
+    func testCustomMaxOnlyHasNoLowerBound() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = ""
+        vm.maxRepliesText = "20"
+        let bounds = vm.replyCountBounds
+        XCTAssertNil(bounds.min)
+        XCTAssertEqual(bounds.max, 20)
+        XCTAssertNil(vm.customRangeError)
+    }
+
+    func testCustomBothMinAndMax() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = "5"
+        vm.maxRepliesText = "50"
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 5)
+        XCTAssertEqual(bounds.max, 50)
+        XCTAssertNil(vm.customRangeError)
+    }
+
+    func testCustomMinGreaterThanMaxSurfacesInlineError() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = "50"
+        vm.maxRepliesText = "5"
+        // The mapping itself still reflects what was typed — it's `customRangeError`
+        // that tells the view not to fire this query, not a silently different bound.
+        let bounds = vm.replyCountBounds
+        XCTAssertEqual(bounds.min, 50)
+        XCTAssertEqual(bounds.max, 5)
+        XCTAssertNotNil(vm.customRangeError)
+    }
+
+    func testCustomNonNumericJunkParsesToNoBoundAndSurfacesError() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = "banana"
+        vm.maxRepliesText = ""
+        let bounds = vm.replyCountBounds
+        XCTAssertNil(bounds.min, "junk input must never crash or be misread as a number")
+        XCTAssertNil(bounds.max)
+        XCTAssertNotNil(vm.customRangeError)
+    }
+
+    func testCustomNegativeMinParsesToNoBoundAndSurfacesError() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = "-5"
+        vm.maxRepliesText = ""
+        let bounds = vm.replyCountBounds
+        XCTAssertNil(bounds.min, "a negative reply count must never be silently clamped or accepted")
+        XCTAssertNotNil(vm.customRangeError)
+    }
+
+    func testCustomWhitespaceOnlyTextIsTreatedAsEmpty() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .custom
+        vm.minRepliesText = "   "
+        vm.maxRepliesText = "  10  "
+        let bounds = vm.replyCountBounds
+        XCTAssertNil(bounds.min)
+        XCTAssertEqual(bounds.max, 10)
+        XCTAssertNil(vm.customRangeError)
+    }
+
+    func testCustomRangeErrorIsNilWhenPresetIsNotCustom() {
+        let vm = AccountViewModel()
+        vm.replyCountPreset = .any
+        vm.minRepliesText = "not a number"
+        XCTAssertNil(vm.customRangeError, "junk in the fields shouldn't matter unless custom is selected")
     }
 
     // MARK: - filteredRootPosts
