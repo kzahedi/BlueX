@@ -34,6 +34,17 @@ struct RootPostSummary: Identifiable, Hashable {
     let replyTreeStatus: String
 }
 
+struct AuthorReply: Identifiable, Hashable {
+    var id: String { uri }
+    let uri: String
+    let text: String
+    let createdAt: Date
+    /// The URI of the reply's root post — what a row navigates to. Resolving the actual
+    /// `Post` for it is the caller's job (fetching exactly the one row via SwiftData),
+    /// mirroring `AccountContentView.selectRoot`.
+    let rootURI: String
+}
+
 struct OutletCount: Identifiable, Hashable {
     var id: Int64 { accountPK }
     let accountPK: Int64

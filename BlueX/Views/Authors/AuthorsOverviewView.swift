@@ -10,13 +10,14 @@ import Charts
 /// not been collected yet, so it must never render as a zeroed chart.
 struct AuthorsOverviewView: View {
     var viewModel: AuthorStatsViewModel
+    @Binding var selection: SidebarItem?
 
     var body: some View {
         // Selecting a row in `AuthorListView` populates `viewModel.selected`; this pane
         // then swaps from the population summary to that author's detail. Deselecting
         // (via `AuthorListView`'s selection binding going back to nil) swaps it back.
         if viewModel.selected != nil {
-            AuthorDetailView(viewModel: viewModel)
+            AuthorDetailView(viewModel: viewModel, selection: $selection)
         } else {
             overview
         }

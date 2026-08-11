@@ -430,6 +430,63 @@ enum StoreFixture {
         try w.close()
         return url
     }
+
+    /// Three reply authors, purpose-built for `mostRecentHandle`/`distinctHandles`:
+    ///
+    ///   did:multi     — two replies, two DIFFERENT handles: "old.test" (2024-01-01, the
+    ///                   earlier reply) then "new.test" (2024-02-01, the most recent) —
+    ///                   `mostRecentHandle` must return "new.test", not "old.test", and
+    ///                   `distinctHandles` must return both, sorted.
+    ///   did:single    — two replies, the SAME handle both times ("solo.test") — pins
+    ///                   down that an author who never changed handles reports exactly
+    ///                   one distinct handle, not two identical entries.
+    ///   did:nohandle  — one reply with a NULL `ZAUTHORHANDLE` — pins down that a
+    ///                   missing handle reports as `nil`/empty, never as the literal
+    ///                   string "NULL" or a crash.
+    static func makeAuthorHandleHistory() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("fixture.sqlite")
+        let w = try SQLiteWriteHelper(at: url)
+        try schema(w)
+
+        try w.exec("""
+        INSERT INTO ZTRACKEDACCOUNT (Z_PK, ZDID, ZHANDLE, ZDISPLAYNAME, ZISACTIVE)
+        VALUES (1,'did:o1','outlet-one.com','Outlet One',1)
+        """)
+
+        var pk = 1
+        func nextPK() -> Int { let p = pk; pk += 1; return p }
+
+        var rows: [String] = [
+            post(nextPK(), "at://r1", "did:root", "outlet-one.com", "2024-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: true, account: 1),
+            post(nextPK(), "at://multi-old", "did:multi", "old.test", "2024-01-01T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            post(nextPK(), "at://multi-new", "did:multi", "new.test", "2024-02-01T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            post(nextPK(), "at://single-1", "did:single", "solo.test", "2024-01-05T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+            post(nextPK(), "at://single-2", "did:single", "solo.test", "2024-01-10T00:00:00Z",
+                 root: "at://r1", isRoot: false, account: nil),
+        ]
+        // Written directly (not via `post`, which always quotes a handle) so
+        // ZAUTHORHANDLE is a genuine SQL NULL rather than the literal string "NULL".
+        let nohandlePK = nextPK()
+        rows.append("""
+            (\(nohandlePK),'at://nohandle-1','text',\(cd(date("2024-01-15T00:00:00Z"))),\
+            'did:nohandle',NULL,'at://r1','at://r1',0,1,NULL)
+            """)
+
+        try w.exec("""
+        INSERT INTO ZPOST (Z_PK, ZURI, ZTEXT, ZCREATEDAT, ZAUTHORDID, ZAUTHORHANDLE,
+                           ZPARENTURI, ZROOTURI, ZISROOTPOST, ZDEPTH, ZACCOUNT)
+        VALUES \(rows.joined(separator: ","))
+        """)
+        try w.close()
+        return url
+    }
 }
 
 private extension Array {
