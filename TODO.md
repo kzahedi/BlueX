@@ -37,14 +37,32 @@ visible. Any future detector claim must be tested against `rude`, not against ra
 
 ---
 
-## Track 1 — Incivility (start now, it works)
+## Track 1 — Incivility (DONE for scoring; aggregation next)
 
-**Status: validated, ready to run.** `#toxicity` separates `rude` from random at **0.946**.
+**Status: corpus scored.** `#toxicity` separates `rude` from random at **0.946**.
 
-- [ ] Measure throughput of `unitary/unbiased-toxic-roberta` on the Mac mini (batched, MPS)
-      over a few thousand posts before committing to a full pass.
-- [ ] Score the corpus (2.2M replies). Store as an `Annotation` with a distinct `stage`
-      so it never gets confused with a hate label.
+**Completed run** (`/Volumes/Eregion/bluex-incivility/`, summary
+`incivility-scores-2026-08-11T153517Z.summary.json`):
+
+| | |
+|---|---|
+| Posts scored | **2,085,088** |
+| Failed batches / posts | **0 / 0** |
+| `run_status` | **complete** |
+| Throughput | 145.8 posts/sec on MPS |
+| Heads recorded | `toxicity` and `identity_attack` |
+| Cooling | 445s over 89 duty-cycle triggers |
+| Thermal escalations | **0 serious, 0 critical** — machine never left `nominal` |
+
+The duty cycle (5s per 60s) alone was sufficient; the `ThermalBackoff` ladder never fired.
+Future passes need not be more conservative.
+
+- [x] Measure throughput before committing to a full pass — 124/sec sampled, 145.8/sec actual
+- [x] Score the corpus — complete, JSONL only (deliberately **not** written into
+      `Annotation`, whose `speechClass` field would invite hate/incivility confusion)
+- [ ] **Aggregate: weekly incivility rate per outlet over time.** This is the first real
+      research output the corpus can produce. Use the `AggregateReader` SQL pattern.
+- [ ] Decide whether/how to ingest scores into the store for the dashboard to read.
 - [ ] Weekly incivility rate per outlet, over time. This is publishable on its own.
 - [ ] Report incivility and hate **separately, and show whether they dissociate.**
       "Replies got ruder but hate stayed flat" is a finding. So is the opposite.
@@ -53,36 +71,62 @@ visible. Any future detector claim must be tested against `rude`, not against ra
 
 ---
 
-## Track 2 — Hate (one cheap experiment before deciding)
+## Track 2 — Hate (design in progress)
 
-**Status: no working detector. One obvious approach untested.**
+**Design doc: `docs/superpowers/specs/2026-08-12-hate-detection-programme-design.md`**
+(NOT yet approved — architecture undecided.)
 
-Every model benchmarked so far is *lexical* — it scores surface features. Nothing has yet
-been asked to apply the moderator's actual definition as a semantic judgement.
+**Decisions taken:** every post must be classified (not sample-based); human annotation
+capacity is a few hundred, user only, so those labels are **held-out gold, never training
+data**; full-corpus inference must be encoder-class (LLM over 2.4M ≈ 66 days locally).
 
-- [ ] **Benchmark an LLM with a definition-grounded prompt** on the same 235 vs 872 set.
-      Cheap: ~1,100 posts is cents via a cloud model, or a few hours locally.
-      **`ollama list` is currently empty — no local models are pulled**, despite
-      `ModelConfig` presets referencing Gemma/Qwen.
-  - If it reaches ≥0.75 vs `rude`: a hate pipeline exists. Proceed.
-  - If it lands ~0.55 like everything else: the distinction is not recoverable from text at
-    this label quality, and human annotation becomes mandatory rather than preferable.
-    **That is a real result, not a failure.**
-- [ ] If promising, consider fine-tuning an encoder on hate-vs-rude using these labels.
-      235 positives is small for training but the task is narrow.
+**Consequence to state, not paper over:** with a single annotator there is **no inter-rater
+reliability** — Cohen's κ is unavailable. Options: omit it, report intra-rater agreement
+from a re-annotated subset, or recruit a second annotator for a portion.
+
+Two cheap diagnostics, either of which redirects the programme:
+
+- [ ] **A — fine-tune a small encoder directly on the 1,124 existing moderator labels**
+      (241 hate, 883 `rude`). Minutes of work. This is *diagnostic*: if a model trained on
+      exactly the right distinction still cannot beat chance, the distinction is not
+      learnable from text at this label quality and **no amount of LLM labelling fixes
+      that**. If it works, the LLM stage may be unnecessary. **Recommended first.**
+- [ ] **B — LLM with a definition-grounded prompt**, benchmarked on the same 235 vs 872 set.
+      Every model tested so far is *lexical*; nothing has yet applied the definition
+      semantically. `/Volumes/Eregion/ollama` holds **57 GB of models** — the earlier empty
+      `ollama list` was a daemon/path issue, not an absence.
+- [ ] If B works, distil: LLM labels 20–50k stratified posts → fine-tune encoder → encoder
+      scores all 2.4M (~4.5h at the measured 145 posts/sec).
+
+**Report hate-vs-`rude` as the headline metric**, hate-vs-random secondary. Reporting only
+the latter is exactly how a rudeness detector gets mistaken for a hate detector.
+
+**German label scarcity blocks any German claim:** only 19 German positives in the benchmark.
+Three of five outlets are German. Needs targeted labelling or an explicit English-only scope.
 
 ---
 
-## Track 3 — Counter-speech (human annotation only)
+## Track 3 — Counter-speech (deferred by decision, until hate is identified)
 
-**Status: blocked on annotation. No shortcut exists.**
+**Status: deliberately deferred. Direction chosen; design comes later.**
 
 Moderators label violations, not virtues. There is **no counter-speech label** anywhere in
-Bluesky's vocabulary. The full sweep of 1,382,554 replies produced zero.
+Bluesky's vocabulary — the full sweep of 1,382,554 replies produced zero.
 
-- [ ] Define counter-speech operationally, with examples and boundary cases.
-- [ ] Stratified sample for annotation; two annotators; report Cohen's κ.
-- [ ] Budget for this now — it is the long pole in the project.
+It is also **relational**: it responds *to* hateful content. "That's disgusting, delete this"
+is counter-speech under a hateful parent and something else under a news headline. Hate can
+be judged from a post alone; counter-speech generally cannot.
+
+**User's chosen direction** (2026-08-12): *"most likely a mixture of specific counter speech
+accounts and their replies to hate. we need to first identify hate, which is usually easier,
+then decide how to classify counter later."*
+
+That is far more tractable than classifying 2.4M replies for a relational property, and it
+reuses the reply-author subsystem. It also yields a natural denominator: *of threads
+containing hate, how many drew a response from a known counter-speaker?*
+
+- [ ] Blocked on Track 2 producing usable hate labels.
+- [ ] Then: identify habitual counter-speaking accounts, and examine their replies to hate.
 
 ---
 
@@ -100,7 +144,9 @@ counter-speech: human annotation from scratch, or drop the third research target
 
 | Asset | Size | Notes |
 |---|---|---|
-| Corpus | 2.2M posts / 177k roots / 262k reply authors | growing ~200k posts/day |
+| Corpus | **2.38M posts / 253k roots / 267k reply authors** | growing; see coverage note below |
+| Reply-tree completeness | 253,166 complete, 2 in progress, **0 orphan replies** | `docs/superpowers/notes/2026-08-12-corpus-completeness-and-coverage.md` |
+| Incivility scores | **2,085,088 replies**, 2 heads each | complete run, 0 failures |
 | Post moderation labels | 1,754 posts labelled, of 1,382,554 swept | complete sweep, 0 failed batches |
 | — hate-relevant | **241** (`intolerant` 179, `threat` 61, `extremist`/`intolerant-race`) | the benchmark positives |
 | — `rude` | 883 | the hard negatives, and Track 1's target |
