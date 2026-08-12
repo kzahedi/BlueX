@@ -99,6 +99,81 @@ final class AccountSeederTests: XCTestCase {
         XCTAssertTrue(modelIDs.contains("phi4:14b"))
     }
 
+    // MARK: - reconcileStartDates
+
+    func testReconcileMovesLaterStartAtEarlier() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        try AccountSeeder.seed(into: context)
+
+        let laterDate = ATProtoDate.parse("2024-01-01T00:00:00Z")!
+        let accounts = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in accounts { account.startAt = laterDate }
+        try context.save()
+
+        try AccountSeeder.reconcileStartDates(in: context)
+
+        let after = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in after {
+            XCTAssertEqual(account.startAt, AccountSeeder.seedStartAt,
+                           "an existing account with a later startAt must be moved to the seed floor")
+        }
+    }
+
+    func testReconcileLeavesEarlierStartAtAlone() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        try AccountSeeder.seed(into: context)
+
+        let earlierDate = ATProtoDate.parse("2020-01-01T00:00:00Z")!
+        let accounts = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in accounts { account.startAt = earlierDate }
+        try context.save()
+
+        try AccountSeeder.reconcileStartDates(in: context)
+
+        let after = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in after {
+            XCTAssertEqual(account.startAt, earlierDate,
+                           "an account already earlier than the seed floor must never be moved later")
+        }
+    }
+
+    func testReconcileLeavesNewAccountAtSeedValue() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        try AccountSeeder.seed(into: context)
+
+        try AccountSeeder.reconcileStartDates(in: context)
+
+        let after = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in after {
+            XCTAssertEqual(account.startAt, AccountSeeder.seedStartAt,
+                           "a freshly-seeded account should already be at (and stay at) the seed value")
+        }
+    }
+
+    func testResetToSeedSetReconcilesStartAtOnExistingAccounts() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        try AccountSeeder.seed(into: context)
+
+        let laterDate = ATProtoDate.parse("2024-01-01T00:00:00Z")!
+        let accounts = try context.fetch(FetchDescriptor<TrackedAccount>())
+        for account in accounts { account.startAt = laterDate }
+        try context.save()
+
+        // resetToSeedSet must pick up the new floor even though every account already
+        // exists (the naive seed(into:) early-return alone would do nothing).
+        try AccountSeeder.resetToSeedSet(in: context)
+
+        let after = try context.fetch(FetchDescriptor<TrackedAccount>())
+        XCTAssertEqual(after.count, AccountSeeder.seeds.count)
+        for account in after {
+            XCTAssertEqual(account.startAt, AccountSeeder.seedStartAt)
+        }
+    }
+
     func testSpiegelHasKnownDID() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
