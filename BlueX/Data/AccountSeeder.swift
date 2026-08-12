@@ -26,8 +26,9 @@ struct AccountSeeder {
         // and individual journalists, so there is nothing to point it at.
     ]
 
-    /// Removes every account/group/post/annotation not in `seeds`, then seeds missing entries.
-    /// Safe to call at any time — won't touch accounts already in the seed list.
+    /// Removes every account/group/post/annotation not in `seeds`, then seeds missing entries,
+    /// then reconciles `startAt` on accounts that already existed (see `reconcileStartDates`).
+    /// Safe to call at any time — never deletes or duplicates an account already in the seed list.
     static func resetToSeedSet(in context: ModelContext) throws {
         let keepDIDs = Set(seeds.map { $0.did })
 
@@ -45,15 +46,58 @@ struct AccountSeeder {
 
         try context.save()
 
-        // Now seed any missing accounts
+        // Seed any missing accounts (no-ops for accounts that already exist)
         try seed(into: context)
+
+        // Existing accounts don't get their startAt touched by `seed(into:)` (it early-
+        // returns once any account exists), so reconcile it explicitly here.
+        try reconcileStartDates(in: context)
     }
+
+    /// Moves an existing account's `startAt` earlier if the seed value is earlier — never
+    /// later. Only widening the window backward is safe: an already-completed scrape's
+    /// stored posts start at the old `startAt`, and moving `startAt` later would make those
+    /// posts look out-of-window relative to the setting without deleting them, and would
+    /// stop a resumed/incomplete scrape from picking up genuinely earlier history it hasn't
+    /// reached yet. Moving it earlier only ever asks the next scrape to walk further back;
+    /// `FeedScraper.scrape` already terminates naturally when `getAuthorFeed` runs out of
+    /// pages (no independent depth cap), so widening the window costs nothing beyond that
+    /// account's true history.
+    static func reconcileStartDates(in context: ModelContext) throws {
+        let seedStartByDID = Dictionary(uniqueKeysWithValues: seeds.map { ($0.did, seedStartAt) })
+        let existingAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())
+        var changed = false
+        for account in existingAccounts {
+            guard let seedStart = seedStartByDID[account.did] else { continue }
+            if seedStart < account.startAt {
+                account.startAt = seedStart
+                changed = true
+            }
+        }
+        if changed {
+            try context.save()
+        }
+    }
+
+    /// Floor for every seeded account's `startAt`.
+    ///
+    /// Set to 2023-01-01 rather than a per-outlet date. Measured 2026-08-05: walking
+    /// tagesschau's author feed with `getAuthorFeed` (no history limit of its own) took
+    /// 406 pages / 40,544 posts / 6.5 minutes and terminated on "no cursor" at 2023-09-14
+    /// — exactly that account's first post per its PDS repo. Since the walk already stops
+    /// naturally when an account's history is exhausted, a single early floor is correct
+    /// and simpler than tracking five per-outlet dates: nytimes.com (2023-06-22),
+    /// tagesschau.bsky.social (2023-09-14), spiegel.de (2023-10-02), zeit.de (2023-10-23),
+    /// theguardian.com (2024-11-15, i.e. no missing history at all). Do not "optimise" this
+    /// back to per-account dates — the walk cost is the same either way, and a single
+    /// constant is one thing to keep correct instead of five.
+    static let seedStartAt: Date = ATProtoDate.parse("2023-01-01T00:00:00Z") ?? Date()
 
     static func seed(into context: ModelContext) throws {
         let existingAccounts = try context.fetch(FetchDescriptor<TrackedAccount>())
         guard existingAccounts.isEmpty else { return }
 
-        let startAt = ATProtoDate.parse("2024-01-01T00:00:00Z") ?? Date()
+        let startAt = seedStartAt
         var groups: [String: AccountGroup] = [:]
 
         for seed in seeds {
