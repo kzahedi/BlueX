@@ -72,6 +72,16 @@ enum BlueXStore {
     }
 
     /// Creates the store directory if needed and returns a configured ModelContainer.
+    ///
+    /// **Index re-assertion.** Every process that reads or writes this store — the
+    /// app and all three CLIs — calls this before doing anything else, which makes it
+    /// the one place that can keep `StoreIndexPlan.all` present across a lightweight
+    /// SwiftData migration (measured to drop them silently — see
+    /// `docs/superpowers/specs/2026-08-07-bluex-authors-dashboard-design.md`,
+    /// *Indexes*). `IndexReasserter.reassert` never throws: a scrape or the label
+    /// harvester holding the store open must never prevent the app or a CLI from
+    /// starting, so a failure to acquire the write connection is logged and
+    /// swallowed here, not propagated.
     static func openContainer() throws -> ModelContainer {
         guard isAvailable else { throw StoreError.volumeNotMounted(directory) }
         try FileManager.default.createDirectory(
@@ -84,6 +94,8 @@ enum BlueXStore {
             allowsSave: true,
             cloudKitDatabase: .none
         )
-        return try ModelContainer(for: BlueXSchema.all, configurations: config)
+        let container = try ModelContainer(for: BlueXSchema.all, configurations: config)
+        IndexReasserter.reassert(storeURL: url)
+        return container
     }
 }

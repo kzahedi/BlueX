@@ -41,4 +41,50 @@ final class AggregateReaderSchemaTests: XCTestCase {
             XCTAssertTrue(detail.contains("ZREPLYAUTHOR"))
         }
     }
+
+    // MARK: - Index health
+
+    /// `StoreFixture.make()` never creates the hand-made indexes, so a fresh fixture
+    /// must report degraded — this is the honest baseline `indexHealth()` promises:
+    /// a read-only reader never assumes indexes exist just because the tables do.
+    func testIndexHealthDegradedWhenIndexesAreMissing() throws {
+        let url = try StoreFixture.make()
+        let reader = try AggregateReader(storeURL: url)
+        let health = try reader.indexHealth()
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(Set(health.missing), Set(StoreIndexPlan.names))
+    }
+
+    /// Once every planned index exists in `sqlite_master`, the checker reports
+    /// healthy — using `StoreIndexPlan.all` itself to build them, not a hand-copied
+    /// literal list, so this test can't pass by coincidence if the checker and the
+    /// creator ever diverge.
+    func testIndexHealthHealthyWhenAllIndexesPresent() throws {
+        let url = try StoreFixture.make()
+        let w = try SQLiteWriteHelper(at: url)
+        for index in StoreIndexPlan.all {
+            try w.exec(index.createSQL)
+        }
+        try w.close()
+
+        let reader = try AggregateReader(storeURL: url)
+        let health = try reader.indexHealth()
+        XCTAssertTrue(health.isHealthy, "expected healthy, missing: \(health.missing)")
+        XCTAssertEqual(health.missing, [])
+    }
+
+    /// Exactly one index missing must be named, not just flagged — a human
+    /// diagnosing a slow dashboard needs to know which one to look for.
+    func testIndexHealthNamesExactlyWhatIsMissing() throws {
+        let url = try StoreFixture.make()
+        let w = try SQLiteWriteHelper(at: url)
+        for index in StoreIndexPlan.all where index.name != "IDX_ZPOST_ZROOTURI" {
+            try w.exec(index.createSQL)
+        }
+        try w.close()
+
+        let reader = try AggregateReader(storeURL: url)
+        let health = try reader.indexHealth()
+        XCTAssertEqual(health.missing, ["IDX_ZPOST_ZROOTURI"])
+    }
 }

@@ -66,6 +66,33 @@ final class AggregateReader: @unchecked Sendable {
         }
     }
 
+    // MARK: - Index health
+
+    /// Whether `StoreIndexPlan.all` is present in `sqlite_master`. `missing` names
+    /// exactly which ones are not — never just a boolean, since a human diagnosing a
+    /// slow dashboard needs to know which index to look for.
+    struct IndexHealth: Equatable {
+        let missing: [String]
+        var isHealthy: Bool { missing.isEmpty }
+
+        static let healthy = IndexHealth(missing: [])
+    }
+
+    /// A cheap `sqlite_master` lookup — this type is read-only by construction and
+    /// cannot repair anything it finds missing. `IndexReasserter.reassert`, called
+    /// from `BlueXStore.openContainer()` on every store open, is what actually keeps
+    /// `StoreIndexPlan.all` present; this only reports whether that worked, so a
+    /// process that only ever reads (the dashboard) can surface a degraded state
+    /// instead of silently running unindexed. Uses `StoreIndexPlan.all` — the same
+    /// list `IndexReasserter` creates from — so the two can never quietly diverge.
+    func indexHealth() throws -> IndexHealth {
+        let present = Set(try conn.query(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ) { try $0.text(0) }.compactMap { $0 })
+        let missing = StoreIndexPlan.names.filter { !present.contains($0) }
+        return IndexHealth(missing: missing)
+    }
+
     // MARK: - Query plan inspection
 
     /// Returns SQLite's plan for a statement. Used to prove an index is actually used

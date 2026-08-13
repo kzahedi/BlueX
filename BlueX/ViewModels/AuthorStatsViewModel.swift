@@ -94,6 +94,13 @@ final class AuthorStatsViewModel {
     }
 
     var population: PopulationStats = .empty
+    /// Whether `StoreIndexPlan.all` was present the last time `loadPopulation`
+    /// checked. `AggregateReader` is read-only and cannot repair a missing index —
+    /// `IndexReasserter`, run from `BlueXStore.openContainer()`, is what does that —
+    /// so this exists purely to surface the fact that repair didn't happen, rather
+    /// than silently running unindexed. Defaults to healthy so a view that never
+    /// loads (e.g. a unit test of some other property) doesn't render a false alarm.
+    var indexHealth: AggregateReader.IndexHealth = .healthy
     var authors: [AuthorSummary] = []
     /// How many authors match the current filters, regardless of `displayCap`. Tracked
     /// separately from the cap so the UI can state what it is *not* showing — a cap that
@@ -229,13 +236,25 @@ final class AuthorStatsViewModel {
     func loadPopulation(readerFactory: @escaping () throws -> AggregateReader) async {
         loadState = .loading
         do {
-            let stats = try await Task.detached(priority: .userInitiated) {
+            let (stats, health) = try await Task.detached(priority: .userInitiated) {
                 let reader = try readerFactory()
                 try reader.verifySchema()
-                return try reader.populationStats()
+                let health = try reader.indexHealth()
+                if !health.isHealthy {
+                    // The event a human needs to see: re-assertion on open either
+                    // didn't run or didn't work, and this dashboard is about to run
+                    // unindexed queries. AggregateReader cannot fix this itself — it
+                    // is read-only by construction — so logging is the honest thing
+                    // to do, alongside the visible banner `loadPopulation`'s caller
+                    // renders from `indexHealth`.
+                    print("AuthorStatsViewModel: degraded — missing index(es): " +
+                          health.missing.joined(separator: ", "))
+                }
+                return (try reader.populationStats(), health)
             }.value
             guard !Task.isCancelled else { return }
             population = stats
+            indexHealth = health
             loadState = .loaded
         } catch {
             guard !Task.isCancelled else { return }
