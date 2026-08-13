@@ -63,4 +63,23 @@ final class BlueXStoreTests: XCTestCase {
         _ = try BlueXStore.openContainer()
         XCTAssertTrue(FileManager.default.fileExists(atPath: BlueXStore.url.path))
     }
+
+    /// The actual wiring this task exists for: `openContainer()` — called by the app
+    /// and all three CLIs before anything reads or writes — must leave
+    /// `StoreIndexPlan.all` present, so a lightweight SwiftData migration that
+    /// dropped them (measured 2026-08-07) is self-healed on the very next open.
+    func testOpenContainerReassertsTheIndexPlan() throws {
+        let parent = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("bluex-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        setenv("BLUEX_STORE_DIR", parent.appendingPathComponent("bluex-data").path, 1)
+        let container = try BlueXStore.openContainer()
+        _ = container // keep the container (and its lock) alive for the check below
+
+        let reader = try AggregateReader(storeURL: BlueXStore.url)
+        let health = try reader.indexHealth()
+        XCTAssertTrue(health.isHealthy, "expected all indexes present after openContainer(), missing: \(health.missing)")
+    }
 }

@@ -39,6 +39,9 @@ struct AuthorsOverviewView: View {
                         .frame(maxWidth: .infinity, minHeight: 200)
                         .foregroundStyle(Color.secondaryText)
                 case .loaded:
+                    if !viewModel.indexHealth.isHealthy {
+                        degradedIndexBanner(viewModel.indexHealth.missing)
+                    }
                     summaryChips
                     histogramSection
                     outletSection
@@ -84,6 +87,31 @@ struct AuthorsOverviewView: View {
                     .foregroundStyle(Color.primaryText)
             }
             Text(message)
+                .font(.caption)
+                .foregroundStyle(Color.secondaryText)
+        }
+        .padding(12)
+        .background(Color.hateBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 16)
+    }
+
+    /// Visible when `AggregateReader.indexHealth()` finds one of `StoreIndexPlan.all`
+    /// missing — meaning `IndexReasserter` (run from `BlueXStore.openContainer()`
+    /// before this view ever queries) either didn't run for this store or didn't
+    /// succeed. This dashboard is a read-only consumer and cannot repair the index
+    /// itself, so it says so rather than quietly eating a 27-second query.
+    private func degradedIndexBanner(_ missing: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.yellow)
+                Text("Missing index — queries may be slow")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+            }
+            Text("Not present: \(missing.joined(separator: ", ")). " +
+                 "Re-open the store (relaunch, or run any BlueX CLI) to repair it.")
                 .font(.caption)
                 .foregroundStyle(Color.secondaryText)
         }
