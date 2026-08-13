@@ -167,14 +167,20 @@ counter-speech: human annotation from scratch, or drop the third research target
       Design decided (`docs/superpowers/specs/2026-08-07-bluex-authors-dashboard-design.md`):
       re-assert `CREATE INDEX IF NOT EXISTS` on every store open. **Unresolved:** a
       read-only consumer never opens a write connection, so it would never re-assert.
-- [ ] **Run `blueX-authors --backfill`.** `ZREPLYAUTHOR` is still 0. Needs the scrape
-      stopped briefly to install the rebuilt CLI. Populates current handles and unblocks
-      the status panel.
-- [ ] **Re-run spiegel + tagesschau** — both were truncated by the old 20-hour re-auth
-      ceiling, which is now fixed.
-- [ ] **zeit.de is starved** at 2,997 roots vs theguardian's 56,472. Random rotation stopped
-      it being permanently last but has not yet given it an early slot in two passes. If it
-      misses another, switch to deterministic round-robin.
+- [x] **Author backfill — DONE 2026-08-13.** 267,496 authors created in **24 seconds**
+      (the original SwiftData implementation ran 2h44m and wrote zero rows before being
+      killed). `quick_check` ok, posts unchanged. Re-runnable and idempotent, so it can be
+      re-run cheaply as the corpus grows.
+- [x] **spiegel + tagesschau truncation — RESOLVED.** The re-auth fix held: the pass ending
+      2026-08-13 completed cleanly (`Done · 81,689 new posts · 125,782 replies · 24h 23m`),
+      the first full pass rather than an interrupted one. Zero re-auth failures across every
+      pass since the fix.
+- [x] **zeit.de starvation — FIXED.** 2,997 → **39,387 roots** in one pass after the rotation
+      change, and it drew the *lead* slot on 2026-08-13. Random rotation is working; the
+      deterministic round-robin fallback is no longer needed unless it regresses.
+- [x] **Scrape floor lowered to 2023-01-01** (`21c2203`, applied to the live store
+      2026-08-13). Oldest root already back to 2023-12-25 and walking further. Costs zero
+      extra API calls — `FeedScraper` was already walking full history and discarding.
 - [ ] Author profile probe (plan Tasks 2/3/4/6/7b) — enforcement latency, account age,
       handle-change history. Note `getProfiles` does **not** return moderation labels; the
       labeler endpoint does.
