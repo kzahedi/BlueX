@@ -5,6 +5,40 @@ something is an estimate or an assumption, it says so.
 
 ---
 
+## NEXT UP — ordered, with reasons
+
+Agreed 2026-08-13. Work top-down; each item states why it sits where it does.
+
+**1. Index re-assertion wiring** — *in progress*
+Five hand-built indexes carry the app's performance and a lightweight migration drops them
+**silently**, with `PRAGMA quick_check` still reporting `ok` (measured 2026-08-07). The next
+model change reverts the dashboard to 27-second queries with nothing reporting it. First
+because it is small, and because the failure it prevents is one nobody would diagnose
+quickly. Design in `docs/superpowers/specs/2026-08-07-bluex-authors-dashboard-design.md`;
+the read-only-consumer hole is resolved below.
+
+**2. Hate diagnostic — fine-tune on the 1,124 existing moderator labels**
+An afternoon. Answers whether hate-vs-`rude` is learnable *at all* before committing to
+either an LLM pipeline or hundreds of hours of annotation. **Deliberately before the
+labelling tab:** if it succeeds, the tab's purpose changes from bootstrapping-from-nothing
+to validating-a-working-model, which changes what should be built. Both outcomes are useful
+results.
+
+**3. Manual labelling tab**
+Spec written (`docs/superpowers/specs/2026-08-13-manual-labelling-tab-design.md`), awaiting
+review. Shape may change based on item 2.
+
+**4. Incivility aggregation — weekly rate per outlet over time**
+The scores exist (2,085,088 replies). This is the **first genuine research output** the
+corpus can produce, and it is mostly SQL following the existing `AggregateReader` patterns.
+Lower than 2 only because it is unblocked and will keep.
+
+**Then, unscheduled:** author profile probe (enforcement latency, account age, handle-change
+history — unblocked now the backfill has run); a scope decision on disinformation (3 labels
+in 1.38M replies means there is no data path); the known flaky test.
+
+---
+
 ## The finding that reframes the project
 
 **Off-the-shelf toxicity models detect incivility, not hate — and the two dissociate.**
