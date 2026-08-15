@@ -21,10 +21,13 @@ enum LabelSampling {
     static func draw(from pool: [String], excluding drawn: Set<String>,
                      count: Int, seed: UInt64) -> [String] {
         var candidates = pool.filter { !drawn.contains($0) }.sorted()
-        guard candidates.count > count else { return candidates }
         var rng = SeededGenerator(seed: seed)
-        // Partial Fisher–Yates: fix positions 0..<count.
-        for i in 0..<count {
+        // Fisher–Yates shuffle: always shuffle, returning min(count, candidates.count).
+        // Modulo bias in rng.next() % divisor is negligible here (bias ~ pool_size/2^64 with
+        // 64-bit generator and pools of at most millions). Must be revisited if reused with
+        // narrower generators or significantly larger pools.
+        let shuffleCount = min(count, max(0, candidates.count - 1))
+        for i in 0..<shuffleCount {
             let j = Int(rng.next() % UInt64(candidates.count - i)) + i
             candidates.swapAt(i, j)
         }
