@@ -270,6 +270,75 @@ final class LabellingViewModelTests: XCTestCase {
         XCTAssertNil(try vm.agreement(batchID: batchID, context: context))
     }
 
+    // MARK: - record write-path integrity
+
+    /// Forces `context.save()` to throw by handing `record` a `ModelContext` from a
+    /// SECOND `ModelContainer` opened against the SAME store file with
+    /// `allowsSave: false` (spiked independently: SwiftData's default store does throw
+    /// `NSCocoaErrorDomain` 513 "couldn't be saved because you don't have permission"
+    /// on such a context's `save()` — this is not silently a no-op). The batch/post
+    /// rows are readable through it (same file), only the write is rejected.
+    func testSaveFailureLeavesNothingPersistedAndDoesNotAdvance() async throws {
+        let vm = makeViewModel(seed: 51)
+        await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+        XCTAssertEqual(vm.sessionItems.count, 2)
+
+        let readOnlyConfig = ModelConfiguration(schema: BlueXSchema.all, url: storeURL,
+                                                 allowsSave: false, cloudKitDatabase: .none)
+        let readOnlyContainer = try ModelContainer(for: BlueXSchema.all, configurations: readOnlyConfig)
+        let readOnlyContext = ModelContext(readOnlyContainer)
+
+        vm.record("hate", note: "should not persist", context: readOnlyContext)
+
+        let failure = try XCTUnwrap(vm.recordError)
+        guard case .saveFailed = failure else {
+            return XCTFail("expected .saveFailed, got \(failure)")
+        }
+        XCTAssertEqual(vm.currentIndex, 0, "must not advance on a failed save")
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertTrue(batch.labelledURIs.isEmpty, "labelledURIs must not be appended on a failed save")
+        XCTAssertNil(batch.completedAt)
+
+        let annotations = try context.fetch(FetchDescriptor<Annotation>())
+        XCTAssertTrue(annotations.isEmpty, "no Annotation must survive a failed save")
+    }
+
+    /// The `Post` for the current item is deleted between draw and record (e.g. a
+    /// rescrape). `record` cannot write against it, but the session must still be able
+    /// to move on rather than leaving the annotator stuck on a dead item.
+    func testRecordWithDeletedPostSurfacesErrorAndAdvancesPastIt() async throws {
+        let vm = makeViewModel(seed: 61)
+        await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+        let firstURI = try XCTUnwrap(vm.currentItem?.uri)
+
+        let postDescriptor = FetchDescriptor<Post>(predicate: #Predicate<Post> { $0.uri == firstURI })
+        let post = try XCTUnwrap(context.fetch(postDescriptor).first)
+        context.delete(post)
+        try context.save()
+
+        vm.record("hate", note: nil, context: context)
+
+        let failure = try XCTUnwrap(vm.recordError)
+        guard case .postNotFound(let uri) = failure else {
+            return XCTFail("expected .postNotFound, got \(failure)")
+        }
+        XCTAssertEqual(uri, firstURI)
+        XCTAssertEqual(vm.currentIndex, 1, "advances past the dead item like skip()")
+
+        let annotations = try context.fetch(FetchDescriptor<Annotation>())
+        XCTAssertTrue(annotations.isEmpty)
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertTrue(batch.labelledURIs.isEmpty, "the dead URI is not marked labelled")
+    }
+
     // MARK: - Store-open failure
 
     func testStoreOpenFailureYieldsFailedStateAndPoolUntouched() async throws {
