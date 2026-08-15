@@ -137,4 +137,48 @@ final class LabellingFormattingTests: XCTestCase {
         // time rather than being clamped to :59 as well.
         XCTAssertEqual(LabellingFormatting.elapsedSummary(999_999), "99:39")
     }
+
+    // MARK: - keyIsPermitted — the advancement gate
+
+    /// The one case this whole helper exists to prevent: a bare "0" (skip) keypress or
+    /// its mouse-button equivalent silently abandoning a label that `.saveFailed` says
+    /// was NOT persisted. Against the old, unconditional `case "0": viewModel.skip()`
+    /// this would have failed (that code let "0" through unconditionally, in every
+    /// state) — this is the "watch it fail" case for this fix.
+    func testKeyZeroDeniedUnderSaveFailed() {
+        XCTAssertFalse(LabellingFormatting.keyIsPermitted(
+            "0", recordError: .saveFailed("disk full")))
+    }
+
+    func testKeyZeroDeniedUnderBatchNotFound() {
+        XCTAssertFalse(LabellingFormatting.keyIsPermitted(
+            "0", recordError: .batchNotFound))
+    }
+
+    func testClassKeysStayPermittedUnderSaveFailedForRetry() {
+        for key in ["1", "2", "3"] {
+            XCTAssertTrue(LabellingFormatting.keyIsPermitted(key, recordError: .saveFailed("x")),
+                          "key \(key) must stay permitted so the annotator can retry")
+        }
+    }
+
+    func testClassKeysStayPermittedUnderBatchNotFoundForRetry() {
+        for key in ["1", "2", "3"] {
+            XCTAssertTrue(LabellingFormatting.keyIsPermitted(key, recordError: .batchNotFound),
+                          "key \(key) must stay permitted so the annotator can retry")
+        }
+    }
+
+    func testAllKeysPermittedWhenNoRecordError() {
+        for key in ["0", "1", "2", "3"] {
+            XCTAssertTrue(LabellingFormatting.keyIsPermitted(key, recordError: nil))
+        }
+    }
+
+    func testAllKeysPermittedUnderPostNotFoundBecauseItIsTransientNotBlocking() {
+        for key in ["0", "1", "2", "3"] {
+            XCTAssertTrue(LabellingFormatting.keyIsPermitted(
+                key, recordError: .postNotFound("at://gone")))
+        }
+    }
 }
