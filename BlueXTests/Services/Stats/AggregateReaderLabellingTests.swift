@@ -79,6 +79,23 @@ final class AggregateReaderLabellingTests: XCTestCase {
                        "one second earlier excludes even at://c1")
     }
 
+    /// Thread size describes the whole thread, not whatever slice of it a date range
+    /// happens to let into the pool — the two filters describe different things (one
+    /// the reply, one the thread it's in) and must not be conflated. Root r1's TRUE
+    /// size is 222 (comfortably over the 200 threshold), but only ONE of its replies
+    /// (at://c2, 2024-02-01) falls inside this narrow one-instant date window. If the
+    /// thread-size subquery wrongly counted only date-windowed replies, that windowed
+    /// count would be 1 (< 200), r1 would fail the threshold, and the pool would come
+    /// back empty instead of containing at://c2.
+    func testThreadSizeUsesTrueThreadSizeNotDateWindowedReplyCount() throws {
+        let frame = SamplingFrame(kind: .filtered, outletPK: nil,
+                                   dateFrom: StoreFixture.date("2024-02-01T00:00:00Z"),
+                                   dateTo: StoreFixture.date("2024-02-01T00:00:00Z"),
+                                   minThreadReplies: 200, maxThreadReplies: nil)
+        XCTAssertEqual(try reader.labellingPoolURIs(frame: frame), ["at://c2"])
+        XCTAssertEqual(try reader.labellingPoolCount(frame: frame), 1)
+    }
+
     /// `labellingPoolCount` and `labellingPoolURIs` share one predicate-building helper
     /// specifically so they cannot drift apart — this test exercises that agreement
     /// across every kind of frame above, not just the uniform case.

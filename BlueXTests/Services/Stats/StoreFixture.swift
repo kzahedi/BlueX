@@ -60,9 +60,14 @@ enum StoreFixture {
         let acct = account.map(String.init) ?? "NULL"
         let escapedText = text.replacingOccurrences(of: "'", with: "''")
         let parentURI = isRoot ? "NULL" : "'\(parent ?? root)'"
+        // Depth follows the parent: 0 for a root, 2 when an explicit parent differs
+        // from the root (a depth-2 reply), 1 otherwise (the default "parent == root"
+        // shape). Unused by any query today — see the depth-2 fixture comment below —
+        // but kept honest rather than left hardcoded at 1 for every reply.
+        let depth = isRoot ? 0 : (parent != nil && parent != root ? 2 : 1)
         return "(\(pk),'\(uri)','\(escapedText)',\(cd(date(iso))),'\(did)','\(handle)'," +
                "\(parentURI),'\(root)',\(isRoot ? 1 : 0)," +
-               "\(isRoot ? 0 : 1),\(acct))"
+               "\(depth),\(acct))"
     }
 
     /// Two outlets, seven reply authors, plus the outlets' own root-post author
