@@ -20,9 +20,10 @@ struct AuthorsFormatting {
     }
 
     /// Deliberately spells out "not measured, not zero": a separate label sweep of this
-    /// corpus already found 1,777 accounts carrying `!takedown` and 4,946 carrying
-    /// `!suspend`, so an empty chart here must never be mistaken for "no takedowns
-    /// found" — that would flatly contradict data that already exists elsewhere.
+    /// corpus found accounts carrying active `!takedown`/`!suspend` labels (63 as of
+    /// 2026-08-14 — note most such labels in the sweep are NEGATED, i.e. retracted, and
+    /// must not be counted), so an empty chart here must never be mistaken for "no
+    /// takedowns found" — that would contradict data that already exists elsewhere.
     static let statusNotCollectedMessage =
         "Account status not yet collected — this means \"not measured,\" not \"zero.\" " +
         "The profile probe that would surface takedowns or suspensions has not run yet."

@@ -16,9 +16,17 @@ training data**. Spending them on training would leave nothing to measure agains
 
 ## Decisions
 
+**AMENDED 2026-08-14 after the fine-tune diagnostic.** Models trained on hate-vs-`rude`
+reach 0.96 but only 0.61–0.68 against *random* replies — the deployment distribution.
+The scarcest labels are therefore **uniform random draws** (base-rate estimation and
+deployment-distribution validation; see the LaTeX proposal's Stage 0), not just filtered
+pools. The tab must support both, and a **uniform random pool must be a first-class
+preset**, not something approximated by clearing filters. The sampling-frame recording
+below is what keeps the two usable for different purposes.
+
 | Decision | Choice | Rationale |
 |---|---|---|
-| Sampling | **Filtered pool, then random draw within it** | User's choice. Uniform random at a sub-1% hate rate yields ~1 positive per 100 posts — unaffordable. |
+| Sampling | **Filtered pool, then random draw within it — AND uniform random as a first-class mode** | Filtered pools find positives efficiently; uniform draws are the only unbiased base-rate/validation source. Both needed, frames recorded. |
 | Sampling frame | **Recorded with every label** | Non-negotiable; see below. |
 | Context shown | **Root post + immediate parent** | User: *"context matters."* |
 | Model outputs shown | **Never, during labelling** | Anchoring would compromise the only independent ground truth in the project. |

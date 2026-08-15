@@ -93,6 +93,13 @@ spiegel, zeit and theguardian are fully scraped.
   | Reply authors (accounts) | 600 | **46 (7.7%)** — `needs-review` 27, `!suspend` 16, `!takedown` 4, `spam` 2, `rude` 1, `!hide` 1 |
   | Replies (posts) | 600 | **1 (0.17%)** — `intolerant` |
 
+  **CORRECTION 2026-08-14: the account figures above count negated (retracted) labels as
+  present.** The sampling script never filtered on the `neg` flag. In the full sweep,
+  ~77% of account labels are negated — only **63 accounts** corpus-wide carry an *active*
+  `!takedown`/`!suspend` (43 + 20), not thousands. Post labels are barely affected
+  (37 negated of 1,771). Any account-level moderation analysis must filter `neg: true`
+  first, and the 7.7% row above must not be quoted as a moderation rate.
+
   Post-level labels are rare but are the highest-value signal in the project: a moderator's
   judgement on specific content. The relevant vocabulary from `moderation.bsky.app`:
   `intolerant` (discrimination against protected groups), `extremist`, `threat`, `rude`,

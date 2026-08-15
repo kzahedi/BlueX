@@ -51,7 +51,7 @@ TF-IDF in the same harness, or justify itself on generalisation rather than head
 | **Bluesky moderator labels** | 241 hate, 883 `rude`, 383 spam | free, already collected | *not* random — what was reported and actioned | Precision test; training anchors |
 | **Automatic (LLM) labelling** | unlimited in principle | cents–hours | **any distribution we choose** | Volume, and the only affordable source of deployment-distribution negatives |
 | **Human annotation** | a few hundred, one annotator | very scarce | our choice | Held-out gold. Never training data. |
-| **Account-level labels** | 14,571 accounts (1,777 `!takedown`, 4,946 `!suspend`) | free | biased toward prolific accounts | Weak signal; **must not** be propagated to individual posts |
+| **Account-level labels** | **63 accounts** with *active* `!takedown`/`!suspend` (corrected 2026-08-14: the earlier 6,723 counted **negated** labels) | free | biased toward prolific accounts | Effectively unavailable — 63 actioned accounts hold 463 replies total. Not a training source. |
 | **Deleted-reply set** | 10,067 | free | selected for removal | Candidate mining; ~70% of their authors are still active, so most are self-deletions |
 
 ### The key realisation
