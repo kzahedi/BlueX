@@ -43,7 +43,7 @@ final class AggregateReader: @unchecked Sendable {
 
     private static let required: [String: [String]] = [
         "ZPOST": ["ZURI", "ZTEXT", "ZCREATEDAT", "ZAUTHORDID", "ZAUTHORHANDLE",
-                  "ZROOTURI", "ZISROOTPOST", "ZACCOUNT", "ZREPLYTREESTATUS"],
+                  "ZROOTURI", "ZISROOTPOST", "ZACCOUNT", "ZREPLYTREESTATUS", "ZPARENTURI"],
         "ZTRACKEDACCOUNT": ["Z_PK", "ZHANDLE"],
         "ZREPLYAUTHOR": ["ZDID", "ZFIRSTSEENAT", "ZLASTSEENAT",
                          "ZCURRENTHANDLE", "ZCURRENTSTATUS", "ZLASTPROBEDAT"],
@@ -726,5 +726,153 @@ final class AggregateReader: @unchecked Sendable {
         raw.replacingOccurrences(of: "\\", with: "\\\\")
            .replacingOccurrences(of: "%", with: "\\%")
            .replacingOccurrences(of: "_", with: "\\_")
+    }
+
+    // MARK: - Labelling pool
+
+    /// The shared `SELECT ... FROM ZPOST p WHERE ...` shape behind both
+    /// `labellingPoolCount` and `labellingPoolURIs`. Both call this with a different
+    /// `select` clause (`COUNT(*)` vs. `p.ZURI`) but otherwise the exact same predicate —
+    /// deliberately, so the two can never quietly disagree about which replies are in
+    /// the pool. A `SamplingFrame` recorded against a batch of labels and a frame used
+    /// to draw more from the same pool later must always describe the same set of URIs.
+    ///
+    /// Pool = replies (`ZISROOTPOST = 0`). `.uniformRandom` adds no further predicate.
+    /// `.filtered` adds, independently: a date range on the reply's own `ZCREATEDAT`,
+    /// and — only when an outlet filter or thread-size filter is actually set — a
+    /// `p.ZROOTURI IN (...)` restriction to roots matching those. That inner subquery
+    /// mirrors `rootPosts`'s own `LEFT JOIN` + `GROUP BY` + `HAVING` shape for the
+    /// reply-count range, rather than inventing a new pattern for the same idea.
+    private static func labellingPoolSQL(frame: SamplingFrame, select: String,
+                                          bind: inout [SQLValue]) -> String {
+        var conditions = ["p.ZISROOTPOST = 0"]
+
+        if frame.kind == .filtered {
+            if let dateFrom = frame.dateFrom {
+                conditions.append("p.ZCREATEDAT >= ?")
+                bind.append(.double(coreData(from: dateFrom)))
+            }
+            if let dateTo = frame.dateTo {
+                conditions.append("p.ZCREATEDAT <= ?")
+                bind.append(.double(coreData(from: dateTo)))
+            }
+
+            let needsRootFilter = frame.outletPK != nil
+                || frame.minThreadReplies != nil || frame.maxThreadReplies != nil
+            if needsRootFilter {
+                var rootConditions = ["r.ZISROOTPOST = 1"]
+                var rootBind: [SQLValue] = []
+                if let outletPK = frame.outletPK {
+                    rootConditions.append("r.ZACCOUNT = ?")
+                    rootBind.append(.int(outletPK))
+                }
+                var having: [String] = []
+                if let minThreadReplies = frame.minThreadReplies {
+                    having.append("COUNT(t.ZURI) >= ?")
+                    rootBind.append(.int(Int64(minThreadReplies)))
+                }
+                if let maxThreadReplies = frame.maxThreadReplies {
+                    having.append("COUNT(t.ZURI) <= ?")
+                    rootBind.append(.int(Int64(maxThreadReplies)))
+                }
+                let havingClause = having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
+                conditions.append("""
+                p.ZROOTURI IN (
+                    SELECT r.ZURI FROM ZPOST r
+                    LEFT JOIN ZPOST t ON t.ZROOTURI = r.ZURI AND t.ZISROOTPOST = 0
+                    WHERE \(rootConditions.joined(separator: " AND "))
+                    GROUP BY r.ZURI
+                    \(havingClause)
+                )
+                """)
+                bind.append(contentsOf: rootBind)
+            }
+        }
+
+        return """
+        SELECT \(select) FROM ZPOST p
+        WHERE \(conditions.joined(separator: " AND "))
+        """
+    }
+
+    /// How many replies match `frame` — the "N in this pool" figure a labeller sees
+    /// before drawing a batch. Uses the exact same predicate as `labellingPoolURIs`
+    /// (see `labellingPoolSQL`), so the two can never disagree about the pool's size.
+    func labellingPoolCount(frame: SamplingFrame) throws -> Int {
+        var bind: [SQLValue] = []
+        let sql = Self.labellingPoolSQL(frame: frame, select: "COUNT(*)", bind: &bind)
+        return try conn.query(sql, bind) { try Int($0.int(0)) }.first ?? 0
+    }
+
+    /// The URIs of every reply matching `frame` — the pool a batch is drawn from.
+    /// Ordered by URI purely for determinism between runs, not a ranking of any kind.
+    func labellingPoolURIs(frame: SamplingFrame) throws -> [String] {
+        var bind: [SQLValue] = []
+        let sql = Self.labellingPoolSQL(frame: frame, select: "p.ZURI", bind: &bind)
+            + " ORDER BY p.ZURI"
+        return try conn.query(sql, bind) { try $0.text(0) ?? "" }
+    }
+
+    /// Everything a human labeller is shown for one reply: its own text plus enough
+    /// thread context (root, and immediate parent when it differs from the root) to
+    /// judge it — and, deliberately, nothing else. **This struct contains no score, no
+    /// label, no class, no model field of any kind.** Human labels are this project's
+    /// held-out gold set; a labeller who can see a model's output on the post they are
+    /// labelling is no longer producing an independent measurement. That guarantee is
+    /// structural here, not a UI convention — see `AggregateReaderLabellingTests`'s
+    /// Mirror-based test, which fails loudly the moment a future edit adds such a field.
+    struct LabellingContext: Equatable {
+        let uri: String
+        let text: String
+        let createdAt: Date
+        let authorHandle: String
+        let rootURI: String
+        let rootText: String
+        let rootHandle: String
+        let parentURI: String?
+        let parentText: String?
+        let parentHandle: String?
+    }
+
+    /// Batch context fetch for exactly the given URIs — an unknown URI is simply absent
+    /// from the result, never a thrown error, since the caller (drawing a batch from a
+    /// pool that may have shifted since it was sampled) has no way to distinguish
+    /// "already labelled and pruned" from "never existed" and shouldn't have to.
+    ///
+    /// Parent fields are nil whenever `ZPARENTURI` is null or equals `ZROOTURI` — depth-1
+    /// replies, measured at ~78% of the population — so a labeller sees a real
+    /// intermediate reply only when one exists, never the root repeated under a
+    /// different name.
+    func labellingContext(uris: [String]) throws -> [LabellingContext] {
+        guard !uris.isEmpty else { return [] }
+        let placeholders = uris.map { _ in "?" }.joined(separator: ",")
+        let sql = """
+        SELECT p.ZURI, p.ZTEXT, p.ZCREATEDAT, p.ZAUTHORHANDLE,
+               r.ZURI, r.ZTEXT, r.ZAUTHORHANDLE,
+               CASE WHEN p.ZPARENTURI IS NULL OR p.ZPARENTURI = p.ZROOTURI
+                    THEN NULL ELSE par.ZURI END,
+               CASE WHEN p.ZPARENTURI IS NULL OR p.ZPARENTURI = p.ZROOTURI
+                    THEN NULL ELSE par.ZTEXT END,
+               CASE WHEN p.ZPARENTURI IS NULL OR p.ZPARENTURI = p.ZROOTURI
+                    THEN NULL ELSE par.ZAUTHORHANDLE END
+        FROM ZPOST p
+        JOIN ZPOST r ON r.ZURI = p.ZROOTURI AND r.ZISROOTPOST = 1
+        LEFT JOIN ZPOST par ON par.ZURI = p.ZPARENTURI
+        WHERE p.ZURI IN (\(placeholders))
+        """
+        return try conn.query(sql, uris.map { .text($0) }) { r in
+            LabellingContext(
+                uri: try r.text(0) ?? "",
+                text: try r.text(1) ?? "",
+                createdAt: Self.date(fromCoreData: try r.double(2)),
+                authorHandle: try r.text(3) ?? "",
+                rootURI: try r.text(4) ?? "",
+                rootText: try r.text(5) ?? "",
+                rootHandle: try r.text(6) ?? "",
+                parentURI: try r.text(7),
+                parentText: try r.text(8),
+                parentHandle: try r.text(9)
+            )
+        }
     }
 }
