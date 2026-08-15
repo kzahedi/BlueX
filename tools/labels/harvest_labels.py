@@ -278,8 +278,23 @@ def harvest(subjects, subject_type, http_get, batch_size=DEFAULT_BATCH_SIZE,
     successfully-processed batch's subjects via `progress.mark(...)`. Never
     aborts on a single batch failure; counts them instead.
 
-    Returns a stats dict: requested, skipped_resume, processed, failed_batches,
-    labels_found, by_value (dict of val -> count), subjects_with_labels.
+    IMPORTANT: `neg: true` on a label means the label was later retracted by
+    the moderator (see module docstring). A record with `neg: true` is NOT an
+    active moderation action. This function therefore tracks active and
+    negated counts SEPARATELY — it does not produce a single blended count
+    that conflates "this account was suspended" with "this account was
+    suspended, then un-suspended." Measured 2026-08-14 on the account sweep:
+    conflating the two overstated actioned accounts by roughly 100x (6,723
+    reported vs. 63 actually-active `!suspend`/`!takedown` labels; ~77% of
+    account labels in that sweep were negated).
+
+    Returns a stats dict:
+      requested, skipped_resume, processed, failed_batches, labels_found,
+      by_value_active (dict of val -> count, neg == False only),
+      by_value_negated (dict of val -> count, neg == True only),
+      subjects_with_active_labels (subjects carrying at least one active
+        label), subjects_with_only_negated_labels (subjects whose only labels
+        are all negated -- i.e. NOT counted as actively labelled).
     """
     already_done = already_done or set()
     todo = [s for s in subjects if s not in already_done]
@@ -290,8 +305,10 @@ def harvest(subjects, subject_type, http_get, batch_size=DEFAULT_BATCH_SIZE,
         "processed": 0,
         "failed_batches": 0,
         "labels_found": 0,
-        "by_value": {},
-        "subjects_with_labels": 0,
+        "by_value_active": {},
+        "by_value_negated": {},
+        "subjects_with_active_labels": 0,
+        "subjects_with_only_negated_labels": 0,
     }
 
     first_batch = True
@@ -308,15 +325,23 @@ def harvest(subjects, subject_type, http_get, batch_size=DEFAULT_BATCH_SIZE,
 
         observed_at = now_iso()
         labels = data.get("labels", []) or []
-        subjects_seen_in_batch = set()
+        active_subjects_in_batch = set()
+        all_subjects_in_batch = set()
         for label in labels:
             rec = label_to_record(label, subject_type, observed_at)
             stats["labels_found"] += 1
-            stats["by_value"][rec["val"]] = stats["by_value"].get(rec["val"], 0) + 1
-            subjects_seen_in_batch.add(rec["subject"])
+            all_subjects_in_batch.add(rec["subject"])
+            if rec["neg"]:
+                stats["by_value_negated"][rec["val"]] = stats["by_value_negated"].get(rec["val"], 0) + 1
+            else:
+                stats["by_value_active"][rec["val"]] = stats["by_value_active"].get(rec["val"], 0) + 1
+                active_subjects_in_batch.add(rec["subject"])
             if on_record is not None:
                 on_record(rec)
-        stats["subjects_with_labels"] += len(subjects_seen_in_batch)
+        stats["subjects_with_active_labels"] += len(active_subjects_in_batch)
+        stats["subjects_with_only_negated_labels"] += len(
+            all_subjects_in_batch - active_subjects_in_batch
+        )
 
         stats["processed"] += len(batch)
         if progress is not None:
@@ -350,6 +375,28 @@ This directory holds timestamped snapshots of Bluesky moderation labels
 (`com.atproto.label.queryLabels` against `mod.bsky.app`) for the accounts and
 posts in the BlueX corpus, produced by `tools/labels/harvest_labels.py`.
 
+## READ THIS FIRST: `neg: true` means retracted, not active
+
+**~77% of account labels in a real sweep are negated (`neg: true`).** A label
+record with `neg: true` means the moderator LATER RETRACTED that label — it
+is NOT an active moderation action, and must be filtered out of any
+"how many accounts are actioned" analysis.
+
+On the 2026-08-14 account sweep, treating every label record as active
+(ignoring `neg`) produced **`!takedown: 1777, !suspend: 4946`**, read as
+"6,723 actioned accounts (3.27%)". The true, `neg`-filtered figure is
+**43 active `!suspend` + 20 active `!takedown` = 63 accounts** — a ~100x
+overstatement that reached specs, TODO.md, and a source-code comment before
+being caught.
+
+**Always filter `neg: true` before counting.** The JSONL records always carry
+`neg` correctly (this was never wrong); what was wrong, until 2026-08, was
+that the `.summary.json` blended active and negated counts into a single
+`labels_by_value` / `subjects_with_labels` field. That field has been
+replaced (see below) — treat any old summary you still have on disk that
+has a bare `labels_by_value` key as suspect and re-derive counts from the
+JSONL with a `neg` filter instead of trusting it.
+
 ## What this dataset is
 
 Each `label-harvest-<subject_type>-<timestamp>.jsonl` file contains one line
@@ -370,6 +417,17 @@ a later run with `neg: true` for a previously-seen label shows a retraction.
 A `.summary.json` sits beside each JSONL file with subject counts, label
 counts, a breakdown by label value, failed-batch count, and whether the run
 was `"complete"` or `"partial"`.
+
+**`neg: true` means retracted, not active.** The summary reports active and
+negated counts SEPARATELY: `labels_by_value_active` / `labels_by_value_negated`
+(plus `labels_by_value_total` for raw auditing), and
+`subjects_with_active_labels` / `subjects_with_only_negated_labels`. Earlier
+summaries (before 2026-08) had a single blended `labels_by_value` /
+`subjects_with_labels` field that did not distinguish `neg: true` records —
+on the 2026-08-14 account sweep this overstated actioned accounts by ~100x
+(6,723 reported vs. 63 actually-active `!suspend`/`!takedown` labels; ~77% of
+account labels in that sweep were negated). Always read the `*_active`
+fields when asking "is this account currently actioned."
 
 ## What this dataset is NOT
 
@@ -461,6 +519,11 @@ def run_subject_type(subject_type, store_path, out_dir, args, http_get):
     sweep_end = now_iso()
 
     complete = (stats["failed_batches"] == 0) and (stats["processed"] + stats["skipped_resume"] == stats["requested"])
+    all_values = set(stats["by_value_active"]) | set(stats["by_value_negated"])
+    labels_by_value_total = {
+        val: stats["by_value_active"].get(val, 0) + stats["by_value_negated"].get(val, 0)
+        for val in all_values
+    }
     summary = {
         "subject_type": subject_type,
         "store": os.path.abspath(store_path),
@@ -469,9 +532,19 @@ def run_subject_type(subject_type, store_path, out_dir, args, http_get):
         "subjects_requested": stats["requested"],
         "subjects_skipped_resume": stats["skipped_resume"],
         "subjects_processed": stats["processed"],
-        "subjects_with_labels": stats["subjects_with_labels"],
+        # NOTE (2026-08): "labels_by_value"/"subjects_with_labels" (blended
+        # active+negated counts) were REMOVED here — they caused a ~100x
+        # over-report of actioned accounts (6,723 reported vs. 63 actually
+        # active). See README.md in the output dir and the harvest()
+        # docstring above. Use the *_active fields for "is this account
+        # currently actioned"; the *_negated fields for retracted labels;
+        # labels_by_value_total only for raw event-count auditing.
+        "subjects_with_active_labels": stats["subjects_with_active_labels"],
+        "subjects_with_only_negated_labels": stats["subjects_with_only_negated_labels"],
         "total_labels": stats["labels_found"],
-        "labels_by_value": stats["by_value"],
+        "labels_by_value_active": stats["by_value_active"],
+        "labels_by_value_negated": stats["by_value_negated"],
+        "labels_by_value_total": labels_by_value_total,
         "failed_batches": stats["failed_batches"],
         "run_status": "complete" if complete else "partial",
     }
