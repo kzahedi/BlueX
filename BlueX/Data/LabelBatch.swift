@@ -19,6 +19,13 @@ final class LabelBatch {
     /// The key names are a cross-language contract: a companion Python tool filters batches
     /// on the `"kind"` key (`"uniformRandom"` / `"filtered"`), so they must not be renamed or
     /// re-encoded with a different key strategy without updating that tool in lockstep.
+    ///
+    /// Top-level keys: `kind` (`"uniformRandom"` | `"filtered"`), `outletPK` (Int64?),
+    /// `dateFrom`, `dateTo` (Date?), `minThreadReplies`, `maxThreadReplies` (Int?).
+    /// `dateFrom`/`dateTo` are encoded by Foundation's default `JSONEncoder` as a **Double of
+    /// seconds since the Core Data / Foundation reference date 2001-01-01T00:00:00Z**, NOT
+    /// Unix epoch. A Python reader must add 978307200 to convert to Unix epoch seconds
+    /// before doing anything with these fields.
     var frameJSON: String
 
     var poolSizeAtDraw: Int
@@ -47,7 +54,12 @@ final class LabelBatch {
     /// should not happen for batches created by this app, but a corrupt/foreign row must not
     /// crash the reader.
     var frame: SamplingFrame? {
-        try? JSONDecoder().decode(SamplingFrame.self, from: Data(frameJSON.utf8))
+        do {
+            return try JSONDecoder().decode(SamplingFrame.self, from: Data(frameJSON.utf8))
+        } catch {
+            print("LabelBatch \(id): failed to decode frameJSON: \(error)")
+            return nil
+        }
     }
 
     init(frame: SamplingFrame, poolSizeAtDraw: Int, seed: UInt64, drawnURIs: [String],
