@@ -776,6 +776,14 @@ final class AggregateReader: @unchecked Sendable {
                     rootBind.append(.int(Int64(maxThreadReplies)))
                 }
                 let havingClause = having.isEmpty ? "" : "HAVING \(having.joined(separator: " AND "))"
+                // Deliberate: `t` carries no date predicate, even though `p` (the outer
+                // reply) does. Thread size is a property of the whole thread, not of
+                // whatever slice of it happens to fall inside this frame's date range —
+                // a thread with 300 replies is still a 300-reply thread even when the
+                // frame's date window only lets one of those replies into the pool. See
+                // `testThreadSizeUsesTrueThreadSizeNotDateWindowedReplyCount`, which
+                // would fail if a future edit folded the date range into this subquery
+                // too.
                 conditions.append("""
                 p.ZROOTURI IN (
                     SELECT r.ZURI FROM ZPOST r
@@ -860,6 +868,11 @@ final class AggregateReader: @unchecked Sendable {
         LEFT JOIN ZPOST par ON par.ZURI = p.ZPARENTURI
         WHERE p.ZURI IN (\(placeholders))
         """
+        // The root join is INNER while the parent join above is LEFT — a known
+        // asymmetry, not an oversight. Moot today: 0 orphan replies measured on the
+        // live store (a reply whose ZROOTURI names a root not in ZPOST). Don't "fix"
+        // this to a LEFT JOIN blind — it would just make rootText/rootHandle silently
+        // nullable for a case that doesn't currently occur.
         return try conn.query(sql, uris.map { .text($0) }) { r in
             LabellingContext(
                 uri: try r.text(0) ?? "",
