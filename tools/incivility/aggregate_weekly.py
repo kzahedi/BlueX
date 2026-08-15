@@ -108,6 +108,13 @@ class PartialRunError(Exception):
     """Raised when the newest scores run did not complete."""
 
 
+class CountMismatchError(Exception):
+    """Raised when the merged, deduped scored-post count for the head does
+    not equal the newest summary's posts_requested. Either direction
+    (undercount from a missing file, overcount from an unexpected extra
+    file / double-counting) is a real integrity failure, not noise."""
+
+
 def ro_uri(path):
     """Read-only SQLite URI. Deliberately NOT immutable=1 (see module docstring)."""
     return "file:" + os.path.abspath(path) + "?mode=ro"
@@ -164,6 +171,38 @@ def check_run_complete(summary):
             "to aggregate a partial run (prevalence numbers from an "
             "incomplete pass are not trustworthy)" % (status,)
         )
+
+
+def check_count_reconciliation(scores, summary, allow_mismatch=False):
+    """Verify the merged, deduped scored-post count equals the newest
+    summary's posts_requested. A mismatch means either a lost file
+    (undercount) or double-counting / an unexpected extra file (overcount)
+    went into the merge, and either one invalidates every number this
+    script produces -- so this refuses by default.
+
+    Returns the two counts as (merged_count, expected_count) when they
+    match (or when allow_mismatch=True downgrades a mismatch to a printed
+    warning). Raises CountMismatchError otherwise.
+    """
+    expected = summary.get("posts_requested")
+    merged = len(scores)
+    if expected is None:
+        # Nothing to reconcile against; not this function's job to require
+        # the field exist -- callers may choose to treat that separately.
+        return merged, expected
+    if merged != expected:
+        message = (
+            "scored-post count reconciliation FAILED: merged/deduped count "
+            "is %d but the newest summary's posts_requested is %d "
+            "(difference of %d) -- this means a scores file was missed "
+            "(undercount) or double-counted / an unexpected extra file was "
+            "present (overcount)." % (merged, expected, merged - expected)
+        )
+        if allow_mismatch:
+            print("WARNING: %s (continuing: --allow-count-mismatch)" % message, file=sys.stderr)
+        else:
+            raise CountMismatchError(message)
+    return merged, expected
 
 
 def load_scores(score_paths, head=SCORE_HEAD):
@@ -305,8 +344,44 @@ def fmt(value, digits=4):
     return str(value)
 
 
-def write_csv(rows, path):
+def csv_honesty_comment_lines(meta):
+    """`#`-prefixed comment lines carrying all five honesty elements, meant
+    to sit at the top of the CSV. `#` comments are a widely-supported CSV
+    convention (pandas: `pd.read_csv(path, comment='#')`; R:
+    `read.csv(path, comment.char = '#')`) — a reader who strips all
+    surrounding context (README, Markdown twin, this module's docstring)
+    and loads only the CSV still gets the five things that matter:
+      1. measures incivility, NOT hate
+      2. anti-correlated with hate on this corpus (hate-vs-rude AUC 0.198)
+      3. validated at AUC 0.946 against moderator `rude` labels
+      4. share_over_050 is an arbitrary illustrative threshold, uncalibrated
+      5. model id + revision, for reproducibility
+    """
+    return [
+        "# BlueX weekly incivility aggregation.",
+        "# This measures INCIVILITY, NOT HATE. The toxicity head separates",
+        "# moderator-labelled 'rude' posts from random replies at AUC 0.946",
+        "# (validated against moderator rude labels) but rates 'rude' posts as",
+        "# MORE toxic than moderator-labelled 'hate' posts 80% of the time",
+        "# (hate-vs-rude AUC 0.198 -- worse than chance, wrong direction).",
+        "# Incivility and hate are anti-correlated on this corpus; a rise here",
+        "# must never be reported as 'more hate'. See",
+        "# docs/superpowers/notes/2026-08-11-nltagger-sentiment-does-not-detect-hate.md",
+        "# and TODO.md's dissociation table.",
+        "# share_over_050 uses an ARBITRARY ILLUSTRATIVE THRESHOLD (0.50) on the",
+        "# raw sigmoid score, pending calibration against a validated operating",
+        "# point -- a convenience cut, not a decision boundary.",
+        "# coverage < 1.0 means the corpus grew after the scoring run; unscored",
+        "# replies are counted in n_replies_total but NEVER treated as score 0",
+        "# and are excluded from mean_toxicity/p50/p90/share_over_050.",
+        "# model_id=%s model_revision=%s" % (meta["model_id"], meta["model_revision"]),
+    ]
+
+
+def write_csv(rows, path, meta):
     with open(path, "w", newline="", encoding="utf-8") as handle:
+        for line in csv_honesty_comment_lines(meta):
+            handle.write(line + "\n")
         writer = csv.writer(handle)
         writer.writerow(CSV_FIELDS)
         for outlet, week, stats in rows:
@@ -359,6 +434,7 @@ def write_markdown(rows, meta, path):
                   % (os.path.basename(meta["summary_path"]), meta["run_status"]))
     lines.append("- Store: `%s`" % meta["store_path"])
     lines.append("- Duplicate uri+head lines across/within files: last-one-wins.")
+    lines.append("- %s" % meta.get("reconciliation_line", ""))
     lines.append("")
     lines.append("## Summary")
     lines.append("")
@@ -395,7 +471,8 @@ def default_store_path(store_dir):
     return os.path.join(store_dir, DEFAULT_STORE_FILENAME)
 
 
-def run(scores_dir, store_path, out_dir, share_threshold=SHARE_THRESHOLD, stamp=None):
+def run(scores_dir, store_path, out_dir, share_threshold=SHARE_THRESHOLD, stamp=None,
+        allow_count_mismatch=False):
     summary_path = find_newest_summary(scores_dir)
     if summary_path is None:
         raise PartialRunError(
@@ -409,6 +486,15 @@ def run(scores_dir, store_path, out_dir, share_threshold=SHARE_THRESHOLD, stamp=
         raise PartialRunError("no incivility-scores-*.jsonl found in %s" % scores_dir)
 
     scores = load_scores(score_paths)
+    merged_count, expected_count = check_count_reconciliation(
+        scores, summary, allow_mismatch=allow_count_mismatch
+    )
+    reconciliation_line = (
+        "reconciliation: merged/deduped scored-post count = %s, "
+        "summary posts_requested = %s" % (merged_count, expected_count)
+    )
+    print(reconciliation_line)
+
     model_id, model_revision = scores_model_identity(score_paths)
     if model_id is None:
         model_id = summary.get("model_id")
@@ -432,8 +518,9 @@ def run(scores_dir, store_path, out_dir, share_threshold=SHARE_THRESHOLD, stamp=
         "summary_path": summary_path,
         "run_status": summary.get("run_status"),
         "store_path": store_path,
+        "reconciliation_line": reconciliation_line,
     }
-    write_csv(rows, csv_path)
+    write_csv(rows, csv_path, meta)
     write_markdown(rows, meta, md_path)
     return csv_path, md_path, rows, meta
 
@@ -449,6 +536,13 @@ def main(argv=None):
                          % default_store_path(DEFAULT_STORE_DIR))
     parser.add_argument("--out", default=DEFAULT_OUT_DIR, help="Output directory")
     parser.add_argument("--share-threshold", type=float, default=SHARE_THRESHOLD)
+    parser.add_argument(
+        "--allow-count-mismatch", action="store_true",
+        help="Downgrade the merged-count vs posts_requested reconciliation "
+             "failure to a printed warning instead of refusing to run. "
+             "Default is to refuse: a mismatch means a lost file "
+             "(undercount) or double-counting/extra file (overcount).",
+    )
     args = parser.parse_args(argv)
 
     store_path = args.store or default_store_path(DEFAULT_STORE_DIR)
@@ -456,8 +550,9 @@ def main(argv=None):
     try:
         csv_path, md_path, rows, meta = run(
             args.scores_dir, store_path, args.out, share_threshold=args.share_threshold,
+            allow_count_mismatch=args.allow_count_mismatch,
         )
-    except PartialRunError as exc:
+    except (PartialRunError, CountMismatchError) as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1
 
