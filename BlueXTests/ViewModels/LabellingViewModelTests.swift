@@ -105,6 +105,56 @@ final class LabellingViewModelTests: XCTestCase {
         XCTAssertTrue(Set(batch1.drawnURIs).isDisjoint(with: Set(batch2.drawnURIs)))
     }
 
+    /// An empty frame (nothing at or before the epoch — every reply is after it)
+    /// must not persist a `LabelBatch` at all; `poolState` alone carries the fact.
+    func testCreateBatchOnEmptyPoolPersistsNoBatchAndPublishesEmpty() async throws {
+        let vm = makeViewModel(seed: 71)
+        let emptyFrame = SamplingFrame(kind: .filtered, outletPK: nil,
+                                        dateFrom: nil, dateTo: Date(timeIntervalSince1970: 0),
+                                        minThreadReplies: nil, maxThreadReplies: nil)
+        await vm.createBatch(frame: emptyFrame, size: 5, reader: reader)
+
+        guard case .loaded = vm.loadState else {
+            return XCTFail("expected .loaded, got \(vm.loadState)")
+        }
+        XCTAssertEqual(vm.poolState, .empty)
+        XCTAssertNil(vm.currentBatchID)
+        let batches = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertTrue(batches.isEmpty, "no LabelBatch row should be persisted for an empty pool")
+    }
+
+    /// Once an earlier batch has drawn every URI in the pool, a second `createBatch`
+    /// call must not persist a 0/0 `LabelBatch` — it should publish `.exhausted` and
+    /// leave the batch list exactly as it was.
+    func testCreateBatchOnExhaustedPoolPersistsNoBatchAndPublishesExhausted() async throws {
+        let vm1 = makeViewModel(seed: 72)
+        await vm1.createBatch(frame: .uniformRandom, size: Self.replyCount, reader: reader)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<LabelBatch>()).count, 1)
+
+        let vm2 = makeViewModel(seed: 73)
+        await vm2.createBatch(frame: .uniformRandom, size: 5, reader: reader)
+
+        guard case .loaded = vm2.loadState else {
+            return XCTFail("expected .loaded, got \(vm2.loadState)")
+        }
+        XCTAssertEqual(vm2.poolState, .exhausted)
+        XCTAssertNil(vm2.currentBatchID)
+        let batches = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(batches.count, 1, "no second LabelBatch row should be persisted once exhausted")
+    }
+
+    /// The VM must not rely on its caller to prevent a double-click: a second
+    /// `createBatch` call while the first is still in flight is a synchronous no-op.
+    func testCreateBatchIgnoresReentrantCallWhileInFlight() async throws {
+        let vm = makeViewModel(seed: 81)
+        async let first: Void = vm.createBatch(frame: .uniformRandom, size: 3, reader: reader)
+        async let second: Void = vm.createBatch(frame: .uniformRandom, size: 3, reader: reader)
+        _ = await (first, second)
+
+        let batches = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(batches.count, 1, "a re-entrant call while one is in flight must be a no-op")
+    }
+
     // MARK: - openBatch / resume
 
     func testResumePresentsOnlyUnlabelledURIs() async throws {
