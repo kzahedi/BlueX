@@ -1,0 +1,302 @@
+import SwiftUI
+import SwiftData
+
+/// Detail column for the labelling tab: presents one item of the currently-open batch
+/// at a time and records a decision per keypress.
+///
+/// **Blindness.** This view renders `AggregateReader.LabellingContext` fields only —
+/// the reply's own text/author, the root, and the parent when it differs from the
+/// root. There is no score, model label, or moderation field anywhere in that struct
+/// (see its own doc comment), so there is nothing of that kind for this view to
+/// accidentally surface; keep it that way in any future edit here.
+struct LabellingSessionView: View {
+    var viewModel: LabellingViewModel
+    @Environment(\.modelContext) private var modelContext
+
+    private enum FocusTarget: Hashable { case session, note }
+    @FocusState private var focus: FocusTarget?
+
+    @State private var noteText: String = ""
+    @State private var sessionStartedAt: Date = Date()
+
+    var body: some View {
+        Group {
+            if viewModel.currentBatchID == nil {
+                placeholder
+            } else if viewModel.isSessionComplete {
+                completionState
+            } else {
+                session
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.appBackground)
+        .onAppear { focus = .session }
+        .onChange(of: viewModel.currentBatchID) { _, newValue in
+            if newValue != nil {
+                sessionStartedAt = Date()
+                noteText = ""
+                focus = .session
+            }
+        }
+    }
+
+    // MARK: - Empty / completion states
+
+    private var placeholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tag")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.mutedText)
+            Text("No batch open")
+                .font(.title3)
+                .foregroundStyle(Color.secondaryText)
+            Text("Choose \"Continue\" on a batch to start labelling")
+                .font(.caption)
+                .foregroundStyle(Color.mutedText)
+        }
+    }
+
+    private var completionState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.counterBorder)
+            Text("Batch complete")
+                .font(.title3)
+                .foregroundStyle(Color.primaryText)
+            Text("Every item offered this session has a decision recorded or was skipped.")
+                .font(.caption)
+                .foregroundStyle(Color.secondaryText)
+        }
+    }
+
+    // MARK: - Session
+
+    private var session: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            progressHeader
+
+            if let error = viewModel.recordError {
+                recordErrorBanner(error)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let item = viewModel.currentItem {
+                        rootCard(item)
+                        if let parentURI = item.parentURI, parentURI != item.rootURI {
+                            parentCard(item)
+                        }
+                        replyCard(item)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+
+            noteField
+            classButtons
+            hintLine
+        }
+        .padding(.vertical, 16)
+        .focusable()
+        .focused($focus, equals: .session)
+        .onKeyPress(keys: ["1", "2", "3", "0"]) { press in
+            handleKey(press.characters)
+            return .handled
+        }
+    }
+
+    private var progressHeader: some View {
+        TimelineView(.periodic(from: sessionStartedAt, by: 1)) { context in
+            HStack {
+                Text(LabellingFormatting.sessionProgressSummary(
+                    index: viewModel.currentIndex, total: viewModel.sessionItems.count))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+                Spacer()
+                Text(LabellingFormatting.elapsedSummary(context.date.timeIntervalSince(sessionStartedAt)))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.secondaryText)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: - Record errors
+
+    /// Both cases the view model publishes must be surfaced, per the carry-forward
+    /// requirement from Task 4's re-review: `.saveFailed` is a prominent, non-dismissed
+    /// "your label was NOT saved" banner (the item stays current — the user can just
+    /// press the class key again to retry); `.postNotFound` is a transient, non-blocking
+    /// notice (the session has already advanced past that item). `.batchNotFound` means
+    /// the whole session is broken — treated as seriously as `.saveFailed`.
+    @ViewBuilder
+    private func recordErrorBanner(_ error: LabellingViewModel.RecordFailure) -> some View {
+        switch error {
+        case .saveFailed(let message):
+            errorBanner(icon: "exclamationmark.triangle.fill",
+                        title: "Label NOT saved — retry",
+                        detail: message, background: Color.hateBackground)
+        case .batchNotFound:
+            errorBanner(icon: "exclamationmark.triangle.fill",
+                        title: "Session broken — label NOT saved",
+                        detail: error.errorDescription ?? "Batch not found.",
+                        background: Color.hateBackground)
+        case .postNotFound(let uri):
+            errorBanner(icon: "arrow.forward.circle",
+                        title: "Post no longer exists — skipped",
+                        detail: uri, background: Color.neutralBackground)
+        }
+    }
+
+    private func errorBanner(icon: String, title: String, detail: String,
+                              background: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(Color.secondaryText)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Post cards
+
+    private func rootCard(_ item: AggregateReader.LabellingContext) -> some View {
+        postCard(label: "Root", handle: item.rootHandle, text: item.rootText,
+                 background: Color.panelBackground, prominent: false)
+    }
+
+    private func parentCard(_ item: AggregateReader.LabellingContext) -> some View {
+        postCard(label: "Parent", handle: item.parentHandle ?? "", text: item.parentText ?? "",
+                 background: Color.panelBackground, prominent: false)
+    }
+
+    private func replyCard(_ item: AggregateReader.LabellingContext) -> some View {
+        postCard(label: "Reply (label this)", handle: item.authorHandle, text: item.text,
+                 background: Color.selectedBackground, prominent: true)
+    }
+
+    private func postCard(label: String, handle: String, text: String, background: Color,
+                           prominent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.secondaryText)
+            Text("@\(handle)")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.mutedText)
+            Text(text)
+                .font(.system(size: prominent ? 15 : 12, weight: prominent ? .medium : .regular))
+                .foregroundStyle(Color.primaryText)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(prominent ? Color.neutralBorder : Color.clear, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Note field
+
+    /// Starts unfocused — number keys must never be stolen by an idle text field.
+    /// Focus is only ever moved here by the explicit ⌘N shortcut below.
+    private var noteField: some View {
+        HStack(spacing: 8) {
+            TextField("Add a note (⌘N)", text: $noteText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .padding(6)
+                .background(Color.panelBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .focused($focus, equals: .note)
+                .onSubmit { focus = .session }
+            Button("") { focus = .note }
+                .keyboardShortcut("n", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Class buttons
+
+    private var classButtons: some View {
+        HStack(spacing: 8) {
+            classButton(key: "1", label: "Hate", color: .hateBorder) { handleKey("1") }
+            classButton(key: "2", label: "Counter", color: .counterBorder) { handleKey("2") }
+            classButton(key: "3", label: "Neutral", color: .neutralBorder) { handleKey("3") }
+            classButton(key: "0", label: "Skip", color: .mutedText) { handleKey("0") }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func classButton(key: String, label: String, color: Color,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Text(key)
+                    .font(.system(size: 14, weight: .bold))
+                Text(label)
+                    .font(.system(size: 10))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.bordered)
+        .tint(color)
+    }
+
+    private var hintLine: some View {
+        Text("labels are recorded immediately — you can stop at any time")
+            .font(.caption)
+            .foregroundStyle(Color.mutedText)
+            .padding(.horizontal, 16)
+    }
+
+    // MARK: - Key handling
+
+    private func handleKey(_ characters: String) {
+        // Typing in the note field must never be interpreted as a class/skip key —
+        // this guards the mouse-click path (`classButton`), which can fire regardless
+        // of focus; the keyboard path is already excluded from receiving these events
+        // while the note field holds focus (see `noteField`'s doc comment).
+        guard focus != .note else { return }
+        let note = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch characters {
+        case "1": viewModel.record("hate", note: note.isEmpty ? nil : note, context: modelContext)
+        case "2": viewModel.record("counter", note: note.isEmpty ? nil : note, context: modelContext)
+        case "3": viewModel.record("neutral", note: note.isEmpty ? nil : note, context: modelContext)
+        case "0": viewModel.skip()
+        default: return
+        }
+        // Only clear the typed note once the session has actually advanced past this
+        // item. `skip()` and a clean `record()` both advance; `.postNotFound` also
+        // advances (the post is gone, so there's nothing left to retry against) — but
+        // `.saveFailed`/`.batchNotFound` leave the item current, and the annotator's
+        // note must survive so they don't lose it on retry.
+        let advanced: Bool
+        switch viewModel.recordError {
+        case nil, .postNotFound: advanced = true
+        case .saveFailed, .batchNotFound: advanced = false
+        }
+        if characters == "0" || advanced {
+            noteText = ""
+        }
+        focus = .session
+    }
+}

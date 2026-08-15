@@ -43,6 +43,10 @@ struct SidebarView: View {
                     Label("Reply Authors", systemImage: "person.3")
                         .foregroundStyle(Color.primaryText)
                 }
+                NavigationLink(value: SidebarItem.labelling) {
+                    Label("Labelling", systemImage: "tag")
+                        .foregroundStyle(Color.primaryText)
+                }
                 NavigationLink(value: SidebarItem.queue) {
                     Label("Annotation Queue", systemImage: "list.bullet.clipboard")
                         .foregroundStyle(Color.primaryText)
