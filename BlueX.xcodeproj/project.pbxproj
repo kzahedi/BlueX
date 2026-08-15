@@ -86,6 +86,7 @@
 		42F1D5FC3B4DEC5D1D22452B /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
 		433F131177A0C0C9790A9DBA /* SelectionHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7D27B6A55C75710F9E7020 /* SelectionHistoryTests.swift */; };
 		4478E1DE26D746EDB15D6863 /* BlueXSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */; };
+		4627B073235CFF25685ECC0C /* AggregateReaderLabellingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA4FD92CE0238CEF1E8FBB9 /* AggregateReaderLabellingTests.swift */; };
 		46777548FF9CB9D36C1BB73B /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
 		4742882AA3FC73FE7B0296DB /* EphemeralHTTPSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CB977A54649A39A935341D /* EphemeralHTTPSession.swift */; };
 		48424607F2C3E447F7807D95 /* AggregateReaderChartsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1786A7F48ED50C42AE1108EB /* AggregateReaderChartsTests.swift */; };
@@ -352,6 +353,7 @@
 		81B0F5B10734C9CB4AFE3C93 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
 		83CB977A54649A39A935341D /* EphemeralHTTPSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EphemeralHTTPSession.swift; sourceTree = "<group>"; };
+		8AA4FD92CE0238CEF1E8FBB9 /* AggregateReaderLabellingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateReaderLabellingTests.swift; sourceTree = "<group>"; };
 		8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientTests.swift; sourceTree = "<group>"; };
 		8B4176FAD98AEFB26D764877 /* LabelBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelBatchTests.swift; sourceTree = "<group>"; };
 		8B8F1353B230B5CF0586520C /* GroupContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupContentView.swift; sourceTree = "<group>"; };
@@ -673,6 +675,7 @@
 			children = (
 				A5950F24239CC9F25B7E079B /* AggregateReaderAuthorTests.swift */,
 				1786A7F48ED50C42AE1108EB /* AggregateReaderChartsTests.swift */,
+				8AA4FD92CE0238CEF1E8FBB9 /* AggregateReaderLabellingTests.swift */,
 				5DEF1FF49DE667EF25C3C4B8 /* AggregateReaderPopulationTests.swift */,
 				BA7D246687097397C2EF909D /* AggregateReaderSchemaTests.swift */,
 				544E07F91A3BD0D5E3439DBF /* DecimatorTests.swift */,
@@ -1121,6 +1124,7 @@
 				9DA49A7C392A6DB451DD0D89 /* AccountViewModelTests.swift in Sources */,
 				BF276F966C37B41C35F449BE /* AggregateReaderAuthorTests.swift in Sources */,
 				48424607F2C3E447F7807D95 /* AggregateReaderChartsTests.swift in Sources */,
+				4627B073235CFF25685ECC0C /* AggregateReaderLabellingTests.swift in Sources */,
 				77B111A8EB277442180EA969 /* AggregateReaderPopulationTests.swift in Sources */,
 				F008F099C31C89B7E65B9FB3 /* AggregateReaderSchemaTests.swift in Sources */,
 				0EF2E61C34C035AAB144C754 /* AnnotationBadgeTests.swift in Sources */,

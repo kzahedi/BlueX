@@ -41,20 +41,27 @@ enum StoreFixture {
     }
 
     private static func post(_ pk: Int, _ uri: String, _ did: String, _ handle: String,
-                              _ iso: String, root: String, isRoot: Bool, account: Int?) -> String {
-        postWithText(pk, uri, did, handle, "text", iso, root: root, isRoot: isRoot, account: account)
+                              _ iso: String, root: String, isRoot: Bool, account: Int?,
+                              parent: String? = nil) -> String {
+        postWithText(pk, uri, did, handle, "text", iso, root: root, isRoot: isRoot,
+                     account: account, parent: parent)
     }
 
     /// Same shape as `post`, but with the text column set explicitly — `post` hardcodes
     /// it to the literal string `'text'`, which is fine for fixtures that only need
     /// distinct URIs, but useless for anything exercising a text-search filter.
+    ///
+    /// `parent`, when supplied, overrides the default "parent == root" shape (depth 1)
+    /// with an explicit `ZPARENTURI` — used to build a depth-2 reply (parent is another
+    /// reply, not the root itself).
     private static func postWithText(_ pk: Int, _ uri: String, _ did: String, _ handle: String,
                                       _ text: String, _ iso: String, root: String, isRoot: Bool,
-                                      account: Int?) -> String {
+                                      account: Int?, parent: String? = nil) -> String {
         let acct = account.map(String.init) ?? "NULL"
         let escapedText = text.replacingOccurrences(of: "'", with: "''")
+        let parentURI = isRoot ? "NULL" : "'\(parent ?? root)'"
         return "(\(pk),'\(uri)','\(escapedText)',\(cd(date(iso))),'\(did)','\(handle)'," +
-               "\(isRoot ? "NULL" : "'\(root)'"),'\(root)',\(isRoot ? 1 : 0)," +
+               "\(parentURI),'\(root)',\(isRoot ? 1 : 0)," +
                "\(isRoot ? 0 : 1),\(acct))"
     }
 
@@ -138,8 +145,17 @@ enum StoreFixture {
                  root: "at://r1", isRoot: false, account: nil),
             post(nextPK(), "at://c2", "did:c", "carol.test", "2024-02-01T00:00:00Z",
                  root: "at://r1", isRoot: false, account: nil),
+            // Depth-2, deliberately: at://c3's parent is at://c2 (another reply), not
+            // the root. Every other reply in this fixture has ZPARENTURI == ZROOTURI
+            // (depth 1, ~78% of replies on the live store); this is the sole depth-2
+            // case, added for the labelling-context tests
+            // (AggregateReaderLabellingTests) that must resolve a real intermediate
+            // parent post rather than nil. Changing only ZPARENTURI here — not the
+            // count, date, or text of any row — leaves every total this fixture pins
+            // elsewhere (totalAuthors, totalReplies, bin counts, per-outlet counts,
+            // did:c's own replyCount/firstSeen/lastSeen) untouched.
             post(nextPK(), "at://c3", "did:c", "carol.test", "2024-03-01T00:00:00Z",
-                 root: "at://r1", isRoot: false, account: nil),
+                 root: "at://r1", isRoot: false, account: nil, parent: "at://c2"),
         ]
         // did:n100 — inserted LAST, deliberately, and holds the highest reply count
         // (100) of the whole population. See the adversarial-ordering note above.
