@@ -139,6 +139,11 @@ final class LabellingViewModel {
     /// surface this rather than let a failed record look like a silent no-op.
     private(set) var recordError: RecordFailure?
 
+    /// Set-and-checked synchronously at the top of `createBatch`, cleared in `defer` —
+    /// a re-entrancy guard the VM owns itself rather than trusting the caller's own
+    /// double-click protection (the view has one too, but this must not depend on it).
+    @ObservationIgnored private var isCreatingBatch = false
+
     var currentItem: AggregateReader.LabellingContext? {
         guard currentIndex < sessionItems.count else { return nil }
         return sessionItems[currentIndex]
@@ -151,8 +156,14 @@ final class LabellingViewModel {
     /// Draws a fresh batch: pool count and URIs from `reader`, a fresh random seed
     /// (recorded, not deterministic — see `seedSource`), excluding every URI already
     /// drawn by ANY existing batch regardless of pass, then persists the resulting
-    /// `LabelBatch`.
+    /// `LabelBatch`. If nothing is left to draw (empty or fully-exhausted pool), NO
+    /// batch is persisted — a 0/0 `LabelBatch` that can never be labelled or completed
+    /// would just clutter the batch list forever; `poolState` alone carries that fact.
     func createBatch(frame: SamplingFrame, size: Int, reader: AggregateReader) async {
+        guard !isCreatingBatch else { return }
+        isCreatingBatch = true
+        defer { isCreatingBatch = false }
+
         loadState = .loading
         let seed = seedSource()
         let containerFactory = self.containerFactory
@@ -166,15 +177,23 @@ final class LabellingViewModel {
                 let excluded = Set(existing.flatMap { $0.drawnURIs })
                 let drawn = LabelSampling.draw(from: poolURIs, excluding: excluded,
                                                 count: size, seed: seed)
+                guard !drawn.isEmpty else {
+                    // Nothing to draw. `poolCount == 0` means the frame itself is
+                    // empty; `poolCount > 0` means every URI in it has already been
+                    // drawn by an earlier batch — `poolState` distinguishes the two.
+                    return (batchID: UUID?.none, poolCount: poolCount, drawnCount: 0)
+                }
                 let batch = LabelBatch(frame: frame, poolSizeAtDraw: poolCount, seed: seed,
                                         drawnURIs: drawn, passNumber: 1)
                 context.insert(batch)
                 try context.save()
-                return (batchID: batch.id, poolCount: poolCount, drawnCount: drawn.count)
+                return (batchID: UUID?(batch.id), poolCount: poolCount, drawnCount: drawn.count)
             }.value
             guard !Task.isCancelled else { return }
-            currentBatchID = result.batchID
-            currentPassNumber = 1
+            if let batchID = result.batchID {
+                currentBatchID = batchID
+                currentPassNumber = 1
+            }
             poolState = Self.poolState(poolCount: result.poolCount, drawnCount: result.drawnCount)
             loadState = .loaded
         } catch {
