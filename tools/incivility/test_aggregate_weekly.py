@@ -302,6 +302,7 @@ class EndToEndTests(unittest.TestCase):
             with open(summary_path, "w") as handle:
                 json.dump({
                     "run_status": "complete", "model_id": "m", "model_revision": "r",
+                    "posts_requested": 2,  # at://r1 + at://r2 scored for toxicity
                 }, handle)
 
             out_dir = os.path.join(tmpdir, "out")
@@ -312,7 +313,19 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)  # two (outlet, week) buckets
 
             with open(csv_path) as handle:
-                csv_rows = list(csv.DictReader(handle))
+                raw_lines = handle.readlines()
+            comment_lines = [ln for ln in raw_lines if ln.startswith("#")]
+            data_lines = [ln for ln in raw_lines if not ln.startswith("#")]
+            # All five honesty elements present in the CSV's own comment header.
+            comment_text = "".join(comment_lines)
+            self.assertIn("NOT HATE", comment_text)
+            self.assertIn("0.198", comment_text)
+            self.assertIn("0.946", comment_text)
+            self.assertIn("ARBITRARY ILLUSTRATIVE THRESHOLD", comment_text)
+            self.assertIn("model_id=m", comment_text)
+            self.assertIn("model_revision=r", comment_text)
+
+            csv_rows = list(csv.DictReader(data_lines))
             week1 = aw.iso_week(t1)
             row1 = next(r for r in csv_rows if r["iso_week"] == week1)
             self.assertEqual(row1["outlet"], "outlet-a.bsky.social")
@@ -332,6 +345,149 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn("not hate", md_text)
             self.assertIn("0.198", md_text)
             self.assertIn("arbitrary illustrative threshold", md_text)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir)
+
+
+class CsvHonestyHeaderTests(unittest.TestCase):
+    """Task-7 fix round 1: the honesty header must appear in the CSV too,
+    not just the Markdown twin -- the CSV is precisely the file a reader
+    loads into pandas/R months later with all surrounding context gone."""
+
+    def _meta(self):
+        return {"model_id": "unitary/unbiased-toxic-roberta", "model_revision": "abc123"}
+
+    def test_all_five_elements_present_as_comment_lines(self):
+        lines = aw.csv_honesty_comment_lines(self._meta())
+        text = "\n".join(lines)
+        self.assertTrue(all(ln.startswith("#") for ln in lines))
+        self.assertIn("NOT HATE", text)                      # (1) incivility, not hate
+        self.assertIn("0.198", text)                          # (2) anti-correlation AUC
+        self.assertIn("0.946", text)                          # (3) validated AUC
+        self.assertIn("ARBITRARY ILLUSTRATIVE THRESHOLD", text)  # (4) uncalibrated threshold
+        self.assertIn("unitary/unbiased-toxic-roberta", text)  # (5a) model id
+        self.assertIn("abc123", text)                          # (5b) model revision
+
+    def test_written_csv_starts_with_comment_lines_then_header_row(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmpdir, "out.csv")
+            aw.write_csv([], path, self._meta())
+            with open(path) as handle:
+                lines = handle.readlines()
+            comment_lines = [ln for ln in lines if ln.startswith("#")]
+            self.assertGreater(len(comment_lines), 0)
+            first_data_line = next(ln for ln in lines if not ln.startswith("#"))
+            self.assertTrue(first_data_line.startswith("outlet,iso_week"))
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir)
+
+
+class CountReconciliationTests(unittest.TestCase):
+    """Task-7 fix round 1: the merged/deduped scored-post count must be
+    checked against the newest summary's posts_requested, in both
+    directions, and refuse (non-zero exit at the CLI) on mismatch."""
+
+    def test_matching_counts_pass(self):
+        scores = {"at://p1": 0.1, "at://p2": 0.2}
+        summary = {"posts_requested": 2}
+        merged, expected = aw.check_count_reconciliation(scores, summary)
+        self.assertEqual((merged, expected), (2, 2))
+
+    def test_undercount_raises(self):
+        # Simulates a missing scores file: fewer merged posts than requested.
+        scores = {"at://p1": 0.1}
+        summary = {"posts_requested": 2}
+        with self.assertRaises(aw.CountMismatchError):
+            aw.check_count_reconciliation(scores, summary)
+
+    def test_overcount_raises(self):
+        # Simulates an unexpected extra file / double-counting.
+        scores = {"at://p1": 0.1, "at://p2": 0.2, "at://p3": 0.3}
+        summary = {"posts_requested": 2}
+        with self.assertRaises(aw.CountMismatchError):
+            aw.check_count_reconciliation(scores, summary)
+
+    def test_allow_mismatch_downgrades_to_warning_not_raise(self):
+        scores = {"at://p1": 0.1}
+        summary = {"posts_requested": 2}
+        merged, expected = aw.check_count_reconciliation(scores, summary, allow_mismatch=True)
+        self.assertEqual((merged, expected), (1, 2))  # did not raise
+
+    def test_end_to_end_undercount_refuses(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            store_path = os.path.join(tmpdir, "s.store")
+            make_store(store_path, accounts=[], roots=[], replies=[])
+            scores_dir = os.path.join(tmpdir, "scores")
+            os.makedirs(scores_dir)
+            jsonl_path = os.path.join(scores_dir, "incivility-scores-2026-01-01T000000Z.jsonl")
+            write_jsonl(jsonl_path, [score_record("at://p1", "toxicity", 0.5)])
+            summary_path = os.path.join(
+                scores_dir, "incivility-scores-2026-01-01T000000Z.summary.json"
+            )
+            with open(summary_path, "w") as handle:
+                # Claims 2 posts were requested; only 1 is present -- a
+                # missing file (undercount) must refuse.
+                json.dump({"run_status": "complete", "posts_requested": 2}, handle)
+
+            out_dir = os.path.join(tmpdir, "out")
+            with self.assertRaises(aw.CountMismatchError):
+                aw.run(scores_dir, store_path, out_dir)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir)
+
+    def test_end_to_end_overcount_refuses(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            store_path = os.path.join(tmpdir, "s.store")
+            make_store(store_path, accounts=[], roots=[], replies=[])
+            scores_dir = os.path.join(tmpdir, "scores")
+            os.makedirs(scores_dir)
+            jsonl_path = os.path.join(scores_dir, "incivility-scores-2026-01-01T000000Z.jsonl")
+            write_jsonl(jsonl_path, [
+                score_record("at://p1", "toxicity", 0.5),
+                score_record("at://p2", "toxicity", 0.6),
+            ])
+            summary_path = os.path.join(
+                scores_dir, "incivility-scores-2026-01-01T000000Z.summary.json"
+            )
+            with open(summary_path, "w") as handle:
+                # Claims only 1 post was requested; 2 are present -- an
+                # unexpected extra file / double-count must refuse.
+                json.dump({"run_status": "complete", "posts_requested": 1}, handle)
+
+            out_dir = os.path.join(tmpdir, "out")
+            with self.assertRaises(aw.CountMismatchError):
+                aw.run(scores_dir, store_path, out_dir)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir)
+
+    def test_end_to_end_allow_count_mismatch_flag_continues(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            store_path = os.path.join(tmpdir, "s.store")
+            make_store(store_path, accounts=[], roots=[], replies=[])
+            scores_dir = os.path.join(tmpdir, "scores")
+            os.makedirs(scores_dir)
+            jsonl_path = os.path.join(scores_dir, "incivility-scores-2026-01-01T000000Z.jsonl")
+            write_jsonl(jsonl_path, [score_record("at://p1", "toxicity", 0.5)])
+            summary_path = os.path.join(
+                scores_dir, "incivility-scores-2026-01-01T000000Z.summary.json"
+            )
+            with open(summary_path, "w") as handle:
+                json.dump({"run_status": "complete", "posts_requested": 2}, handle)
+
+            out_dir = os.path.join(tmpdir, "out")
+            # Should not raise: override downgrades to a printed warning.
+            csv_path, md_path, rows, meta = aw.run(
+                scores_dir, store_path, out_dir, stamp="TEST", allow_count_mismatch=True,
+            )
+            self.assertTrue(os.path.exists(csv_path))
         finally:
             import shutil
             shutil.rmtree(tmpdir)
