@@ -23,10 +23,19 @@ final class Annotation {
     var createdAt: Date
     @Relationship(deleteRule: .nullify) var post: Post?
 
+    // Human labelling (added for the labelling tab). All optional and nil for every
+    // annotation produced by the existing NLTagger/LLM pipeline stages.
+    var annotatorID: String?         // identifies the human annotator, nil for model stages
+    var batchID: UUID?               // the LabelBatch this label was collected under
+    var timeToDecideSeconds: Double? // wall-clock time the annotator took to decide
+    var passNumber: Int?             // which labelling pass this annotation belongs to
+
     init(speechClass: String, sentimentScore: Double, detectedLanguage: String,
          modelName: String, modelVersion: String, promptHash: String,
          rawResponse: String, stage: String,
-         severity: String? = nil, confidence: Double = 0.0, reasoning: String? = nil) {
+         severity: String? = nil, confidence: Double = 0.0, reasoning: String? = nil,
+         annotatorID: String? = nil, batchID: UUID? = nil,
+         timeToDecideSeconds: Double? = nil, passNumber: Int? = nil) {
         self.speechClass = speechClass
         self.sentimentScore = sentimentScore
         self.detectedLanguage = detectedLanguage
@@ -39,5 +48,9 @@ final class Annotation {
         self.confidence = confidence
         self.reasoning = reasoning
         self.createdAt = Date()
+        self.annotatorID = annotatorID
+        self.batchID = batchID
+        self.timeToDecideSeconds = timeToDecideSeconds
+        self.passNumber = passNumber
     }
 }

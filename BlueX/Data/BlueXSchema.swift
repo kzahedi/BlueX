@@ -16,6 +16,7 @@ enum BlueXSchema {
         CoordinatorState.self,
         ReplyAuthor.self,
         AuthorObservation.self,
+        LabelBatch.self,
     ])
 }
 

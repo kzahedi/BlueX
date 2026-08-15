@@ -45,6 +45,7 @@
 		2226EEAC8CAB8345BBCA9E93 /* StratifiedSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13CE7D5EB4A92BE8095CE6B3 /* StratifiedSampler.swift */; };
 		2269EA8B023E9FF106B6A560 /* ThreadViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFA0B786ADDCE34214193F6 /* ThreadViewModel.swift */; };
 		2305761DCF8055D00A05D340 /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D4CB1A5F075F1A527CD589 /* ModelSettingsView.swift */; };
+		2397D31111E02C1354A2449C /* LabelBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59AD16839B78469B4C2B675A /* LabelBatch.swift */; };
 		23F30AB47EB1AE28EC7BC017 /* AppleFoundationModelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EDB92C11431C58445B1C1 /* AppleFoundationModelClient.swift */; };
 		247B2D46F3754179A212D47C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFC3883CAF3F0D75FC2773B /* main.swift */; };
 		252B8DFD3874E68FF2E72EB6 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
@@ -95,6 +96,7 @@
 		4BDD8106A6CE1A9C2E42F33E /* SQLiteWriteHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12F244CB574A2C17C070107 /* SQLiteWriteHelper.swift */; };
 		4C0FFDE6191611E31ABD6256 /* CoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */; };
 		4CDEE3FB27AAFDA2C0B28CBF /* SQLiteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CEAED5F255E66C9D1A6412 /* SQLiteConnectionTests.swift */; };
+		4F7430182DF512AB59F1A42F /* LabelBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59AD16839B78469B4C2B675A /* LabelBatch.swift */; };
 		5058BFD41718DD4D0450173C /* LLMPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D23EF32A0BE28A061D51E99 /* LLMPace.swift */; };
 		53E2BE82278AF14C2759CA42 /* GroupViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3767034503F048488CB75ED8 /* GroupViewModel.swift */; };
 		54B592BFE86122BA10FF9C31 /* ThreadScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9234364D503F866937BBE86C /* ThreadScraper.swift */; };
@@ -165,6 +167,7 @@
 		8698CC371DE566CFB827FA91 /* ScrapeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A672BF4E5D9770A59524C7 /* ScrapeSession.swift */; };
 		86E3D0347D2CBC2809CDFB69 /* ATProtoDate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */; };
 		87DF3195001FEB99C53A7231 /* AccountSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */; };
+		8A9A5511369497181CFCC175 /* LabelBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59AD16839B78469B4C2B675A /* LabelBatch.swift */; };
 		8B291B333319CEF9BE6EFBF3 /* BlueXSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */; };
 		8B613BA7ACF093FFDECE3B31 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */; };
 		8C92CFF1DFB3B3F6B3B63E77 /* StoreIndexPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = F38018B4630590A26019A571 /* StoreIndexPlan.swift */; };
@@ -225,6 +228,7 @@
 		E1296283BE38523E0CE22295 /* ThreadScraperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918315E5F826A7097CC22B50 /* ThreadScraperTests.swift */; };
 		E12EFAF89EA0F780BE6641FB /* SelectionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2827B27C334637C64FD1C51 /* SelectionHistory.swift */; };
 		E31DDBBD15F2D382F90FF004 /* StratifiedSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13CE7D5EB4A92BE8095CE6B3 /* StratifiedSampler.swift */; };
+		E4DEB268360EE462976379F8 /* LabelBatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4176FAD98AEFB26D764877 /* LabelBatchTests.swift */; };
 		E5BAA100B3EBE382A5BEFA49 /* AuthorDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000E21D2116EF02F923B4C8A /* AuthorDetailView.swift */; };
 		E8AFE1B01666779C5DE6C390 /* SQLiteConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F32001F88B913F0737047 /* SQLiteConnection.swift */; };
 		E96B057F1122BB9C21E219D3 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D065BBF7B70CB527B88931A2 /* Annotation.swift */; };
@@ -251,6 +255,7 @@
 		FC05384B57C8A2BEAADD333F /* AnnotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B83BAD4BF1C243C89E4102 /* AnnotationService.swift */; };
 		FC1418332CFC72A79CCB8ED9 /* StoreIndexPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = F38018B4630590A26019A571 /* StoreIndexPlan.swift */; };
 		FC3A27E38EC6A0E933C91594 /* NLTaggerPass.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */; };
+		FE8FFA7121D63C33EAEB24B3 /* LabelBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59AD16839B78469B4C2B675A /* LabelBatch.swift */; };
 		FEE85B23EE5B300A81B94CEE /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = BD700ECA1E2DB6FE0F772794 /* README.md */; };
 		FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D0B9E1DD0D1EBF72591B09 /* ModelClientFactory.swift */; };
 /* End PBXBuildFile section */
@@ -322,6 +327,7 @@
 		544E07F91A3BD0D5E3439DBF /* DecimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimatorTests.swift; sourceTree = "<group>"; };
 		57335A54B79DED201CE8F20B /* AccountChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountChartsView.swift; sourceTree = "<group>"; };
 		5926ECE6BF88360F64A8A249 /* QueueViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueViewModel.swift; sourceTree = "<group>"; };
+		59AD16839B78469B4C2B675A /* LabelBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelBatch.swift; sourceTree = "<group>"; };
 		5C5ACFA429CE515472C68804 /* AccountViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountViewModel.swift; sourceTree = "<group>"; };
 		5DEF1FF49DE667EF25C3C4B8 /* AggregateReaderPopulationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateReaderPopulationTests.swift; sourceTree = "<group>"; };
 		5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorState.swift; sourceTree = "<group>"; };
@@ -347,6 +353,7 @@
 		81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
 		83CB977A54649A39A935341D /* EphemeralHTTPSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EphemeralHTTPSession.swift; sourceTree = "<group>"; };
 		8B393235311FDEEBD1536264 /* BlueskyAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyAPIClientTests.swift; sourceTree = "<group>"; };
+		8B4176FAD98AEFB26D764877 /* LabelBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelBatchTests.swift; sourceTree = "<group>"; };
 		8B8F1353B230B5CF0586520C /* GroupContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupContentView.swift; sourceTree = "<group>"; };
 		8B998F7FE00D8C6BCB779630 /* PostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTests.swift; sourceTree = "<group>"; };
 		8E7D27B6A55C75710F9E7020 /* SelectionHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionHistoryTests.swift; sourceTree = "<group>"; };
@@ -649,6 +656,7 @@
 				D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */,
 				26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */,
 				B4B6B157D1E79BF2F1BBFE2D /* IndexReasserterTests.swift */,
+				8B4176FAD98AEFB26D764877 /* LabelBatchTests.swift */,
 				0E24D0B833F878002CE416A9 /* LLMPaceTests.swift */,
 				E973A0C0F287A2AAD1140191 /* ModelConfigTests.swift */,
 				147BB0ACAEEC6DFAB395F698 /* PostAnnotationsTests.swift */,
@@ -758,6 +766,7 @@
 				774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */,
 				5E1E2AF5BB71D8FEC742F27A /* CoordinatorState.swift */,
 				35182922A24551472617AFE7 /* IndexReasserter.swift */,
+				59AD16839B78469B4C2B675A /* LabelBatch.swift */,
 				6D23EF32A0BE28A061D51E99 /* LLMPace.swift */,
 				81D4D25C6CFCFAF4DD0D709F /* ModelConfig.swift */,
 				22A32BE361802D4B8EE09320 /* Post.swift */,
@@ -1087,6 +1096,7 @@
 				8468F21C8CF66846DFB2C9F2 /* KeychainAPIKey.swift in Sources */,
 				6F750ED1A80BE8452B8220EA /* KeychainCredentials.swift in Sources */,
 				5058BFD41718DD4D0450173C /* LLMPace.swift in Sources */,
+				4F7430182DF512AB59F1A42F /* LabelBatch.swift in Sources */,
 				8B613BA7ACF093FFDECE3B31 /* ModelConfig.swift in Sources */,
 				3150CDB8950C1041790139A9 /* Post+Annotations.swift in Sources */,
 				29EC33C35A2DAAFD3A7DAEDF /* Post.swift in Sources */,
@@ -1138,6 +1148,7 @@
 				08D5E613C34FFD0294D69BCE /* IndexReasserterTests.swift in Sources */,
 				5740EBB6BAB0AF7293344028 /* LLMPaceTests.swift in Sources */,
 				C9E1D8459606AF2C580DEACF /* LLMResponseParserTests.swift in Sources */,
+				E4DEB268360EE462976379F8 /* LabelBatchTests.swift in Sources */,
 				3BAD7931447A4E6C873FD43C /* LabelSamplingTests.swift in Sources */,
 				7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */,
 				EE4C74874E11FE09035D2AF6 /* ModelClientFactoryTests.swift in Sources */,
@@ -1189,6 +1200,7 @@
 				DB9792289A0E17D419ACC31E /* KeychainCredentials.swift in Sources */,
 				75AEF62E5C28E31740630C82 /* LLMPace.swift in Sources */,
 				10F8892EE9DAE78AB7FAD296 /* LLMResponseParser.swift in Sources */,
+				FE8FFA7121D63C33EAEB24B3 /* LabelBatch.swift in Sources */,
 				C41C2D1D0CE07630573D0242 /* LocalModelClient.swift in Sources */,
 				8E34307213C36B9D162299E3 /* MLXClient.swift in Sources */,
 				FFCFC7D996BB884927389E2D /* ModelClientFactory.swift in Sources */,
@@ -1254,6 +1266,7 @@
 				5F58AF67630DB64D5E8508FA /* KeychainCredentials.swift in Sources */,
 				5B7A38D7A139747CACC2D39E /* LLMPace.swift in Sources */,
 				6C79ED4BE08A0CE29AF9F681 /* LLMResponseParser.swift in Sources */,
+				8A9A5511369497181CFCC175 /* LabelBatch.swift in Sources */,
 				CF4EEC02EFDD570D8FD07613 /* LabelSampling.swift in Sources */,
 				2A2446CCC27027CEBB6D03B8 /* LocalModelClient.swift in Sources */,
 				85817958A8720EAA402F0AD2 /* MLXClient.swift in Sources */,
@@ -1319,6 +1332,7 @@
 				21FC8A89725F7B996E68937A /* KeychainAPIKey.swift in Sources */,
 				A647FDDEE796BDE54A8116BD /* KeychainCredentials.swift in Sources */,
 				DE2F14AFEEAB6D029485C4CA /* LLMPace.swift in Sources */,
+				2397D31111E02C1354A2449C /* LabelBatch.swift in Sources */,
 				63DFC9F977E705E6EA97CD7E /* ModelConfig.swift in Sources */,
 				3715ED62AC14D5D0E68A46D7 /* Post+Annotations.swift in Sources */,
 				10927B80798DB368A17C741D /* Post.swift in Sources */,
