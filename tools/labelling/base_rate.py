@@ -244,15 +244,31 @@ def fetch_human_annotations(conn):
 
 
 def fetch_batches(conn):
-    """Return (batches, available). `batches` maps normalized UUID string ->
-    {"kind": str|None, "pass_number": int|None}. `available` is False when
-    ZLABELBATCH doesn't exist, or exists without the columns this script
-    needs -- either way every human label becomes an exclusion, not a crash.
+    """Return (batches, meta). `batches` maps normalized UUID string ->
+    {"kind": str|None, "pass_number": int|None}.
+
+    `meta` is a dict with a `"status"` key distinguishing the two distinct
+    ways this can be unusable -- collapsing them was a real finding (a
+    typo'd column name here, or genuine schema drift, would otherwise
+    masquerade as "store not migrated yet" and send a debugger to launch
+    the app pointlessly):
+      - "ok": table found with all needed columns; `batches` is populated.
+      - "missing_table": ZLABELBATCH does not exist at all -- the store
+        has not been migrated onto the schema that declares it.
+      - "missing_columns": ZLABELBATCH exists but is missing one or more
+        of the columns this script needs. `meta["missing"]` lists the
+        missing (expected) column names; `meta["found"]` lists the columns
+        actually present, mirroring the ZANNOTATION discovery path above.
     """
-    cols = column_map(conn, "ZLABELBATCH")
     needed = ("ZID", "ZFRAMEJSON", "ZPASSNUMBER")
-    if not cols or not all(c in cols for c in needed):
-        return {}, False
+
+    if not table_exists(conn, "ZLABELBATCH"):
+        return {}, {"status": "missing_table"}
+
+    cols = column_map(conn, "ZLABELBATCH")
+    missing = [c for c in needed if c not in cols]
+    if missing:
+        return {}, {"status": "missing_columns", "missing": missing, "found": sorted(cols)}
 
     rows = conn.execute(
         "SELECT %s, %s, %s FROM ZLABELBATCH" % (cols["ZID"], cols["ZFRAMEJSON"], cols["ZPASSNUMBER"])
@@ -271,7 +287,7 @@ def fetch_batches(conn):
             except (ValueError, TypeError):
                 kind = None
         batches[norm] = {"kind": kind, "pass_number": pass_number}
-    return batches, True
+    return batches, {"status": "ok"}
 
 
 # --------------------------------------------------------------------------
@@ -303,7 +319,8 @@ def classify_label(annotation, batches, batches_available):
         return ("excluded", "non_uniform_frame:%s" % (kind or "undecodable"), speech_class)
 
     if batch["pass_number"] != 1:
-        return ("excluded", "pass_%s" % batch["pass_number"], speech_class)
+        pass_label = batch["pass_number"] if batch["pass_number"] is not None else "unknown"
+        return ("excluded", "pass_%s" % pass_label, speech_class)
 
     return ("included", None, speech_class)
 
@@ -481,9 +498,11 @@ def compute_report(store_path):
     conn = sqlite3.connect(ro_uri(store_path), uri=True)
     try:
         annotations, flags = fetch_human_annotations(conn)
-        batches, batches_available = fetch_batches(conn)
+        batches, batches_meta = fetch_batches(conn)
     finally:
         conn.close()
+
+    batches_available = batches_meta["status"] == "ok"
 
     schema_notes = []
     if not flags["has_batch_id_column"]:
@@ -499,12 +518,21 @@ def compute_report(store_path):
             "record (informational only -- the batch's own passNumber is "
             "what the exclusion rule uses)."
         )
-    if not batches_available:
+    if batches_meta["status"] == "missing_table":
         schema_notes.append(
-            "ZLABELBATCH table not found (or missing expected columns) in "
-            "this store -- every human label is excluded as "
-            "no_label_batch_table until batches have been drawn and this "
-            "store has picked up that schema."
+            "ZLABELBATCH does not exist -- the store has not been migrated; "
+            "launch the BlueX app once (so SwiftData applies the lightweight "
+            "migration that creates this table), then re-run this script. "
+            "Every human label is excluded as no_label_batch_table until then."
+        )
+    elif batches_meta["status"] == "missing_columns":
+        schema_notes.append(
+            "ZLABELBATCH exists but is missing expected column(s): %s "
+            "(columns actually found: %s). This is schema drift, not a "
+            "pending migration -- do not assume launching the app will fix "
+            "it; check what created/altered this table. Every human label is "
+            "excluded as no_label_batch_table until this is resolved."
+            % (batches_meta["missing"], batches_meta["found"])
         )
     if not schema_notes:
         schema_notes.append("ZANNOTATION/ZLABELBATCH schema found as expected; no migration gaps detected.")
