@@ -185,7 +185,7 @@ counter-speech: human annotation from scratch, or drop the third research target
 | — hate-relevant | **241** (`intolerant` 179, `threat` 61, `extremist`/`intolerant-race`) | the benchmark positives |
 | — `rude` | 883 | the hard negatives, and Track 1's target |
 | — `spam` | 383 | |
-| Account moderation labels | 14,571 of 205,391 (7.09%) | `!takedown` 1,777, `!suspend` 4,946 |
+| Account moderation labels | **CORRECTED 2026-08-14:** only **63** accounts carry an *active* `!takedown`/`!suspend` | earlier "6,723 (3.27%)" counted **negated** (retracted) labels as active — a 100× error. Active: `!suspend` 43, `!takedown` 20. Actioned accounts hold just 463 replies, killing account-level distant supervision. |
 | Deleted replies (archive diff) | 10,067 | candidate mining for removed content |
 | Sentiment | none — `ZANNOTATION` is empty | and NLTagger is useless for hate (AUC 0.508) |
 

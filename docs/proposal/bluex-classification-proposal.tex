@@ -1,0 +1,396 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black,
+            citecolor=blue!50!black}
+
+\title{Classifying hate and counter speech in Bluesky replies to news outlets:\\
+       a proposal grounded in measurement}
+\author{BlueX project}
+\date{14 August 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This proposal sets out how the BlueX corpus---2.42\,million replies to five news
+outlets on Bluesky---can be labelled and classified for hate speech, and later
+counter speech. Every design choice is justified by a measurement already taken on
+this corpus, and several otherwise plausible approaches are excluded because they
+were tried and failed. The central finding is that off-the-shelf toxicity models do
+not detect hate: once incivility is controlled for they are \emph{anti-correlated}
+with it. The central constraint is that the distant-supervision strategy which
+succeeded in earlier work on German Twitter is unavailable here, and the
+platform-moderation labels that might have replaced it turn out to be almost
+entirely retracted. We propose a low-cost architecture---paragraph embeddings
+trained unsupervised on the full corpus, a small supervised classifier on top, an
+abstention threshold, and score-banded human validation---and state in advance what
+would falsify it.
+\end{abstract}
+
+\section{Motivation and scope}
+
+BlueX studies hate speech, counter speech and disinformation in replies to news
+outlets, and how these change over time and around public events. This document
+covers the \emph{classification} problem for hate. Counter speech is deferred until
+hate can be identified, because counter speech is relational---a reply is counter
+speech relative to what it answers---and the practical route to it runs through
+identifying hate first. Disinformation is discussed only to record that it currently
+has no viable data path (\S\ref{sec:disinfo}).
+
+\section{The corpus}
+
+Collection is complete in the sense that matters: every tracked outlet has been
+scraped back to its first post on the platform, and every reply tree has been walked.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrl}
+\toprule
+Outlet & Root posts & Zero-reply roots & First post \\
+\midrule
+spiegel.de              & 86{,}444 & 48\,\% & 2023-10-02 \\
+theguardian.com         & 57{,}303 & 12\,\% & 2024-11-15 \\
+zeit.de                 & 43{,}647 & 64\,\% & 2023-10-23 \\
+nytimes.com             & 40{,}499 &  3\,\% & 2023-06-22 \\
+tagesschau.bsky.social  & 40{,}306 & 25\,\% & 2023-09-14 \\
+\bottomrule
+\end{tabular}
+\caption{Corpus composition. Total: 2{,}423{,}185 posts, 268{,}199 roots,
+267{,}496 distinct reply authors. Reply trees: 253{,}166 walked to completion; zero
+replies whose root post is missing.}
+\end{table}
+
+Roughly 82\,\% of replies are English and 14\,\% German. The wide variation in
+zero-reply rate---3\,\% for the New York Times, 64\,\% for ZEIT---means that
+``replies per outlet'' and ``replies per engaged post'' are different quantities.
+Any analysis must state which it uses.
+
+Two structural limitations are unrecoverable. First, replies deleted before
+collection are gone: comparing a June~2026 archive against a re-scrape of the same
+27{,}961 roots showed a $-1.08\,\%$ loss over two months, with 17.1\,\% of threads
+losing at least one reply. Because moderation removes the most extreme content
+first, this erosion is biased \emph{against} the material of interest. Second, when
+an account is removed its content becomes unreachable from both the AppView and the
+account's own personal data server; only the identity record survives.
+
+\section{Label inventory, corrected}
+\label{sec:labels}
+
+Bluesky's moderation labels were harvested in full for posts (1{,}382{,}554
+subjects swept) and accounts (205{,}391 swept), with zero failed batches. The
+harvest records the \texttt{neg} flag, which marks a label as \emph{negated}---that
+is, retracted. Accounting for negation changes the picture substantially, and an
+earlier internal summary of this project's own data failed to do so.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Account label & Active & Negated \\
+\midrule
+\texttt{!suspend}     &   43 & 4{,}903 \\
+\texttt{!takedown}    &   20 & 1{,}757 \\
+\texttt{needs-review} & 2{,}865 & 5{,}127 \\
+\bottomrule
+\end{tabular}
+\hspace{1cm}
+\begin{tabular}{lrr}
+\toprule
+Post label & Active & Negated \\
+\midrule
+\texttt{rude}        & 881 &  2 \\
+\texttt{spam}        & 371 & 12 \\
+\texttt{intolerant}  & 178 &  1 \\
+\texttt{threat}      &  60 &  1 \\
+\bottomrule
+\end{tabular}
+\caption{Active versus negated moderation labels. Only 63 accounts currently carry
+an active suspension or takedown---not the 6{,}723 obtained by counting
+applications and retractions together.}
+\end{table}
+
+The usable supervision is therefore \textbf{238 active hate-relevant post labels}
+(\texttt{intolerant}, \texttt{threat}, \texttt{extremist},
+\texttt{intolerant-race}) and \textbf{881 \texttt{rude}} labels. The post labels are
+sound: only 37 of 1{,}771 are negated, and negated labels were excluded from every
+experiment reported below.
+
+\paragraph{Consequence.} Account-level distant supervision is not available. The 63
+actioned accounts account for 463 replies in total. This is the single most
+important difference between BlueX and the prior work discussed next.
+
+\section{What the prior work did, and why it does not transfer}
+
+Garland, Ghazi-Zahedi, Young, H\'ebert-Dufresne and Galesic classified hate and
+counter speech on German Twitter at scale~\cite{garland2020countering}, and analysed
+the resulting dynamics over four years~\cite{garland2020impact}. Four components of
+that method transfer very differently.
+
+\paragraph{Distant supervision from self-labelling groups (does not transfer).}
+Germany in 2017--2018 hosted two organised movements that identified themselves:
+\emph{Reconquista Germanica}, a coordinated far-right group, and \emph{Reconquista
+Internet}, a counter-speech movement founded in opposition. Millions of tweets from
+their members served as naturally labelled training data. BlueX's corpus---replies
+to news outlets---contains no known equivalent, and as \S\ref{sec:labels} shows, the
+platform's own moderation labels cannot substitute: 463 replies is not a training
+set.
+
+\paragraph{Ensemble of paragraph embeddings with regularised logistic regression
+(transfers well).} The published classifier paired document embeddings with
+regularised logistic regression in an ensemble. This is a low-cost, CPU-trainable
+design and forms the basis of \S\ref{sec:proposal}.
+
+\paragraph{Abstention via a confidence threshold, validated against neutral
+timelines (transfers, with a caveat).} The diagnostics plot recall and
+percentage-classified against a threshold~$\tau$, separately for known hate
+accounts, known counter accounts, and \emph{neutral} timelines. As $\tau$ rises the
+fraction of neutral content classified falls towards zero: the model declines to
+judge material it is unsure about. This is a principled answer to the ``neither''
+problem.
+
+The caveat is arithmetic. Abstention controls the false-positive \emph{rate}, not
+the false-positive \emph{count}, and the count depends on the base rate. Reading
+$\tau = 0.9$ from the published curves, roughly 5\,\% of neutral content is still
+classified while about 20\,\% of hate-account content is classified at 0.88 recall.
+In a corpus that is 95\,\% neutral and 1\,\% hate, that yields on the order of
+twenty-five false positives per true positive. The prior corpus consisted of
+political conversations seeded by two organised movements, where the base rate of
+hate was far higher. \textbf{BlueX's base rate has never been measured, and it
+determines whether abstention alone suffices.}
+
+\paragraph{Crowdsourced validation stratified by model score (transfers directly).}
+Validation samples were drawn in bands across the classifier's score range
+($0.5$--$0.55$, $0.55$--$0.6$, \ldots, $0.95$--$1.0$) for both classes. This yields
+calibration---what a score of $0.7$ actually means---rather than a single aggregate
+figure, and it supports principled threshold selection. We adopt it directly
+(\S\ref{sec:validation}).
+
+\paragraph{A note on reported performance.} The published macro $F_1$ of
+$0.76$--$0.97$ is on \emph{balanced} out-of-sample test sets. This is the same
+qualifier our own experiments encountered (\S\ref{sec:measurements}), and is worth
+stating plainly rather than discovering later.
+
+\section{What has been measured on this corpus}
+\label{sec:measurements}
+
+All experiments use one evaluation set: 235 active hate-labelled replies
+(\emph{positive}), 872 \texttt{rude} replies (\emph{hard negative}), and 940
+randomly drawn unlabelled replies (\emph{easy negative}).
+
+\subsection{Sentiment carries no signal}
+
+Apple's \texttt{NLTagger} sentiment score separates hate from random replies at
+AUC~$0.508$---chance. The medians of the two distributions are identical
+($-0.600$). Replies to news accounts are already overwhelmingly negative (78\,\% of
+controls score below zero), so negativity is the corpus baseline rather than a
+discriminating feature.
+
+\subsection{Toxicity models detect incivility, and are anti-correlated with hate}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Detector head & hate vs.\ random & hate vs.\ \texttt{rude} & \texttt{rude} vs.\ random \\
+\midrule
+\texttt{unbiased-toxic-roberta\#identity\_attack} & 0.901 & 0.518 & 0.919 \\
+\texttt{unbiased-toxic-roberta\#toxicity}         & 0.846 & \textbf{0.198} & \textbf{0.946} \\
+\texttt{textdetox\#toxic}                         & 0.829 & \textbf{0.188} & 0.944 \\
+\texttt{twitter-roberta-base-hate\#hate}          & 0.814 & 0.533 & --- \\
+keyword lexicon (baseline)                        & 0.511 & 0.508 & --- \\
+\bottomrule
+\end{tabular}
+\caption{ROC AUC by task. An AUC of $0.198$ means the model rates a
+moderator-labelled \emph{rude} post as more toxic than a moderator-labelled
+\emph{hate} post 80\,\% of the time.}
+\end{table}
+
+Toxicity models score profanity, insult and obscenity. The label
+\texttt{intolerant}---Bluesky's term for discrimination against protected
+groups---is frequently expressed in clean language. The models measure a different
+construct, accurately. \textbf{Any pipeline that filters by incivility before
+detecting hate will systematically discard the cleanly-worded hate that matters
+most.}
+
+A validated \emph{incivility} detector falls out as a by-product: the
+\texttt{toxicity} head separates \texttt{rude} from random at $0.946$, and the whole
+corpus has been scored with it (2{,}085{,}088 replies, zero failures).
+
+\subsection{Hate is learnable, but only against the wrong background}
+
+Fine-tuning directly on the hate-versus-\texttt{rude} distinction, with stratified
+5-fold cross-validation:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Model & hate vs.\ \texttt{rude} (CV) & hate vs.\ random \\
+\midrule
+\texttt{cardiffnlp/twitter-roberta-base} (fine-tuned) & $0.959 \pm 0.014$ & 0.61--0.68 \\
+\texttt{xlm-roberta-base} (fine-tuned)                & $0.932 \pm 0.033$ & 0.61--0.68 \\
+TF--IDF $+$ logistic regression                        & $0.943 \pm 0.019$ & --- \\
+keyword lexicon                                        & $0.508 \pm 0.011$ & --- \\
+\bottomrule
+\end{tabular}
+\caption{Cross-validated performance. Train/test gaps were 0.03--0.05, so these are
+not memorisation.}
+\end{table}
+
+Two conclusions follow. First, the distinction \emph{is} learnable: the off-the-shelf
+failures reflected a mismatch of construct, not an absence of signal. Second, and
+decisively for deployment, a model trained on hate versus \texttt{rude} answers
+``given one of these two, which is it?'' rather than ``is this hate?''. Against the
+true corpus, which is overwhelmingly neither, performance falls to $0.61$--$0.68$.
+
+Note also that TF--IDF with logistic regression lies within one standard deviation of
+a fine-tuned transformer. \textbf{Any proposal to use a large model must beat
+TF--IDF in the same harness, or justify itself on generalisation rather than
+headline accuracy.}
+
+\section{Proposal}
+\label{sec:proposal}
+
+\subsection{Architecture}
+
+\paragraph{Stage 0: measure the base rate.} Draw a uniform random sample of replies
+and label it by hand. This yields the prevalence of hate in the deployment
+distribution---currently unknown, and the number that determines whether any
+threshold-based approach is viable (\S4). It comes first because it can falsify
+everything built on top of it.
+
+\paragraph{Stage 1: unsupervised representation.} Train paragraph embeddings
+(doc2vec, or a comparable sentence encoder) \emph{unsupervised} on all 2.15\,M
+replies. No labels are required. This is the key economy: the representation is
+learned from the deployment distribution itself, ordinary content included, which is
+precisely the blind spot that produced the fall to $0.61$--$0.68$. It also learns
+the corpus's own bilingual vocabulary, which off-the-shelf models lack. Cost:
+CPU-hours, no GPU.
+
+\paragraph{Stage 2: small supervised classifier.} Fit regularised logistic
+regression on the embeddings using the 238 active hate labels, the 881 \texttt{rude}
+labels, and negatives drawn from the Stage~0 sample. Following
+\cite{garland2020countering}, use an ensemble rather than a single model and retain
+at least one interpretable member: TF--IDF's strong showing suggests lexical
+features carry much of the signal, and coefficients can be read directly.
+
+\paragraph{Stage 3: abstention.} Classify only where confidence exceeds $\tau$;
+otherwise return ``unjudged''. Choose $\tau$ from the calibration curves of
+\S\ref{sec:validation} rather than by convention.
+
+\paragraph{Stage 4: full-corpus inference.} Encoder-class inference runs at
+$\sim$145 posts per second on project hardware, so the full corpus takes about
+4.5 hours---demonstrated end to end by the completed incivility pass.
+
+\subsection{Why doc2vec rather than a larger model}
+
+Three reasons, each measured rather than assumed. TF--IDF already reaches $0.943$,
+so shallow lexical representations capture most of the available signal. The
+supervised label budget is roughly one thousand examples, far below what fine-tuning
+a large model can exploit without overfitting. And an embedding trained on the corpus
+itself represents the majority class---ordinary replies---whereas a model fine-tuned
+only on hate versus \texttt{rude} has never seen it.
+
+\section{Labelling programme}
+\label{sec:validation}
+
+Human annotation capacity is a few hundred items, one annotator. It is therefore
+spent only where nothing cheaper can substitute.
+
+\begin{enumerate}
+\item \textbf{Base-rate estimation} (Stage~0). A uniform random sample, hand-labelled.
+      Nothing else provides an unbiased prevalence estimate.
+\item \textbf{Score-banded calibration}, following \cite{garland2020countering}.
+      Sample uniformly across the classifier's score range and label each band,
+      yielding precision per band, a calibration curve, and a defensible $\tau$ from
+      a few hundred labels.
+\item \textbf{Audit of any automatic labels.} If an LLM or external API generates
+      training labels at volume, a hand-labelled subset must measure how good those
+      labels are. Without it the pipeline rests on an unmeasured assumption.
+\end{enumerate}
+
+Human labels are \textbf{held-out gold and never training data}: with a few hundred
+available, spending them on training would leave nothing to validate against.
+
+Labels may be drawn from filtered pools where efficiency demands it, but
+\textbf{every label records its sampling frame}---the filter, the pool size, the
+batch, and the random seed. Without this, labels drawn from a high-incivility filter
+become indistinguishable afterwards from a uniform draw, and any prevalence estimate
+across them is silently biased.
+
+\paragraph{Reliability.} With a single annotator, Cohen's $\kappa$ is unavailable.
+The obtainable substitute is intra-rater agreement: re-label a subset blind after an
+interval. This is weaker than inter-rater agreement and must be reported as such,
+not quietly omitted.
+
+\paragraph{Presentation.} Annotation shows the reply together with its root post and
+immediate parent, since hate reads differently in context; this is always possible,
+as every reply's parent is present in the store. Model outputs, incivility scores and
+moderation labels are \emph{not fetched} into the annotation view---not merely
+hidden---because these labels are the only independent ground truth the project has.
+
+\section{Counter speech}
+
+Deferred until hate can be identified, for two reasons. It is relational: ``that is
+disgusting, delete this'' is counter speech under a hateful parent and something else
+under a news headline. And it has \emph{no} external labels---the complete sweep of
+1{,}382{,}554 replies produced none, because moderators label violations rather than
+virtues.
+
+The intended approach, following the structure of \cite{garland2020impact}, is to
+identify accounts that habitually engage in counter speech and examine their replies
+to hate. This is more tractable than classifying every reply for a relational
+property, and it yields a natural denominator: of threads containing hate, how many
+drew a response from a known counter-speaker?
+
+\section{Disinformation}
+\label{sec:disinfo}
+
+The complete post-label sweep produced three relevant labels in 1.38\,M replies
+(\texttt{misleading}: 2, \texttt{rumor}: 1). There is no external signal and no data
+path. A scope decision is required: either commit to annotation from scratch, or
+remove disinformation from the research questions. Retaining it as an unstated
+aspiration is the worst of the three options.
+
+\section{Risks, stated in advance}
+
+\begin{itemize}
+\item \textbf{The base rate may be too low for abstention to suffice.} This is the
+      principal risk; Stage~0 exists to detect it before anything is built on top.
+\item \textbf{Automatic labels may be poor and unaudited.} Any use of LLM or API
+      labelling requires a hand-labelled audit subset.
+\item \textbf{Evaluating on the convenient task.} Hate versus \texttt{rude} gives
+      $0.96$; hate versus random gives $0.61$--$0.68$. The second is the deployment
+      task and must be the headline.
+\item \textbf{Reintroducing an incivility filter.} Toxicity is anti-correlated with
+      hate here. The result is counter-intuitive and therefore easy to forget.
+\item \textbf{Treating moderation labels as ground truth for recall.} They record
+      what was reported and actioned. A model scoring poorly against them may be
+      finding hate nobody reported.
+\item \textbf{Single-annotator reliability.} Intra-rater agreement is a weaker
+      substitute for $\kappa$ and must be described honestly.
+\end{itemize}
+
+\begin{thebibliography}{9}
+\bibitem{garland2020countering}
+J.~Garland, K.~Ghazi-Zahedi, J.-G.~Young, L.~H\'ebert-Dufresne, and M.~Galesic.
+\newblock Countering hate on social media: large scale classification of hate and
+counter speech.
+\newblock \emph{arXiv:2006.01974}, 2020.
+\newblock \url{https://arxiv.org/abs/2006.01974}
+
+\bibitem{garland2020impact}
+J.~Garland, K.~Ghazi-Zahedi, J.-G.~Young, L.~H\'ebert-Dufresne, and M.~Galesic.
+\newblock Impact and dynamics of hate and counter speech online.
+\newblock \emph{arXiv:2009.08392}, 2020.
+\newblock \url{https://arxiv.org/abs/2009.08392}
+\end{thebibliography}
+
+\end{document}
