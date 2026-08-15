@@ -127,33 +127,39 @@ struct LabellingSessionView: View {
 
     /// Both cases the view model publishes must be surfaced, per the carry-forward
     /// requirement from Task 4's re-review: `.saveFailed` is a prominent, non-dismissed
-    /// "your label was NOT saved" banner (the item stays current — the user can just
-    /// press the class key again to retry); `.postNotFound` is a transient, non-blocking
-    /// notice (the session has already advanced past that item). `.batchNotFound` means
-    /// the whole session is broken — treated as seriously as `.saveFailed`.
+    /// "your label was NOT saved" banner — the item stays current, and per
+    /// `LabellingFormatting.keyIsPermitted` a bare "0" is inert while it's showing; the
+    /// only ways past it are retrying a class key or the explicit "Skip anyway" button
+    /// this banner offers. `.postNotFound` is a transient, non-blocking notice (the
+    /// session has already advanced past that item) and does NOT gate any key.
+    /// `.batchNotFound` means the whole session is broken — treated as seriously as
+    /// `.saveFailed`, same gating, same explicit escape hatch.
     @ViewBuilder
     private func recordErrorBanner(_ error: LabellingViewModel.RecordFailure) -> some View {
         switch error {
         case .saveFailed(let message):
-            errorBanner(icon: "exclamationmark.triangle.fill",
+            errorBanner(icon: "exclamationmark.triangle.fill", iconColor: Color.hateBorder,
                         title: "Label NOT saved — retry",
-                        detail: message, background: Color.hateBackground)
+                        detail: message, background: Color.hateBackground, blocking: true)
         case .batchNotFound:
-            errorBanner(icon: "exclamationmark.triangle.fill",
+            errorBanner(icon: "exclamationmark.triangle.fill", iconColor: Color.hateBorder,
                         title: "Session broken — label NOT saved",
                         detail: error.errorDescription ?? "Batch not found.",
-                        background: Color.hateBackground)
+                        background: Color.hateBackground, blocking: true)
         case .postNotFound(let uri):
-            errorBanner(icon: "arrow.forward.circle",
+            errorBanner(icon: "arrow.forward.circle", iconColor: Color.neutralBorder,
                         title: "Post no longer exists — skipped",
-                        detail: uri, background: Color.neutralBackground)
+                        detail: uri, background: Color.neutralBackground, blocking: false)
         }
     }
 
-    private func errorBanner(icon: String, title: String, detail: String,
-                              background: Color) -> some View {
+    /// `blocking` adds the explicit, labelled "Skip anyway" affordance — a deliberate
+    /// mouse click that abandons the unsaved label on purpose, distinct from the ordinary
+    /// skip button/key (which `keyIsPermitted` makes inert while this banner is showing).
+    private func errorBanner(icon: String, iconColor: Color, title: String, detail: String,
+                              background: Color, blocking: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(.yellow)
+            Image(systemName: icon).foregroundStyle(iconColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
@@ -164,6 +170,16 @@ struct LabellingSessionView: View {
                     .lineLimit(2)
             }
             Spacer()
+            if blocking {
+                Button("Skip anyway") {
+                    viewModel.skip()
+                    noteText = ""
+                    focus = .session
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.hateBorder)
+                .font(.system(size: 11))
+            }
         }
         .padding(10)
         .background(background)
@@ -240,7 +256,12 @@ struct LabellingSessionView: View {
             classButton(key: "1", label: "Hate", color: .hateBorder) { handleKey("1") }
             classButton(key: "2", label: "Counter", color: .counterBorder) { handleKey("2") }
             classButton(key: "3", label: "Neutral", color: .neutralBorder) { handleKey("3") }
+            // Disabled (not just gated on keypress) while a blocking recordError is
+            // active — a stray click on this button must be exactly as inert as a
+            // stray "0" keypress. The one intentional way to abandon a stuck item is
+            // the banner's explicit "Skip anyway" button, never this one.
             classButton(key: "0", label: "Skip", color: .mutedText) { handleKey("0") }
+                .disabled(!LabellingFormatting.keyIsPermitted("0", recordError: viewModel.recordError))
         }
         .padding(.horizontal, 16)
     }
@@ -276,6 +297,13 @@ struct LabellingSessionView: View {
         // of focus; the keyboard path is already excluded from receiving these events
         // while the note field holds focus (see `noteField`'s doc comment).
         guard focus != .note else { return }
+        // Single choke point for every class/skip action, keyboard or mouse (every
+        // `classButton` action closure routes through here) — see
+        // `LabellingFormatting.keyIsPermitted` for why "0" is inert while a blocking
+        // recordError is showing. The one deliberate bypass is the banner's own
+        // "Skip anyway" button, which calls `viewModel.skip()` directly rather than
+        // going through this function.
+        guard LabellingFormatting.keyIsPermitted(characters, recordError: viewModel.recordError) else { return }
         let note = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
         switch characters {
         case "1": viewModel.record("hate", note: note.isEmpty ? nil : note, context: modelContext)

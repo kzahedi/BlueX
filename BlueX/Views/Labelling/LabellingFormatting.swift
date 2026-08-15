@@ -116,4 +116,28 @@ enum LabellingFormatting {
         let secs = total % 60
         return String(format: "%02d:%02d", minutes, secs)
     }
+
+    /// Whether a class/skip keypress (or its mouse-button equivalent) is allowed to act
+    /// right now, given the current `recordError`.
+    ///
+    /// **Why this exists.** `.saveFailed`/`.batchNotFound` mean the current item's label
+    /// was NOT persisted and the item is deliberately left current so the annotator can
+    /// retry — that guarantee is worthless if a stray "0" keypress can advance past the
+    /// stuck item anyway, silently abandoning the unsaved label (the swallowed-save bug
+    /// reborn as a UI path). So while either of those is active: `1`/`2`/`3` (retry) stay
+    /// permitted, but `0` (skip) is denied — the only way to move on is an explicit,
+    /// labelled "skip anyway" affordance the view offers separately, never a bare
+    /// keystroke or the ordinary skip button.
+    ///
+    /// `.postNotFound` is transient and non-blocking (the session has already advanced
+    /// past that item) and `nil` means there is nothing to block on — both permit every
+    /// key.
+    static func keyIsPermitted(_ key: String, recordError: LabellingViewModel.RecordFailure?) -> Bool {
+        switch recordError {
+        case .saveFailed, .batchNotFound:
+            return key != "0"
+        case nil, .postNotFound:
+            return true
+        }
+    }
 }

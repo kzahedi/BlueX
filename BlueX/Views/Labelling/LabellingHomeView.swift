@@ -230,7 +230,7 @@ struct LabellingHomeView: View {
     private func createOutcomeBanner(_ outcome: CreateOutcome) -> some View {
         switch outcome {
         case .failed(let message):
-            banner(icon: "exclamationmark.triangle", iconColor: .yellow,
+            banner(icon: "exclamationmark.triangle", iconColor: Color.hateBorder,
                    title: "Could not open the store", detail: message,
                    background: Color.hateBackground)
         case .empty:
