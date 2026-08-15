@@ -209,6 +209,98 @@ def test_progress_writer_records_marked_subjects_for_resume(tmp_path):
     assert done == {"a", "b", "c"}
 
 
+def test_active_and_negated_counts_are_reported_separately():
+    """Regression test for the 100x reporting defect: a summary that blends
+    active and negated counts overstates actioned subjects. harvest() must
+    keep them apart from the start.
+    """
+    def http_get(url):
+        return make_response([
+            {"src": "s", "uri": "did:plc:a", "val": "!suspend", "cts": "c1", "neg": False},
+            {"src": "s", "uri": "did:plc:b", "val": "!suspend", "cts": "c2", "neg": True},
+            {"src": "s", "uri": "did:plc:c", "val": "!takedown", "cts": "c3", "neg": True},
+            {"src": "s", "uri": "did:plc:d", "val": "!takedown", "cts": "c4", "neg": True},
+            {"src": "s", "uri": "did:plc:e", "val": "spam", "cts": "c5", "neg": False},
+        ])
+
+    stats = hl.harvest(
+        ["did:plc:a", "did:plc:b", "did:plc:c", "did:plc:d", "did:plc:e"],
+        "account", http_get, batch_size=40, sleep_fn=lambda s: None,
+    )
+
+    assert stats["by_value_active"] == {"!suspend": 1, "spam": 1}
+    assert stats["by_value_negated"] == {"!suspend": 1, "!takedown": 2}
+    assert stats["labels_found"] == 5
+    # 2 subjects (a, e) carry an active label
+    assert stats["subjects_with_active_labels"] == 2
+    # 3 subjects (b, c, d) carry ONLY negated labels -- not actively labelled
+    assert stats["subjects_with_only_negated_labels"] == 3
+
+
+def test_subject_with_only_negated_labels_not_counted_as_actively_labelled():
+    """A subject whose sole label is neg:true must not appear in the active
+    count -- it must appear only in the negated-only count.
+    """
+    def http_get(url):
+        return make_response([
+            {"src": "s", "uri": "did:plc:only-negated", "val": "!hide",
+             "cts": "c1", "neg": True},
+        ])
+
+    stats = hl.harvest(["did:plc:only-negated"], "account", http_get,
+                        batch_size=40, sleep_fn=lambda s: None)
+
+    assert stats["subjects_with_active_labels"] == 0
+    assert stats["subjects_with_only_negated_labels"] == 1
+    assert stats["by_value_active"] == {}
+    assert stats["by_value_negated"] == {"!hide": 1}
+
+
+def test_subject_with_both_active_and_negated_labels_counts_as_active():
+    """A subject with one active label and one (different, still-live) negated
+    label is actively labelled -- the negated label doesn't cancel that out.
+    """
+    def http_get(url):
+        return make_response([
+            {"src": "s", "uri": "did:plc:mixed", "val": "!suspend",
+             "cts": "c1", "neg": False},
+            {"src": "s", "uri": "did:plc:mixed", "val": "spam",
+             "cts": "c2", "neg": True},
+        ])
+
+    stats = hl.harvest(["did:plc:mixed"], "account", http_get,
+                        batch_size=40, sleep_fn=lambda s: None)
+
+    assert stats["subjects_with_active_labels"] == 1
+    assert stats["subjects_with_only_negated_labels"] == 0
+
+
+def test_jsonl_record_format_unchanged_by_active_negated_split():
+    """The summary-level active/negated split must not alter the per-label
+    JSONL record shape that build_eval_set.py depends on.
+    """
+    records = []
+
+    def http_get(url):
+        return make_response([
+            {"src": "s1", "uri": "did:plc:a", "val": "!suspend",
+             "cts": "2026-01-01T00:00:00Z", "neg": True},
+        ])
+
+    hl.harvest(["did:plc:a"], "account", http_get, batch_size=40,
+               sleep_fn=lambda s: None, on_record=records.append)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert set(rec.keys()) == {
+        "subject", "subject_type", "src", "val", "cts", "neg", "observed_at",
+    }
+    assert rec["neg"] is True
+    assert rec["val"] == "!suspend"
+    assert rec["subject"] == "did:plc:a"
+    assert rec["subject_type"] == "account"
+
+
 def test_on_record_callback_fires_for_every_label_with_subject_type():
     records = []
 
