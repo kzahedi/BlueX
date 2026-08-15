@@ -61,6 +61,31 @@ final class LabellingViewModel {
         }
     }
 
+    /// Why a call to `record` did not end with a persisted label. Published so the view
+    /// can surface it — a silent no-op on a held-out gold set would look to the
+    /// annotator like their decision was recorded when it wasn't.
+    enum RecordFailure: Equatable, LocalizedError {
+        /// The batch itself could not be fetched — the session is broken, not just
+        /// this one item; `record` does not advance past it.
+        case batchNotFound
+        /// The `Post` for the current item no longer exists (e.g. a rescrape deleted
+        /// it between draw and record). The item is unrecordable, so `record` advances
+        /// past it — like `skip()` — rather than leaving the annotator pressing a dead
+        /// key, but the caller must show why.
+        case postNotFound(String)
+        /// `context.save()` threw. Nothing from this call was persisted — see `record`
+        /// for the exact rollback this guarantees.
+        case saveFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .batchNotFound: return "Label batch not found — cannot record."
+            case .postNotFound(let uri): return "Post \(uri) no longer exists — skipped."
+            case .saveFailed(let message): return "Failed to save label: \(message)"
+            }
+        }
+    }
+
     /// Opens the `ModelContainer` used internally by `createBatch`/`openBatch` to
     /// persist/read `LabelBatch` rows. Injectable so store-open failure is testable
     /// independently of whatever `AggregateReader` the caller passes in — the two
@@ -108,6 +133,11 @@ final class LabellingViewModel {
     /// When the item at `currentIndex` was presented — the zero point `record`
     /// measures time-to-decide from. Set by `openBatch` and after every `record`/`skip`.
     @ObservationIgnored private var presentedAt: Date?
+
+    /// Non-nil immediately after a `record` call that did not end with a persisted
+    /// label — cleared at the start of every `record` call. The view is expected to
+    /// surface this rather than let a failed record look like a silent no-op.
+    private(set) var recordError: RecordFailure?
 
     var currentItem: AggregateReader.LabellingContext? {
         guard currentIndex < sessionItems.count else { return nil }
@@ -212,18 +242,40 @@ final class LabellingViewModel {
     /// advances to the next item. Sets `completedAt` once every drawn URI in the batch
     /// has a label — not merely once this session's (possibly partial, resumed) item
     /// list is exhausted, since a resumed session may cover only a subset of the batch.
+    ///
+    /// **Save-failure integrity.** The `Annotation` insert and the `labelledURIs`
+    /// append happen against the same in-memory context and are committed by the SAME
+    /// `context.save()` call below — so a crash between them is not a state this code
+    /// can produce; either both are persisted or neither is. If `save()` throws, every
+    /// mutation made in this call (the inserted `Annotation`, the `Post.annotations`
+    /// append, `labelledURIs`, `completedAt`) is explicitly rolled back so a failed save
+    /// can never silently lose a label while `currentIndex` advances as if it had been
+    /// recorded — the item stays current so the annotator can retry, and `recordError`
+    /// surfaces what happened.
     func record(_ speechClass: String, note: String?, context: ModelContext) {
+        recordError = nil
         guard let item = currentItem, let batchID = currentBatchID else { return }
         let decidedAt = clock()
         let elapsed = presentedAt.map { decidedAt.timeIntervalSince($0) }
 
         let batchDescriptor = FetchDescriptor<LabelBatch>(
             predicate: #Predicate<LabelBatch> { $0.id == batchID })
-        guard let batch = try? context.fetch(batchDescriptor).first else { return }
+        guard let batch = try? context.fetch(batchDescriptor).first else {
+            recordError = .batchNotFound
+            return
+        }
 
         let uri = item.uri
         let postDescriptor = FetchDescriptor<Post>(predicate: #Predicate<Post> { $0.uri == uri })
-        guard let post = try? context.fetch(postDescriptor).first else { return }
+        guard let post = try? context.fetch(postDescriptor).first else {
+            // The post is gone (e.g. a rescrape deleted it between draw and record).
+            // Nothing can be recorded against it — advance past it like `skip()` so the
+            // annotator isn't stuck on a dead item, but tell them why.
+            recordError = .postNotFound(uri)
+            currentIndex += 1
+            presentedAt = clock()
+            return
+        }
 
         let annotation = Annotation(
             speechClass: speechClass, sentimentScore: 0, detectedLanguage: "",
@@ -234,12 +286,30 @@ final class LabellingViewModel {
         context.insert(annotation)
         post.annotations.append(annotation)
 
+        let previousCompletedAt = batch.completedAt
         batch.labelledURIs.append(uri)
         let allLabelled = Set(batch.drawnURIs).isSubset(of: Set(batch.labelledURIs))
         if allLabelled {
             batch.completedAt = decidedAt
         }
-        try? context.save()
+
+        do {
+            try context.save()
+        } catch {
+            // Roll back every in-memory mutation above — a failed save must leave the
+            // URI unlabelled, the batch's completion state untouched, and no dangling
+            // Annotation, exactly as if `record` had never been called.
+            context.delete(annotation)
+            if let index = post.annotations.firstIndex(where: { $0 === annotation }) {
+                post.annotations.remove(at: index)
+            }
+            if batch.labelledURIs.last == uri {
+                batch.labelledURIs.removeLast()
+            }
+            batch.completedAt = previousCompletedAt
+            recordError = .saveFailed(String(describing: error))
+            return
+        }
 
         currentIndex += 1
         presentedAt = clock()
