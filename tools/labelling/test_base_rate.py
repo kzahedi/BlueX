@@ -292,7 +292,112 @@ def test_missing_label_batch_table_is_handled_not_crashed(tmp_path):
     assert report["n_excluded"] == 1
     assert report["excluded_by_reason"].get("no_label_batch_table") == 1
     assert any("batchID column" in note for note in report["schema_notes"])
-    assert any("ZLABELBATCH table not found" in note for note in report["schema_notes"])
+    assert any("ZLABELBATCH does not exist" in note for note in report["schema_notes"])
+    assert any("launch the BlueX app" in note for note in report["schema_notes"])
+
+
+def test_label_batch_table_present_but_missing_columns_names_them(tmp_path):
+    # ZLABELBATCH exists (so this is NOT "store not migrated yet") but is
+    # missing ZPASSNUMBER -- e.g. a typo'd column name in this tool, or
+    # genuine schema drift. Must be reported distinctly from the
+    # table-absent case, naming both the missing and the found columns.
+    path = str(tmp_path / "fixture.store")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE ZANNOTATION (Z_PK INTEGER PRIMARY KEY, ZSTAGE VARCHAR, "
+        "ZSPEECHCLASS VARCHAR, ZBATCHID BLOB, ZPASSNUMBER INTEGER)"
+    )
+    conn.execute(
+        "CREATE TABLE ZLABELBATCH (Z_PK INTEGER PRIMARY KEY, ZID BLOB, ZFRAMEJSON VARCHAR)"
+    )
+    batch_id = uuid.uuid4()
+    conn.execute(
+        "INSERT INTO ZLABELBATCH (ZID, ZFRAMEJSON) VALUES (?, ?)",
+        (str(batch_id), json.dumps({"kind": "uniformRandom"})),
+    )
+    conn.execute(
+        "INSERT INTO ZANNOTATION (ZSTAGE, ZSPEECHCLASS, ZBATCHID, ZPASSNUMBER) "
+        "VALUES ('human', 'neutral', ?, 1)",
+        (str(batch_id),),
+    )
+    conn.commit()
+    conn.close()
+
+    batches, meta = br.fetch_batches(sqlite3.connect(path))
+    assert meta["status"] == "missing_columns"
+    assert meta["missing"] == ["ZPASSNUMBER"]
+    assert set(meta["found"]) == {"Z_PK", "ZID", "ZFRAMEJSON"}
+
+    report = br.compute_report(path)
+    assert report["run_status"] == "no_data"
+    assert report["excluded_by_reason"].get("no_label_batch_table") == 1
+    notes = " ".join(report["schema_notes"])
+    assert "missing expected column(s)" in notes
+    assert "ZPASSNUMBER" in notes
+    assert "ZID" in notes and "ZFRAMEJSON" in notes  # the columns actually found
+    assert "schema drift" in notes
+    assert "does not exist" not in notes  # must not be confused with the absent-table case
+
+
+def test_malformed_frame_json_is_reported_as_undecodable(tmp_path):
+    batch_id = uuid.uuid4()
+    path = str(tmp_path / "fixture.store")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE ZANNOTATION (Z_PK INTEGER PRIMARY KEY, ZSTAGE VARCHAR, "
+        "ZSPEECHCLASS VARCHAR, ZBATCHID BLOB, ZPASSNUMBER INTEGER)"
+    )
+    conn.execute(
+        "CREATE TABLE ZLABELBATCH (Z_PK INTEGER PRIMARY KEY, ZID BLOB, "
+        "ZFRAMEJSON VARCHAR, ZPASSNUMBER INTEGER)"
+    )
+    conn.execute(
+        "INSERT INTO ZLABELBATCH (ZID, ZFRAMEJSON, ZPASSNUMBER) VALUES (?, ?, ?)",
+        (str(batch_id), "{not valid json", 1),
+    )
+    conn.execute(
+        "INSERT INTO ZANNOTATION (ZSTAGE, ZSPEECHCLASS, ZBATCHID, ZPASSNUMBER) "
+        "VALUES ('human', 'hate', ?, 1)",
+        (str(batch_id),),
+    )
+    conn.commit()
+    conn.close()
+
+    report = br.compute_report(path)
+    assert report["n_included"] == 0
+    assert report["n_excluded"] == 1
+    assert report["excluded_by_reason"].get("non_uniform_frame:undecodable") == 1
+
+
+def test_all_neutral_sample_gives_zero_hate_prevalence(tmp_path):
+    # n>0, k=0: pin that an all-neutral eligible sample is a valid "ok"
+    # result (0% prevalence with a real CI), not treated as no_data.
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[{"speech_class": "neutral", "batch_id": batch_id, "pass_number": 1}] * 50,
+    )
+    report = br.compute_report(store)
+    assert report["run_status"] == "ok"
+    assert report["n_included"] == 50
+    assert report["hate_count"] == 0
+    assert report["hate_prevalence"] == 0.0
+    lo, hi = report["wilson_ci"]
+    assert lo == 0.0
+    assert hi > 0.0
+    assert report["fp_per_tp_point"] is None  # p=0 -> undefined, not a crash
+
+
+def test_pass_unknown_label_when_batch_pass_number_is_null(tmp_path):
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": None}],
+        annotations=[{"speech_class": "hate", "batch_id": batch_id, "pass_number": 1}],
+    )
+    report = br.compute_report(store)
+    assert report["excluded_by_reason"].get("pass_unknown") == 1
 
 
 def test_main_succeeds_and_writes_files_on_real_data(tmp_path):
