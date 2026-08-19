@@ -6,10 +6,12 @@ import SwiftData
 final class FeedScraper {
     private let api: BlueskyAPIClient
     private let context: ModelContext
+    private let now: () -> Date
 
-    init(api: BlueskyAPIClient, context: ModelContext) {
+    init(api: BlueskyAPIClient, context: ModelContext, now: @escaping () -> Date = Date.init) {
         self.api = api
         self.context = context
+        self.now = now
     }
 
     /// Scrapes root posts for one account.
@@ -73,6 +75,20 @@ final class FeedScraper {
         log.status = "complete"
         log.postCount = newPostCount
         log.resumeCursor = nil  // clear on successful completion
+
+        // Why: a pass only used to clear the cursor on the log it created itself.
+        // Any OLDER `failed` log with a live cursor was left untouched forever, so
+        // every later pass kept re-resuming that same stale cursor. Since
+        // getAuthorFeed pages newest→oldest, resuming an old cursor walks only
+        // deeper into already-stored history — the top of the feed (all new
+        // posts) is never revisited, and the pass "succeeds" having found zero
+        // new posts. This silently blocked all new-post collection for five news
+        // outlets from 2026-08-13 to 2026-08-19. Clearing every incomplete feed
+        // log here makes the resume optimisation self-limiting: one pass consumes
+        // a stale cursor and clears it, so the next pass starts fresh from the top.
+        for staleLog in try fetchAllIncompleteLogs(for: account) {
+            staleLog.resumeCursor = nil
+        }
         try context.save()
 
         return newPostCount
@@ -83,18 +99,46 @@ final class FeedScraper {
     private func fetchIncompleteLog(for account: TrackedAccount) throws -> ScrapeLog? {
         // Why: FetchDescriptor with #Predicate is SwiftData's type-safe query builder.
         // The predicate macro generates the underlying NSPredicate at compile time.
+        //
+        // 48h staleness guard: a cursor left over from a pass more than two days
+        // old resumes a walk whose skipped-top window is enormous — this is
+        // exactly the shape of the 2026-08-13 – 2026-08-19 data-loss incident,
+        // where stale cursors from October 2023 / January 2024 kept getting
+        // resumed indefinitely. Past 48h it's cheaper and safer to start the walk
+        // fresh from the top of the feed and let the duplicate check do its job
+        // than to trust an ancient cursor.
         let did = account.did
+        let cutoff = now().addingTimeInterval(-48 * 3600)
         var descriptor = FetchDescriptor<ScrapeLog>(
             predicate: #Predicate<ScrapeLog> { log in
                 log.account?.did == did &&
                 log.type == "feed" &&
                 log.status == "failed" &&
-                log.resumeCursor != nil
+                log.resumeCursor != nil &&
+                log.date >= cutoff
             },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    /// All incomplete feed logs for this account, regardless of age — used only
+    /// to clear stale cursors on successful completion (see `scrape`). Unlike
+    /// `fetchIncompleteLog` this is intentionally NOT limited by the 48h cutoff:
+    /// an ancient cursor should still be nil'd out once we know the account is
+    /// caught up, not left dangling forever.
+    private func fetchAllIncompleteLogs(for account: TrackedAccount) throws -> [ScrapeLog] {
+        let did = account.did
+        let descriptor = FetchDescriptor<ScrapeLog>(
+            predicate: #Predicate<ScrapeLog> { log in
+                log.account?.did == did &&
+                log.type == "feed" &&
+                log.status == "failed" &&
+                log.resumeCursor != nil
+            }
+        )
+        return try context.fetch(descriptor)
     }
 
     private func isDuplicate(uri: String) -> Bool {

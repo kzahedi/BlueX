@@ -23,9 +23,14 @@ final class MockURLSession: URLSessionProtocol {
     }
     var scriptedResponses: [ScriptedResponse] = []
     private(set) var callCount = 0
+    /// Every request handed to `data(for:)`, in order. Lets tests assert on request
+    /// details (e.g. the `cursor` query item) that the higher-level API isn't
+    /// otherwise exposed through.
+    var capturedRequests: [URLRequest] = []
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         callCount += 1
+        capturedRequests.append(request)
         let resp: (Data, Int, [String: String])
         if !scriptedResponses.isEmpty {
             let next = scriptedResponses.removeFirst()
