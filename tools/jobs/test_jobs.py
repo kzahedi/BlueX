@@ -25,6 +25,7 @@ outage this branch exists to remove.
 import json
 import os
 import plistlib
+import re
 import stat
 import subprocess
 import time
@@ -37,10 +38,12 @@ RUNTIME_SCRIPTS = [
     "lib-bluex-job.sh",
     "bluex-nightly.sh",
     "bluex-watchdog.sh",
+    "bluex-continuous.sh",
 ]
 AGENTS_DIR = Path.home() / "Library/LaunchAgents"
 NIGHTLY_PLIST = AGENTS_DIR / "net.pulsschlag.bluex.nightly.plist"
 WATCHDOG_PLIST = AGENTS_DIR / "net.pulsschlag.bluex.watchdog.plist"
+CONTINUOUS_PLIST = AGENTS_DIR / "net.pulsschlag.bluex.continuous.plist"
 
 
 @pytest.mark.parametrize("name", RUNTIME_SCRIPTS)
@@ -96,7 +99,7 @@ def test_installer_needs_no_privilege_escalation():
     assert not offenders, f"install-jobs.sh must not require sudo: {offenders}"
 
 
-@pytest.mark.parametrize("plist_path", [NIGHTLY_PLIST, WATCHDOG_PLIST])
+@pytest.mark.parametrize("plist_path", [WATCHDOG_PLIST, CONTINUOUS_PLIST])
 def test_installed_agent_points_at_an_existing_internal_script(plist_path):
     if not plist_path.exists():
         pytest.skip(f"{plist_path.name} not installed — run tools/install-jobs.sh")
@@ -108,12 +111,53 @@ def test_installed_agent_points_at_an_existing_internal_script(plist_path):
 
 
 def test_superseded_agents_are_removed():
-    if not NIGHTLY_PLIST.exists():
+    if not CONTINUOUS_PLIST.exists():
         pytest.skip("new agents not installed yet — run tools/install-jobs.sh")
     for old in ("net.pulsschlag.bluex.scrape", "net.pulsschlag.bluex.annotate"):
         assert not (
             AGENTS_DIR / f"{old}.plist"
         ).exists(), f"{old}.plist should have been removed by install-jobs.sh"
+
+
+def test_nightly_agent_is_retired_by_install_in_favour_of_continuous():
+    """The 03:31 nightly agent is superseded, not kept alongside the continuous one.
+
+    Mirrors test_superseded_agents_are_removed: real, machine-state check that only
+    runs once install-jobs.sh has actually been run on this box (it is deliberately
+    NOT run as part of this change — see the static check below for the always-on
+    guarantee).
+    """
+    if not CONTINUOUS_PLIST.exists():
+        pytest.skip("new agents not installed yet — run tools/install-jobs.sh")
+    assert not NIGHTLY_PLIST.exists(), (
+        "net.pulsschlag.bluex.nightly.plist should have been removed by "
+        "install-jobs.sh once the continuous agent replaces it"
+    )
+    with CONTINUOUS_PLIST.open("rb") as handle:
+        data = plistlib.load(handle)
+    assert data.get("KeepAlive") is True
+    assert data.get("RunAtLoad") is True
+
+
+def test_installer_source_retires_nightly_and_installs_continuous_with_keepalive():
+    """Static check, independent of whether install-jobs.sh has actually been run.
+
+    Running the real installer is out of scope here (it regenerates the Xcode
+    project and rebuilds the CLIs via install-cli.sh) — a manual catch-up scrape is
+    running from the installed binary right now, and this change must not touch or
+    reinstall it. So verify the SOURCE does the right thing: retires
+    net.pulsschlag.bluex.nightly the same way it already retires scrape/annotate,
+    and installs the continuous agent with KeepAlive+RunAtLoad.
+    """
+    text = (JOBS_SRC.parent / "install-jobs.sh").read_text()
+    retire_block = re.search(r"for old in ([^\n]*)\n", text)
+    assert retire_block, "no 'for old in ...' retirement loop found"
+    assert "net.pulsschlag.bluex.nightly" in retire_block.group(1), (
+        "install-jobs.sh does not retire net.pulsschlag.bluex.nightly: "
+        f"{retire_block.group(1)!r}"
+    )
+    assert "write_continuous_agent net.pulsschlag.bluex.continuous bluex-continuous.sh" in text
+    assert "<key>KeepAlive</key>" in text and "<key>RunAtLoad</key>" in text
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +174,7 @@ def test_superseded_agents_are_removed():
 
 NIGHTLY = JOBS_SRC / "bluex-nightly.sh"
 WATCHDOG = JOBS_SRC / "bluex-watchdog.sh"
+CONTINUOUS = JOBS_SRC / "bluex-continuous.sh"
 LIB = JOBS_SRC / "lib-bluex-job.sh"
 
 _STUB_OSASCRIPT = """#!/bin/sh
@@ -883,3 +928,278 @@ def test_watchdog_points_at_the_run_logs_that_exist(sandbox, tmp_path):
     result = sandbox.run(WATCHDOG, extra_env={"BLUEX_STORE_DIR": str(missing)})
     assert result.returncode == 1
     assert str(sandbox.log_dir) in sandbox.notifications, sandbox.notifications
+
+
+# ---------------------------------------------------------------------------
+# 8. bluex-continuous.sh — the always-running agent.
+# ---------------------------------------------------------------------------
+# These drive the real script as a long-lived background process (it has no exit
+# condition of its own besides a signal) rather than through sandbox.run(), which
+# waits for the process to finish. Every test terminates the process itself in a
+# finally block — leaking a live subprocess across tests would make the whole file
+# flaky and, worse, could leave a real lock or heartbeat behind.
+
+CONTINUOUS_FAST_ENV = {
+    "CONTINUOUS_INTERVAL_SECONDS": "1",
+    "PERMISSION_RETRY_SECONDS": "1",
+}
+
+
+def _start_continuous(sandbox, extra_env=None):
+    env = dict(sandbox.env)
+    env.update(CONTINUOUS_FAST_ENV)
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.Popen(
+        ["zsh", str(CONTINUOUS)],
+        cwd=str(sandbox.root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+def _stop_continuous(proc, timeout=10):
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=timeout)
+    return proc.returncode
+
+
+def _wait_until(predicate, deadline_seconds=10, interval=0.2):
+    deadline = time.time() + deadline_seconds
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
+
+
+def _supervisory_log(sandbox) -> str:
+    p = sandbox.log_dir / "continuous.log"
+    return p.read_text() if p.exists() else ""
+
+
+def _wait_for_heartbeat_json(sandbox, deadline_seconds=10):
+    """Poll for a heartbeat that both exists AND parses.
+
+    The heredoc write in bluex-continuous.sh is not guaranteed atomic from a
+    reader's point of view (open-then-write), so a bare .exists() check can catch
+    the file mid-write. Retrying the parse rather than just the existence check
+    avoids that race.
+    """
+    deadline = time.time() + deadline_seconds
+    while time.time() < deadline:
+        if sandbox.heartbeat.exists():
+            try:
+                return json.loads(sandbox.heartbeat.read_text())
+            except json.JSONDecodeError:
+                pass
+        time.sleep(0.2)
+    return None
+
+
+def test_continuous_script_never_uses_sudo():
+    offenders = [
+        line
+        for line in CONTINUOUS.read_text().splitlines()
+        if "sudo" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, f"bluex-continuous.sh must not require sudo: {offenders}"
+
+
+def test_eperm_probe_sleeps_and_retries_instead_of_exiting(tmp_path):
+    """The launchd TCC/EPERM state (see the script's header) must never be an exit.
+
+    An exit here hits launchd's KeepAlive throttle — the tight crash loop the whole
+    design exists to avoid. Simulated with a real permission-denied directory (the
+    store dir made unwritable), not a mocked function, so the assertion is against
+    the same mkdir/write failure the real TCC block produces, not a stand-in for it.
+    """
+    sb = _Sandbox(tmp_path)
+    os.chmod(sb.store_dir, 0o500)  # mounted (parent exists), but unwritable
+    proc = _start_continuous(sb)
+    try:
+        blocked_seen = {"v": False}
+
+        def _check():
+            data = None
+            if sb.heartbeat.exists():
+                try:
+                    data = json.loads(sb.heartbeat.read_text())
+                except json.JSONDecodeError:
+                    return False
+            if data and data.get("permissionBlocked") is True:
+                blocked_seen["v"] = True
+                return True
+            return False
+
+        saw_blocked = _wait_until(_check, deadline_seconds=10)
+        assert saw_blocked, (
+            f"heartbeat never reported permissionBlocked=true. "
+            f"log={_supervisory_log(sb)!r}"
+        )
+        # Give it a couple of retry cycles' worth of extra time, then confirm it is
+        # STILL running rather than having exited after the first probe failure.
+        time.sleep(2.5)
+        assert proc.poll() is None, (
+            "script exited on the EPERM/unwritable probe instead of "
+            f"sleeping and retrying — this is the KeepAlive crash-loop bug. "
+            f"log={_supervisory_log(sb)!r}"
+        )
+        log_text = _supervisory_log(sb)
+        assert "unwritable" in log_text, log_text
+        assert "retrying in" in log_text, log_text
+    finally:
+        os.chmod(sb.store_dir, 0o700)
+        rc = _stop_continuous(proc)
+    assert rc == 0, f"did not shut down cleanly on SIGTERM (rc={rc})"
+
+
+def test_one_bad_pass_does_not_kill_the_continuous_agent(tmp_path):
+    """A pass that fails is logged and heartbeat-recorded, and the loop continues.
+
+    Runs the scrape stub with a permanent nonzero exit and confirms at least two
+    failing passes complete while the process stays alive throughout — one bad pass
+    (or several) must never end the agent.
+    """
+    sb = _Sandbox(tmp_path, scrape_exit=2)
+    proc = _start_continuous(sb)
+    try:
+        saw_two_passes = _wait_until(
+            lambda: _supervisory_log(sb).count("pass FAILED (exit 2)") >= 2,
+            deadline_seconds=15,
+        )
+        assert saw_two_passes, (
+            f"fewer than two passes completed — agent may have died after the "
+            f"first failure. log={_supervisory_log(sb)!r}"
+        )
+        assert proc.poll() is None, (
+            f"agent exited after a failing pass. log={_supervisory_log(sb)!r}"
+        )
+        log_text = _supervisory_log(sb)
+        assert "pass FAILED (exit 2)" in log_text, log_text
+        heartbeat = _wait_for_heartbeat_json(sb, deadline_seconds=5)
+        assert heartbeat is not None, "heartbeat never parsed"
+        assert heartbeat["scrapeExit"] == 2
+        assert heartbeat["permissionBlocked"] is False
+    finally:
+        rc = _stop_continuous(proc)
+    assert rc == 0, f"did not shut down cleanly on SIGTERM (rc={rc})"
+
+
+def test_continuous_heartbeat_has_the_expected_fields(sandbox):
+    """mode + permissionBlocked are new; the rest keep the existing contract shape."""
+    proc = _start_continuous(sandbox)
+    try:
+        data = _wait_for_heartbeat_json(sandbox, deadline_seconds=10)
+        assert data is not None, f"no heartbeat written. log={_supervisory_log(sandbox)!r}"
+    finally:
+        rc = _stop_continuous(proc)
+    assert rc == 0
+    assert data["mode"] == "continuous"
+    assert data["scrapeExit"] == 0
+    assert data["stoppedAtDeadline"] is False
+    assert data["sentimentSkipped"] is True
+    assert data["permissionBlocked"] is False
+    assert set(data) == {
+        "finishedAt",
+        "mode",
+        "scrapeExit",
+        "stoppedAtDeadline",
+        "sentimentSkipped",
+        "permissionBlocked",
+        "log",
+    }
+
+
+def test_continuous_agent_skips_a_pass_when_the_lock_is_held(sandbox):
+    """A manual catch-up scrape (or an overlapping invocation) holds the same lock
+    bluex-nightly.sh uses — the continuous agent must skip, not fight it, exactly
+    like the nightly-vs-nightly exclusion test above."""
+    sandbox.lock.mkdir()
+    proc = _start_continuous(sandbox)
+    try:
+        saw_busy = _wait_until(
+            lambda: "store busy" in _supervisory_log(sandbox), deadline_seconds=10
+        )
+        assert saw_busy, f"log={_supervisory_log(sandbox)!r}"
+        assert not sandbox.heartbeat.exists(), (
+            "a lock-skipped pass wrote a heartbeat — the watchdog would read this "
+            "as a real (and successful) pass"
+        )
+    finally:
+        sandbox.lock.rmdir()
+        rc = _stop_continuous(proc)
+    assert rc == 0
+
+
+def test_watchdog_calls_out_the_permission_blocked_state_specifically(sandbox):
+    """The whole point of the permissionBlocked field: a fresh, non-generic message.
+
+    Without this, a heartbeat that is being rewritten every retry cycle looks
+    perfectly healthy by mtime alone, and the user would get no signal at all that
+    Full Disk Access is the thing actually missing.
+    """
+    sandbox.write_heartbeat(
+        age_seconds=0,
+        finishedAt="2026-08-19T02:11:00Z",
+        mode="continuous",
+        scrapeExit=0,
+        stoppedAtDeadline=False,
+        sentimentSkipped=True,
+        permissionBlocked=True,
+        log=str(sandbox.log_dir / "continuous.log"),
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1
+    assert "permission still missing" in sandbox.notifications, sandbox.notifications
+    assert "Full Disk Access" in sandbox.notifications
+    assert "/bin/zsh" in sandbox.notifications
+    # Must NOT read as a generic stale/failure message instead.
+    assert "BlueX is stale" not in sandbox.notifications
+    assert "BlueX nightly failing" not in sandbox.notifications
+
+
+def test_watchdog_does_not_nag_about_sentiment_in_continuous_mode(sandbox):
+    """continuous heartbeats always carry sentimentSkipped=true by design (no
+    annotation stage at all) — the legacy "sentiment skipped" heads-up must not
+    fire on every single pass because of it."""
+    sandbox.write_heartbeat(
+        age_seconds=0,
+        finishedAt="2026-08-19T02:11:00Z",
+        mode="continuous",
+        scrapeExit=0,
+        stoppedAtDeadline=False,
+        sentimentSkipped=True,
+        permissionBlocked=False,
+        log=str(sandbox.log_dir / "continuous.log"),
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0
+    assert "sentiment skipped" not in sandbox.notifications.lower(), sandbox.notifications
+
+
+def test_watchdogs_stale_threshold_is_conservative_for_a_long_pass(sandbox):
+    """A pass that legitimately runs for hours (a large backfill window) must not
+    false-alarm — the threshold was loosened from 48h-tuned-for-once-a-night down to
+    something still generous for a single long pass, not tightened to the ~1h a
+    healthy continuous heartbeat normally refreshes at."""
+    sandbox.write_heartbeat(
+        age_seconds=3 * 3600,  # a long single pass, well under the 6h threshold
+        finishedAt="2026-08-19T02:11:00Z",
+        mode="continuous",
+        scrapeExit=0,
+        stoppedAtDeadline=False,
+        sentimentSkipped=True,
+        permissionBlocked=False,
+        log=str(sandbox.log_dir / "continuous.log"),
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, sandbox.notifications
+    assert sandbox.notifications == ""

@@ -19,7 +19,14 @@ set -u
 JOBS_DIR="${0:A:h}"
 source "$JOBS_DIR/lib-bluex-job.sh"
 
-STALE_AFTER=$(( 48 * 3600 ))
+# The continuous agent (net.pulsschlag.bluex.continuous) refreshes the heartbeat
+# every pass — every CONTINUOUS_INTERVAL_SECONDS (20 min in production), not once a
+# night — so a healthy agent's heartbeat age is measured in minutes, not hours. The
+# threshold stays conservative anyway: a long backfill pass (many hours against a
+# large window) legitimately holds the heartbeat still for the whole pass, and that
+# must not false-alarm. 6h is generous for a single pass while still catching an
+# agent that has actually stopped running.
+STALE_AFTER=$(( 6 * 3600 ))
 # The watchdog's OWN log stays on the internal disk with the rest of the control
 # plane: it has to be writable precisely when the volume is missing.
 LOG="$BLUEX_LOG_DIR/watchdog.log"
@@ -45,6 +52,25 @@ sentiment_exit=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentExit)
 # Not a failure — annotation losing its slot to a long scrape is expected during a
 # backfill — but it must not be invisible either.
 sentiment_skipped=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentSkipped)
+# "continuous" (net.pulsschlag.bluex.continuous) vs absent (an older, retired
+# nightly-format heartbeat still on disk). Only the continuous agent ever sets
+# permissionBlocked, so mode gates that check below too.
+mode=$(bluex_json_field "$BLUEX_HEARTBEAT" mode)
+# Set by bluex-continuous.sh while the store is unwritable — the launchd TCC/EPERM
+# state described in bluex-continuous.sh's header. This is deliberately checked
+# BEFORE the staleness logic: the continuous agent keeps rewriting the heartbeat
+# every retry, so a blocked agent looks perfectly "fresh" by mtime alone, and would
+# otherwise report as healthy for as long as Full Disk Access is missing.
+permission_blocked=$(bluex_json_field "$BLUEX_HEARTBEAT" permissionBlocked)
+
+echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s mode=${mode:-?} scrapeExit=${scrape_exit:-?} sentimentExit=${sentiment_exit:-?} sentimentSkipped=${sentiment_skipped:-?} permissionBlocked=${permission_blocked:-?}" >>"$LOG"
+
+if [ "$permission_blocked" = "true" ]; then
+  message="permission still missing — grant Full Disk Access to /bin/zsh — see $LOG_HINT"
+  bluex_notify "BlueX permission blocked" "$message"
+  echo "$(date): PERMISSION BLOCKED — notified (${message})." >>"$LOG"
+  exit 1
+fi
 
 # An absent field means an older heartbeat format, not a success — but the staleness
 # checks already cover a heartbeat that is not being rewritten, so only a PRESENT
@@ -52,8 +78,6 @@ sentiment_skipped=$(bluex_json_field "$BLUEX_HEARTBEAT" sentimentSkipped)
 failures=()
 [ -n "$scrape_exit" ] && [ "$scrape_exit" != "0" ] && failures+=("scrape (exit $scrape_exit)")
 [ -n "$sentiment_exit" ] && [ "$sentiment_exit" != "0" ] && failures+=("sentiment (exit $sentiment_exit)")
-
-echo "$(date): heartbeat=${heartbeat_age}s store=${store_age}s threshold=${STALE_AFTER}s scrapeExit=${scrape_exit:-?} sentimentExit=${sentiment_exit:-?} sentimentSkipped=${sentiment_skipped:-?}" >>"$LOG"
 
 heartbeat_stale=0
 store_stale=0
@@ -95,7 +119,11 @@ fi
 # of its slot by a long scrape. Expected during a backfill, so this is a heads-up at
 # exit 0, not an alarm: annotation silently not running for weeks while both exits
 # stayed 0 is the kind of gap this watchdog exists to surface.
-if [ "$sentiment_skipped" = "true" ]; then
+#
+# Skipped for mode=continuous: that agent sets sentimentSkipped=true on EVERY
+# heartbeat by design (it never runs annotation at all — see bluex-continuous.sh),
+# so without this guard every pass would fire this notification, forever.
+if [ "$mode" != "continuous" ] && [ "$sentiment_skipped" = "true" ]; then
   bluex_notify "BlueX sentiment skipped" "Last run scraped but never annotated (no budget left) — check $LOG_HINT"
   echo "$(date): fresh, but sentiment was skipped on the last run — notified." >>"$LOG"
   exit 0
