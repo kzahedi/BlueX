@@ -193,6 +193,16 @@ counter-speech: human annotation from scratch, or drop the third research target
 
 ## Operational debt (unglamorous, and one item is load-bearing)
 
+- [ ] **Watchdog: alert on "successful passes collecting nothing."** The Aug 13–19
+      incident: a stale-resume-cursor bug made every feed pass resume deep in 2023,
+      collect zero new roots, and report "complete" — for six days, across two different
+      scheduling regimes. The watchdog alerted on *failed runs* (the TCC issue) but had no
+      check for *successful runs with implausible output*. Add: if N consecutive passes
+      store zero new root posts across all outlets, alert — the outlets demonstrably post
+      daily, so an all-zero streak is a scraper defect until proven otherwise.
+      "Done · 0 new posts" must never again be readable as "caught up" without evidence.
+      (Root cause fixed in e399380; this item is the missing detection layer.)
+
 - [ ] **Index re-assertion wiring — do this one.** Five hand-built indexes now carry the
       app's performance (`ZROOTURI`, `ZURI`, `ZAUTHORDID`, the covering index, plus Core
       Data's own). A lightweight migration **silently drops** hand-made indexes — measured
