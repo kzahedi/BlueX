@@ -145,4 +145,160 @@ final class FeedScraperTests: XCTestCase {
 
         XCTAssertEqual(newCount, 0)  // post is before startDate
     }
+
+    // MARK: - Stale-cursor bug (2026-08-13 – 2026-08-19 data loss)
+    //
+    // Root cause: a pass that completes successfully only clears the cursor on
+    // the log IT created. Any older `failed` log with a live `resumeCursor` is
+    // left untouched, so every subsequent pass re-resumes from that same stale
+    // cursor forever. `getAuthorFeed` pages newest→oldest, so resuming at an old
+    // cursor walks only deeper into already-stored history — the top of the feed
+    // (all new posts) is never visited again, and the pass "succeeds" having
+    // found zero new posts. Six days, five outlets, zero new roots stored.
+
+    private func extractCursor(from request: URLRequest) -> String? {
+        guard let url = request.url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        return components.queryItems?.first(where: { $0.name == "cursor" })?.value
+    }
+
+    func testCompletedResumePassClearsStaleCursorSoNextPassStartsFresh() async throws {
+        let did = "did:plc:testaccount"
+        let account = TrackedAccount(did: did, handle: "test.de", displayName: "Test",
+                                     startAt: Date(timeIntervalSince1970: 0))
+        context.insert(account)
+        try context.save()
+
+        let client = BlueskyAPIClient(session: mockSession)
+        let scraper = FeedScraper(api: client, context: context)
+
+        // --- Pass A: page 1 succeeds and hands back a cursor, page 2 fails ---
+        // (mid-walk interruption; the log is left `failed` with a live cursor).
+        mockSession.scriptedResponses = [
+            .init(data: try makeFeedJSON(did: did, count: 1, cursor: "cursorA"), statusCode: 200),
+            .init(data: Data(), statusCode: 500)
+        ]
+        do {
+            _ = try await scraper.scrape(account: account, token: "tok")
+            XCTFail("expected pass A to throw on the page-2 failure")
+        } catch {
+            // expected
+        }
+
+        let logsAfterA = try context.fetch(FetchDescriptor<ScrapeLog>())
+        XCTAssertEqual(logsAfterA.count, 1)
+        XCTAssertEqual(logsAfterA[0].status, "failed")
+        XCTAssertEqual(logsAfterA[0].resumeCursor, "cursorA")
+
+        // --- Pass B: resumes from cursorA, completes cleanly (empty final page) ---
+        mockSession.capturedRequests = []
+        mockSession.scriptedResponses = [
+            .init(data: try makeFeedJSON(did: did, count: 0, cursor: nil), statusCode: 200)
+        ]
+        let newCountB = try await scraper.scrape(account: account, token: "tok")
+        XCTAssertEqual(newCountB, 0)
+        XCTAssertEqual(extractCursor(from: mockSession.capturedRequests.first!), "cursorA",
+                       "pass B should resume from the stale cursor left by pass A")
+
+        // The OLD log from pass A must have its cursor cleared too, not just the
+        // new log pass B created for itself.
+        let logsAfterB = try context.fetch(FetchDescriptor<ScrapeLog>(sortBy: [SortDescriptor(\.date)]))
+        XCTAssertEqual(logsAfterB.count, 2)
+        for log in logsAfterB {
+            XCTAssertNil(log.resumeCursor, "every incomplete log for this account must be cleared once a pass completes")
+        }
+
+        // --- Pass C: must start from the TOP of the feed, not the stale cursor ---
+        mockSession.capturedRequests = []
+        mockSession.scriptedResponses = [
+            .init(data: try makeFeedJSON(did: did, count: 0, cursor: nil), statusCode: 200)
+        ]
+        _ = try await scraper.scrape(account: account, token: "tok")
+
+        XCTAssertEqual(mockSession.capturedRequests.count, 1)
+        XCTAssertNil(extractCursor(from: mockSession.capturedRequests.first!),
+                    "pass C's first request must have cursor == nil — the top of the feed — " +
+                    "not the stale cursor from pass A. Resuming it here is the Aug 13–19 data-loss bug.")
+    }
+
+    func testTwoStaleLogsBothClearedByOneCompletedPass() async throws {
+        let did = "did:plc:testaccount"
+        let account = TrackedAccount(did: did, handle: "test.de", displayName: "Test",
+                                     startAt: Date(timeIntervalSince1970: 0))
+        context.insert(account)
+
+        let staleLog1 = ScrapeLog(date: Date().addingTimeInterval(-3600), type: "feed",
+                                  status: "failed", postCount: 0, resumeCursor: "oldCursor1")
+        staleLog1.account = account
+        let staleLog2 = ScrapeLog(date: Date().addingTimeInterval(-1800), type: "feed",
+                                  status: "failed", postCount: 0, resumeCursor: "oldCursor2")
+        staleLog2.account = account
+        context.insert(staleLog1)
+        context.insert(staleLog2)
+        try context.save()
+
+        mockSession.mockData = try makeFeedJSON(did: did, count: 0, cursor: nil)
+
+        let client = BlueskyAPIClient(session: mockSession)
+        let scraper = FeedScraper(api: client, context: context)
+        _ = try await scraper.scrape(account: account, token: "tok")
+
+        XCTAssertNil(staleLog1.resumeCursor)
+        XCTAssertNil(staleLog2.resumeCursor)
+        // status is left as the historical record — only the cursor is cleared
+        XCTAssertEqual(staleLog1.status, "failed")
+        XCTAssertEqual(staleLog2.status, "failed")
+    }
+
+    // MARK: - 48h staleness guard on the read side
+
+    func testIncompleteLogOlderThan48HoursIsIgnoredOnResume() async throws {
+        let did = "did:plc:testaccount"
+        let account = TrackedAccount(did: did, handle: "test.de", displayName: "Test",
+                                     startAt: Date(timeIntervalSince1970: 0))
+        context.insert(account)
+
+        let fixedNow = Date(timeIntervalSince1970: 1_000_000)
+        let ancientLog = ScrapeLog(date: fixedNow.addingTimeInterval(-3 * 24 * 3600), type: "feed",
+                                   status: "failed", postCount: 0, resumeCursor: "ancientCursor")
+        ancientLog.account = account
+        context.insert(ancientLog)
+        try context.save()
+
+        mockSession.mockData = try makeFeedJSON(did: did, count: 0, cursor: nil)
+
+        let client = BlueskyAPIClient(session: mockSession)
+        let scraper = FeedScraper(api: client, context: context, now: { fixedNow })
+        _ = try await scraper.scrape(account: account, token: "tok")
+
+        XCTAssertEqual(mockSession.capturedRequests.count, 1)
+        XCTAssertNil(extractCursor(from: mockSession.capturedRequests.first!),
+                    "a 3-day-old cursor is ancient and must be ignored")
+    }
+
+    func testIncompleteLogWithinLast48HoursIsStillUsedOnResume() async throws {
+        let did = "did:plc:testaccount"
+        let account = TrackedAccount(did: did, handle: "test.de", displayName: "Test",
+                                     startAt: Date(timeIntervalSince1970: 0))
+        context.insert(account)
+
+        let fixedNow = Date(timeIntervalSince1970: 1_000_000)
+        let recentLog = ScrapeLog(date: fixedNow.addingTimeInterval(-3600), type: "feed",
+                                  status: "failed", postCount: 0, resumeCursor: "recentCursor")
+        recentLog.account = account
+        context.insert(recentLog)
+        try context.save()
+
+        mockSession.mockData = try makeFeedJSON(did: did, count: 0, cursor: nil)
+
+        let client = BlueskyAPIClient(session: mockSession)
+        let scraper = FeedScraper(api: client, context: context, now: { fixedNow })
+        _ = try await scraper.scrape(account: account, token: "tok")
+
+        XCTAssertEqual(mockSession.capturedRequests.count, 1)
+        XCTAssertEqual(extractCursor(from: mockSession.capturedRequests.first!), "recentCursor",
+                       "a 1-hour-old cursor is fresh and should still be resumed")
+    }
 }
