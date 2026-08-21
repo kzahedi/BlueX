@@ -46,3 +46,15 @@ class TestStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBusyTimeout(unittest.TestCase):
+    """A concurrent writer must cause a wait, not an immediate abort: the
+    collector and the daily job can legitimately overlap."""
+
+    def test_open_db_sets_busy_timeout(self):
+        from tools.social.telegram.store import open_db, BUSY_TIMEOUT_SECONDS
+        conn = open_db(":memory:")
+        got, = conn.execute("PRAGMA busy_timeout").fetchone()
+        self.assertEqual(got, int(BUSY_TIMEOUT_SECONDS * 1000))
+        self.assertGreaterEqual(got, 5000)

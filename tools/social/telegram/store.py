@@ -4,6 +4,9 @@ import sqlite3
 
 APPROVED = ("seed_approved", "snowball_approved")
 
+# Wait rather than failing when another writer holds the lock.
+BUSY_TIMEOUT_SECONDS = 30.0
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS channels(
   username TEXT PRIMARY KEY, title TEXT, source_list TEXT,
@@ -32,8 +35,12 @@ CREATE TABLE IF NOT EXISTS cursors(
 
 
 def open_db(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS)
     conn.execute("PRAGMA journal_mode=WAL")
+    # Without this, a concurrent writer (daily job overlapping a manual run)
+    # turns momentary contention into an immediate "database is locked" abort
+    # mid-collection instead of a short wait.
+    conn.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT_SECONDS * 1000)}")
     conn.executescript(_SCHEMA)
     return conn
 
