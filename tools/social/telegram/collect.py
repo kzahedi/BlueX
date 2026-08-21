@@ -17,8 +17,8 @@ from tools.social.telegram.preview import (NoPreviewError, fetch_page,
                                            parse_preview_html)
 from tools.social.telegram.store import (APPROVED, backfill_completed_at,
                                          get_cursor, mark_backfill_complete,
-                                         open_db, record_coverage, set_cursor,
-                                         upsert_messages)
+                                         max_msg_id, open_db, record_coverage,
+                                         set_cursor, upsert_messages)
 from tools.social.telegram.candidates import update_candidates
 from tools.social.telegram.vpn_gate import VPNNotActiveError
 
@@ -39,6 +39,18 @@ def collect_channel(conn, username, fetch, mode, max_pages=None,
             return {"channel": username, "status": "complete",
                     "new_messages": 0, "failure_reason": None,
                     "skipped": "already-backfilled"}
+        overlap_max = None
+        if mode == "incremental":
+            # I1: a channel with no stored history has no resume
+            # checkpoints -- silently full-walking it here would be an
+            # uncheckpointed, unbounded backfill hiding inside what's
+            # supposed to be a bounded incremental run. Fail loudly and
+            # accounted-for instead; a human runs backfill first.
+            overlap_max = max_msg_id(conn, username)
+            if overlap_max is None:
+                return {"channel": username, "status": "failed",
+                        "new_messages": 0,
+                        "failure_reason": "no history: run backfill first"}
         while True:
             # F1: checked at the top of EVERY page iteration -- a mid-channel
             # tunnel drop must stop the walk immediately, not go unnoticed
@@ -73,10 +85,16 @@ def collect_channel(conn, username, fetch, mode, max_pages=None,
                 if oldest <= 1:
                     break
                 before = oldest
-            else:  # incremental: newest pages until nothing new
-                if inserted == 0:
-                    break
+            else:  # incremental: walk back until the page's own minimum
+                   # overlaps already-known contiguous history, or we hit
+                   # the very start. NOT merely because a page inserted
+                   # zero new rows -- that early-stop is the defect (I1):
+                   # a page can be entirely already-known while a real
+                   # gap still sits further back, left by an earlier
+                   # interrupted run.
                 before = oldest
+                if oldest <= overlap_max or oldest <= 1:
+                    break
         if mode == "backfill":
             set_cursor(conn, username, None)
             mark_backfill_complete(conn, username)

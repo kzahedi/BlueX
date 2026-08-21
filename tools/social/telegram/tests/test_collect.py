@@ -308,11 +308,15 @@ class TestBackfillCompletionSkip(unittest.TestCase):
 
 class TestIncrementalModeUnaffectedByMarker(unittest.TestCase):
     def setUp(self):
-        from tools.social.telegram.store import open_db
+        from tools.social.telegram.store import open_db, upsert_messages
         self.conn = open_db(":memory:")
         self.conn.execute("INSERT INTO channels(username, status) "
                           "VALUES ('chan', 'seed_approved')")
         self.conn.commit()
+        # Incremental now requires existing history (finding I1's fix,
+        # requirement 2) -- pre-seed msg_id 1 so these marker-focused tests
+        # aren't about the no-history precondition at all.
+        upsert_messages(self.conn, [make_msg(1)])
 
     def test_incremental_never_reads_or_writes_the_marker(self):
         from tools.social.telegram.collect import collect_channel
@@ -336,6 +340,74 @@ class TestIncrementalModeUnaffectedByMarker(unittest.TestCase):
         r = collect_channel(self.conn, "chan", fetch, mode="incremental")
         self.assertGreater(len(calls), 0)
         self.assertNotIn("skipped", r)
+
+
+def make_msg(msg_id, channel="chan"):
+    from tools.social.telegram.preview import Message
+    return Message(channel=channel, msg_id=msg_id,
+                   date="2026-08-01T10:00:00+00:00", text=f"m{msg_id}",
+                   views=1, fwd_from_channel=None, fwd_from_msg_id=None,
+                   reply_to_msg_id=None, media_type=None, media_ref=None)
+
+
+class TestIncrementalOverlapWalk(unittest.TestCase):
+    """I1: an interrupted incremental run can leave a permanent hole. A
+    later incremental run must walk back past a page that inserts zero new
+    rows -- stopping there was the defect -- and only stop once it
+    genuinely overlaps known contiguous history."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_channel_with_no_history_fails_without_any_fetch(self):
+        from tools.social.telegram.collect import collect_channel
+
+        calls = []
+        def fetch(username, before):
+            calls.append((username, before))
+            raise AssertionError("fetch must never be called for a "
+                                  "channel with no stored history")
+
+        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+
+        self.assertEqual(calls, [])
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(r["new_messages"], 0)
+        self.assertEqual(r["failure_reason"], "no history: run backfill first")
+
+    def test_interrupted_run_hole_is_recovered_by_the_next_incremental_run(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import upsert_messages
+
+        # Day 1: 1..100 fully collected. A later incremental run saved the
+        # newest page (156..160) then died (429/crash/kill) before walking
+        # back far enough -- leaving 101..155 as a permanent hole under the
+        # old "stop on zero inserts" rule.
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 101)])
+        upsert_messages(self.conn, [make_msg(i) for i in range(156, 161)])
+
+        calls = []
+        fetch = make_fake_fetch("chan", list(range(1, 166)), calls)
+
+        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+
+        self.assertEqual(r["status"], "complete")
+        got = {row[0] for row in self.conn.execute(
+            "SELECT msg_id FROM messages WHERE channel='chan'")}
+        # The hole is fully recovered.
+        self.assertTrue(set(range(101, 156)).issubset(got))
+        self.assertEqual(r["new_messages"], 60)
+        # Bounded overlap walk, not a backfill: it must NOT have kept
+        # walking all the way down to msg 1 (that range needs 33 pages of
+        # 5; the overlap walk needs exactly 14 -- 2 pages re-covering the
+        # 156-165 zone, 11 pages of genuinely new 101-155 content, and the
+        # final page (96-100) where it overlaps known history and stops).
+        self.assertEqual(len(calls), 14)
+        self.assertEqual(calls[-1], 101)  # the boundary-overlap page
 
 
 class TestMarkChannelCompleteMaintenance(unittest.TestCase):

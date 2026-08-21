@@ -104,6 +104,33 @@ def backfill_completed_at(conn, channel: str):
     return row[0] if row else None
 
 
+def max_msg_id(conn, channel: str):
+    """Highest msg_id in the CONTIGUOUS block starting at the channel's
+    oldest stored message -- NOT simply the table's raw MAX(msg_id).
+
+    An interrupted incremental run can leave a disjoint island of newer
+    ids above a real gap (e.g. it saved the newest page, then died,
+    before walking back far enough to fill in beneath it). Reporting the
+    raw max there would make a later incremental overlap-walk stop the
+    instant it re-encounters that island, never reaching the actual gap
+    below it. Reporting the top of the genuinely gapless prefix instead
+    means the walk keeps going until it reconnects with real history.
+    Returns None if the channel has no stored messages at all.
+    """
+    rows = conn.execute(
+        "SELECT msg_id FROM messages WHERE channel=? ORDER BY msg_id",
+        (channel,)).fetchall()
+    if not rows:
+        return None
+    top = prev = rows[0][0]
+    for (mid,) in rows[1:]:
+        if mid != prev + 1:
+            break
+        top = mid
+        prev = mid
+    return top
+
+
 def channel_status(conn, username: str):
     row = conn.execute("SELECT status FROM channels WHERE username=?",
                        (username,)).fetchone()
