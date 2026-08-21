@@ -4,14 +4,19 @@
 # tomorrow via the next scheduled fire; the heartbeat records the outcome so a
 # failure is visible without tailing logs.
 #
-# Ops rule: new channels must be backfilled (collect.py --mode backfill)
-# before they rely on this incremental job — incremental has no resume
-# checkpoints.
+# New channels must be backfilled (collect.py --mode backfill) before they
+# rely on this incremental job — incremental has no resume checkpoints, and
+# collect.py now enforces this itself: a channel with no stored history
+# comes back as a recorded failure ("no history: run backfill first") with
+# zero fetch calls, rather than silently full-walking it. No human needs to
+# remember this rule for it to hold.
 #
-# Ops rule: after any FAILED incremental run for a channel, run a bounded
-# backfill for that channel — incremental's early-stop can otherwise
-# permanently skip the window between a crash point and the previous max
-# msg_id.
+# A FAILED incremental run for a channel (429/crash/kill) no longer needs a
+# follow-up bounded backfill to close the window it left behind: incremental
+# mode reads the channel's contiguous max msg_id before it walks and pages
+# backward until it genuinely overlaps that known history (not merely until
+# a page inserts zero new rows), so the next incremental run recovers any
+# hole an interrupted run left on its own.
 set -u
 
 DATA=/Volumes/Eregion/bluex-data/social

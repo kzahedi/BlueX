@@ -127,6 +127,41 @@ class TestChannelsSchemaMigration(unittest.TestCase):
             os.remove(path)
 
 
+class TestMaxMsgId(unittest.TestCase):
+    """max_msg_id() must report the top of the CONTIGUOUS block starting at
+    the channel's oldest message, not the table's raw MAX(msg_id) -- an
+    interrupted incremental run can leave a disjoint island of newer ids
+    above a real gap, and a later overlap-walk must not mistake that
+    island for genuine coverage (finding I1)."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+
+    def test_none_when_no_messages(self):
+        from tools.social.telegram.store import max_msg_id
+        self.assertIsNone(max_msg_id(self.conn, "testchan"))
+
+    def test_returns_the_max_when_contiguous(self):
+        from tools.social.telegram.store import upsert_messages, max_msg_id
+        upsert_messages(self.conn, [make_msg(1), make_msg(2), make_msg(3)])
+        self.assertEqual(max_msg_id(self.conn, "testchan"), 3)
+
+    def test_stops_at_first_gap_ignoring_a_disjoint_island_above(self):
+        from tools.social.telegram.store import upsert_messages, max_msg_id
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 101)])
+        # A disjoint island left by an interrupted incremental run -- the
+        # table's raw MAX(msg_id) would be 160, but that must NOT be what
+        # this helper reports.
+        upsert_messages(self.conn, [make_msg(i) for i in range(156, 161)])
+        self.assertEqual(max_msg_id(self.conn, "testchan"), 100)
+
+    def test_unknown_channel_returns_none(self):
+        from tools.social.telegram.store import upsert_messages, max_msg_id
+        upsert_messages(self.conn, [make_msg(1)])
+        self.assertIsNone(max_msg_id(self.conn, "nope"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
