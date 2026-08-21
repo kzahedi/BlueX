@@ -251,6 +251,17 @@ counter-speech: human annotation from scratch, or drop the third research target
       add retry logic without asking.** A pass failing with only
       `scrape error: Network error: HTTP 5xx` is expected background noise, not a defect.
 
+- [ ] **Telegram job state lives on the external volume — revisit if it ever detaches.**
+      `telegram-heartbeat.json` and `telegram-skip-streak.log` sit in
+      `/Volumes/Eregion/bluex-data/social/`, diverging from the proven pattern of keeping
+      control-plane state on the internal disk (the Bluesky agent's heartbeat does). Current
+      behaviour fails *closed* — if the volume is gone the heartbeat file is missing, and the
+      watchdog treats "missing heartbeat + plist installed" as STALE and alarms — so this is
+      a tidiness/robustness item, not a hole. Move both to `~/Library/Application Support/BlueX/`
+      if the volume is ever detached for long stretches. (Flagged 2026-08-21 by the
+      watchdog-integration implementer; placement was my instruction, matching where Task 6
+      put the heartbeat.)
+
 - [ ] Author profile probe (plan Tasks 2/3/4/6/7b) — enforcement latency, account age,
       handle-change history. Note `getProfiles` does **not** return moderation labels; the
       labeler endpoint does.
