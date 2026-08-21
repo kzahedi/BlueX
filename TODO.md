@@ -262,6 +262,16 @@ counter-speech: human annotation from scratch, or drop the third research target
       watchdog-integration implementer; placement was my instruction, matching where Task 6
       put the heartbeat.)
 
+- [ ] **Expected noise until the backfill finishes: the daily Telegram job will report
+      ~28 "no history: run backfill first" channel failures per run.** Incremental now
+      refuses to full-walk a channel with no stored history (enforced 2026-08-21, commit
+      ad49a90) — correct behaviour, but only 4 of 32 approved channels are backfilled so
+      far, so the nightly run legitimately accounts for the rest as failures and the
+      watchdog's `failed_channels > 0` warning will fire daily. This shrinks to zero as
+      the supervised backfill works through the list; do NOT "fix" it by relaxing the
+      rule. If the noise outlives the backfill, the right change is to report
+      awaiting-backfill as a distinct, non-alarming status rather than a failure.
+
 - [ ] Author profile probe (plan Tasks 2/3/4/6/7b) — enforcement latency, account age,
       handle-change history. Note `getProfiles` does **not** return moderation labels; the
       labeler endpoint does.
