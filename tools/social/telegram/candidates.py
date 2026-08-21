@@ -63,6 +63,11 @@ def reject_candidate(conn, username: str) -> None:
 
 
 if __name__ == "__main__":
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
+
     from tools.social.telegram.store import open_db
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["report", "approve", "reject"])

@@ -19,6 +19,11 @@ def import_csv(conn, fp) -> int:
 
 
 if __name__ == "__main__":
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
+
     from tools.social.telegram.store import open_db
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)

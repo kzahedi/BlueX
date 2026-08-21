@@ -3,6 +3,11 @@
 Reconciliation rule: run() reports ok=True only when every approved channel
 either completed or recorded its failure reason. Silence is the failure mode
 being designed out."""
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
+
 import argparse
 import json
 
