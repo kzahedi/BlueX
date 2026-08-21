@@ -238,6 +238,19 @@ counter-speech: human annotation from scratch, or drop the third research target
       add an export job (local `telegram.db` → NAS Postgres). Deliberately an export, not
       direct writes: the always-on collector must not depend on the NAS being reachable,
       and its live SQLite stays local. Do only when an actual cross-corpus query needs it.
+- [x] **VPN ↔ Bluesky 5xx interaction — KNOWN AND ACCEPTED (2026-08-21).** Since
+      ProtonVPN runs permanently (hard rule: Telegram must never see the home IP), all
+      traffic including Bluesky exits via the tunnel, and Bluesky's infrastructure
+      intermittently returns 502/504 to VPN exit IPs. Measured: zero HTTP-5xx scrape
+      errors in the twelve passes from 01:38–13:46 on 2026-08-21, then exactly one per
+      pass once the VPN was up. Effect: one outlet fails per affected pass, exit 1, and
+      its posts arrive on the next pass ~1.5h later — no data loss against a
+      complete-history corpus. Split tunnelling is NOT available (this ProtonVPN version
+      only selects `/Applications` bundles; both scrapers are CLI binaries). **User
+      decision: leave as is — do not "fix" failed passes with this signature, and do not
+      add retry logic without asking.** A pass failing with only
+      `scrape error: Network error: HTTP 5xx` is expected background noise, not a defect.
+
 - [ ] Author profile probe (plan Tasks 2/3/4/6/7b) — enforcement latency, account age,
       handle-change history. Note `getProfiles` does **not** return moderation labels; the
       labeler endpoint does.
