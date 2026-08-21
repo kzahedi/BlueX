@@ -82,6 +82,28 @@ class TestCollect(unittest.TestCase):
         report = run(self.conn, fetch, mode="backfill")
         self.assertNotIn("pendingchan", [c["channel"] for c in report["channels"]])
 
+    def test_backfill_stagnation_is_recorded_failure_not_infinite_loop(self):
+        from tools.social.telegram.collect import collect_channel
+
+        def fetch(username, before):
+            # Always the same page regardless of `before` — e.g. a CDN glitch
+            # or an ignored ?before param. oldest stays > 1 forever.
+            return page_html("chan", [5, 6, 7, 8, 9])
+
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("no progress", r["failure_reason"])
+
+    def test_budget_exhausted_still_records_coverage(self):
+        from tools.social.telegram.collect import collect_channel
+        fetch = make_fake_fetch("chan", list(range(1, 14)))
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill",
+                            max_pages=1)
+        self.assertEqual(r["status"], "failed")
+        rows = self.conn.execute(
+            "SELECT COUNT(*) FROM coverage WHERE channel='chan'").fetchone()
+        self.assertGreater(rows[0], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
