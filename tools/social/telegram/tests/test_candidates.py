@@ -57,6 +57,56 @@ class TestSnowball(unittest.TestCase):
             "SELECT decided_at FROM candidates WHERE username='newchan'").fetchone()
         self.assertIsNotNone(decided)
 
+    def test_reject_candidate_happy_path(self):
+        from tools.social.telegram.candidates import (update_candidates,
+                                                      reject_candidate)
+        self.upsert(self.conn, [fwd_msg(c, 1, "newchan") for c in "abc"])
+        update_candidates(self.conn)
+        reject_candidate(self.conn, "newchan")
+        status, decided = self.conn.execute(
+            "SELECT status, decided_at FROM candidates "
+            "WHERE username='newchan'").fetchone()
+        self.assertEqual(status, "rejected")
+        self.assertIsNotNone(decided)
+        # After update_candidates, rejected should stay rejected
+        self.upsert(self.conn, [fwd_msg("d", 2, "newchan")])
+        update_candidates(self.conn)
+        status, = self.conn.execute(
+            "SELECT status FROM candidates WHERE username='newchan'").fetchone()
+        self.assertEqual(status, "rejected")
+
+    def test_reject_candidate_unknown_username(self):
+        from tools.social.telegram.candidates import reject_candidate
+        with self.assertRaises(SystemExit) as cm:
+            reject_candidate(self.conn, "unknown")
+        self.assertIn("not a candidate", str(cm.exception))
+
+    def test_approve_candidate_double_approve(self):
+        from tools.social.telegram.candidates import (update_candidates,
+                                                      approve_candidate)
+        self.upsert(self.conn, [fwd_msg(c, 1, "newchan") for c in "abc"])
+        update_candidates(self.conn)
+        approve_candidate(self.conn, "newchan")
+        # Second approve should raise SystemExit
+        with self.assertRaises(SystemExit) as cm:
+            approve_candidate(self.conn, "newchan")
+        self.assertIn("already decided", str(cm.exception))
+
+    def test_approve_candidate_already_tracked(self):
+        from tools.social.telegram.candidates import (update_candidates,
+                                                      approve_candidate)
+        # Create a candidate and a separate channels row for the same username
+        self.upsert(self.conn, [fwd_msg(c, 1, "newchan") for c in "abc"])
+        update_candidates(self.conn)
+        # Manually add newchan to channels (simulating independent seeding)
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('newchan', 'seed_approved')")
+        self.conn.commit()
+        # Trying to approve the candidate should fail
+        with self.assertRaises(SystemExit) as cm:
+            approve_candidate(self.conn, "newchan")
+        self.assertIn("channel already tracked", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

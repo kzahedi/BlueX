@@ -29,22 +29,34 @@ def proposal_ready(conn) -> list:
 
 
 def approve_candidate(conn, username: str) -> None:
-    row = conn.execute("SELECT forward_evidence_count, distinct_forwarders "
+    row = conn.execute("SELECT forward_evidence_count, distinct_forwarders, status "
                        "FROM candidates WHERE username=?", (username,)).fetchone()
     if row is None:
         raise SystemExit(f"not a candidate: {username}")
+    evidence_count, distinct_forwarders, status = row
+    if status != 'pending':
+        raise SystemExit(f"already decided: {username} ({status})")
+    # Check if channels row already exists
+    existing = conn.execute("SELECT status FROM channels WHERE username=?",
+                           (username,)).fetchone()
+    if existing is not None:
+        raise SystemExit(f"channel already tracked: {username}")
     conn.execute(
         "INSERT INTO channels(username, title, source_list, inclusion_criterion,"
         " status, decided_by_user_at) VALUES (?, ?, 'snowball', ?,"
         " 'snowball_approved', datetime('now'))",
         (username, username,
-         f"forwarded-from evidence: {row[0]} forwards, {row[1]} distinct forwarders"))
+         f"forwarded-from evidence: {evidence_count} forwards, {distinct_forwarders} distinct forwarders"))
     conn.execute("UPDATE candidates SET status='approved',"
                  " decided_at=datetime('now') WHERE username=?", (username,))
     conn.commit()
 
 
 def reject_candidate(conn, username: str) -> None:
+    row = conn.execute("SELECT status FROM candidates WHERE username=?",
+                       (username,)).fetchone()
+    if row is None:
+        raise SystemExit(f"not a candidate: {username}")
     conn.execute("UPDATE candidates SET status='rejected',"
                  " decided_at=datetime('now') WHERE username=?", (username,))
     conn.commit()
