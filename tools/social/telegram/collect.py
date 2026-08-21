@@ -69,29 +69,50 @@ def collect_channel(conn, username, fetch, mode, max_pages=None):
                 "new_messages": new_total, "failure_reason": str(e)}
 
 
-def run(conn, fetch, mode, max_pages=None, only_channel=None):
+def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None):
     channels = [r[0] for r in conn.execute(
         "SELECT username FROM channels WHERE status IN (?,?) ORDER BY username",
         APPROVED)]
     if only_channel:
         channels = [c for c in channels if c == only_channel]
-    results = [collect_channel(conn, c, fetch, mode, max_pages)
-               for c in channels]
+    results = []
+    aborted = False
+    for c in channels:
+        if aborted or (vpn_check is not None and not vpn_check()):
+            aborted = True
+            results.append({"channel": c, "status": "failed",
+                             "new_messages": 0,
+                             "failure_reason": "aborted: ProtonVPN not active"})
+            continue
+        results.append(collect_channel(conn, c, fetch, mode, max_pages))
     update_candidates(conn)
     ok = all(r["status"] == "complete" or r["failure_reason"] for r in results)
     return {"mode": mode, "channels": results, "ok": ok}
 
 
 if __name__ == "__main__":
+    from tools.social.telegram.vpn_gate import proton_vpn_active
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
     ap.add_argument("--mode", choices=["backfill", "incremental"], required=True)
     ap.add_argument("--channel")
     ap.add_argument("--max-pages", type=int)
     args = ap.parse_args()
+
+    # Hard rule: never contact Telegram unless ProtonVPN is connected — the
+    # user's home IP must never reach t.me. Checked BEFORE opening any HTTP
+    # session, no override flag exists, this is absolute.
+    if not proton_vpn_active():
+        print(json.dumps({"ok": False,
+                          "error": "ProtonVPN not active — refusing to "
+                                   "contact Telegram"}))
+        raise SystemExit(2)
+
     conn = open_db(args.db)
     session = requests.Session()
     report = run(conn, lambda u, b: fetch_page(u, b, session), args.mode,
-                 max_pages=args.max_pages, only_channel=args.channel)
+                 max_pages=args.max_pages, only_channel=args.channel,
+                 vpn_check=proton_vpn_active)
     print(json.dumps(report, indent=1))
     raise SystemExit(0 if report["ok"] else 1)

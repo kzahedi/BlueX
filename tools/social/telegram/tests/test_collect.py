@@ -104,6 +104,43 @@ class TestCollect(unittest.TestCase):
             "SELECT COUNT(*) FROM coverage WHERE channel='chan'").fetchone()
         self.assertGreater(rows[0], 0)
 
+    def test_vpn_check_none_behaves_exactly_as_before(self):
+        from tools.social.telegram.collect import run
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        report = run(self.conn, fetch, mode="backfill", vpn_check=None)
+        self.assertTrue(report["ok"])
+        statuses = {c["channel"]: c["status"] for c in report["channels"]}
+        self.assertEqual(statuses, {"chan": "complete"})
+
+    def test_vpn_check_aborts_remaining_channels_when_it_goes_false(self):
+        from tools.social.telegram.collect import run
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan2', 'seed_approved')")
+        self.conn.commit()
+
+        fetch_calls = []
+
+        def fetch(username, before):
+            fetch_calls.append(username)
+            return make_fake_fetch(username, [1, 2, 3])(username, before)
+
+        vpn_states = [True, False]
+
+        def vpn_check():
+            return vpn_states.pop(0)
+
+        report = run(self.conn, fetch, mode="backfill", vpn_check=vpn_check)
+        statuses = {c["channel"]: c["status"] for c in report["channels"]}
+        reasons = {c["channel"]: c["failure_reason"]
+                   for c in report["channels"]}
+        self.assertEqual(statuses, {"chan": "complete", "chan2": "failed"})
+        self.assertEqual(reasons["chan2"],
+                          "aborted: ProtonVPN not active")
+        # chan2's fetch must never have been invoked once VPN dropped.
+        self.assertNotIn("chan2", fetch_calls)
+        self.assertIn("chan", fetch_calls)
+        self.assertTrue(report["ok"])  # failed-with-reason = accounted
+
 
 if __name__ == "__main__":
     unittest.main()
