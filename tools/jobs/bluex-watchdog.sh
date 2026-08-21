@@ -37,6 +37,113 @@ LOG_HINT="$(bluex_log_hint)"
 heartbeat_age=$(bluex_age_seconds "$BLUEX_HEARTBEAT")
 store_age=$(bluex_age_seconds "$BLUEX_STORE")
 
+# ---- Telegram daily job (net.pulsschlag.bluex.telegram.daily) ---------------
+# Closes a gap deliberately deferred when that job was implemented: it writes
+# its own heartbeat (ts/mode/exit/ok_channels/failed_channels[/skipped]) but
+# until now nobody read it. Same "each signal covers a blind spot" reasoning
+# as the Bluesky checks above, but this job is a StartCalendarInterval
+# ONE-SHOT (06:17 daily), not a KeepAlive loop, so "stale" here means "hasn't
+# completed a run recently", not "process died".
+#
+# Computed and reported UNCONDITIONALLY, before any of the Bluesky exit
+# points below: a Telegram-side problem must never be masked by (or mask) a
+# Bluesky-side one, so both are always checked and both are always notified.
+TELEGRAM_HEARTBEAT="$BLUEX_STORE_DIR/social/telegram-heartbeat.json"
+# Small state file next to the heartbeat, not in the internal control plane —
+# unlike watchdog.log/heartbeat/lock, this exists only to remember what the
+# single-slot telegram heartbeat cannot: the last few runs' skip/ok outcomes.
+# It belongs with the data it describes. One line per DISTINCT run, deduped by
+# ts, so a watchdog invoked more than once between telegram runs never
+# double-counts a skip.
+TELEGRAM_SKIP_STATE="$BLUEX_STORE_DIR/social/telegram-skip-streak.log"
+# File presence stands in for "installed" — the same convention test_jobs.py
+# already uses for the other agents' plists (WATCHDOG_PLIST/CONTINUOUS_PLIST):
+# checking actual launchd load state would mean shelling out to launchctl,
+# which the tests must never do, and would tell us nothing more useful than
+# "the plist is on disk" for a LaunchAgent only this Mac ever installs for
+# itself.
+TELEGRAM_PLIST="$HOME/Library/LaunchAgents/net.pulsschlag.bluex.telegram.daily.plist"
+# The job runs once a day at 06:17. 36h tolerates one missed day (the Mac
+# asleep through its StartCalendarInterval, say) plus clock skew, without
+# waiting so long that two missed days in a row go unnoticed.
+TELEGRAM_STALE_AFTER=$(( 36 * 3600 ))
+# A permanently-off VPN produces an unbroken run of "skipped: no-vpn"
+# heartbeats that are each individually correct and individually
+# non-alarming under the project's hard VPN rule — this is the count of
+# consecutive such runs that earns an explicit callout, because a VPN that
+# never comes back means the corpus silently stops growing.
+TELEGRAM_SKIP_STREAK_THRESHOLD=3
+
+telegram_alarm=0
+telegram_installed=0
+[ -f "$TELEGRAM_PLIST" ] && telegram_installed=1
+
+if [ ! -e "$TELEGRAM_HEARTBEAT" ]; then
+  if [ "$telegram_installed" -eq 1 ]; then
+    telegram_alarm=1
+    bluex_notify "BlueX Telegram is stale" "Telegram daily job has never reported in (no heartbeat found) — check $LOG_HINT"
+    echo "$(date): telegram: STALE — no heartbeat and $TELEGRAM_PLIST is installed — notified." >>"$LOG"
+  else
+    # Not installed is not a fault — nothing should be running, so nothing
+    # having ever written a heartbeat is exactly correct.
+    echo "$(date): telegram: not installed — no heartbeat expected." >>"$LOG"
+  fi
+else
+  telegram_age=$(bluex_age_seconds "$TELEGRAM_HEARTBEAT")
+  telegram_ts=$(bluex_json_field "$TELEGRAM_HEARTBEAT" ts)
+  telegram_skipped=$(bluex_json_field "$TELEGRAM_HEARTBEAT" skipped)
+  telegram_failed=$(bluex_json_field "$TELEGRAM_HEARTBEAT" failed_channels)
+
+  last_ts=""
+  [ -f "$TELEGRAM_SKIP_STATE" ] && last_ts=$(tail -1 "$TELEGRAM_SKIP_STATE" 2>/dev/null | cut -d' ' -f1)
+  if [ -n "$telegram_ts" ] && [ "$telegram_ts" != "$last_ts" ]; then
+    skip_flag=0
+    [ "$telegram_skipped" = "no-vpn" ] && skip_flag=1
+    echo "$telegram_ts $skip_flag" >>"$TELEGRAM_SKIP_STATE"
+  fi
+
+  # Count the trailing run of skip_flag=1 lines — i.e. the CURRENT streak,
+  # read from the most recent line backwards. `tail -r` is BSD tail (macOS);
+  # this whole design already targets a single specific Mac, same as the
+  # rest of this file.
+  skip_streak=0
+  if [ -f "$TELEGRAM_SKIP_STATE" ]; then
+    while IFS=' ' read -r _ flag; do
+      if [ "$flag" = "1" ]; then
+        skip_streak=$(( skip_streak + 1 ))
+      else
+        skip_streak=0
+        break
+      fi
+    done < <(tail -r "$TELEGRAM_SKIP_STATE" 2>/dev/null)
+  fi
+
+  if [ "$telegram_age" -gt "$TELEGRAM_STALE_AFTER" ]; then
+    telegram_alarm=1
+    telegram_days=$(( telegram_age / 86400 ))
+    bluex_notify "BlueX Telegram is stale" "Telegram daily job hasn't completed a run in ${telegram_days}d — check $LOG_HINT"
+    echo "$(date): telegram: STALE — no run in ${telegram_days}d — notified." >>"$LOG"
+  elif [ "$telegram_skipped" = "no-vpn" ]; then
+    # Correct, expected behaviour under the hard VPN rule — never an alarm —
+    # but it must stay visible, and a long streak deserves to say so plainly.
+    if [ "$skip_streak" -ge "$TELEGRAM_SKIP_STREAK_THRESHOLD" ]; then
+      bluex_notify "BlueX Telegram skipped (no VPN)" "Last ${skip_streak} consecutive daily runs were all skipped for no-vpn — corpus has stopped growing"
+      echo "$(date): telegram: skipped (no-vpn), ${skip_streak} in a row — notified." >>"$LOG"
+    else
+      bluex_notify "BlueX Telegram skipped (no VPN)" "Last run was skipped: no-vpn — expected under the hard VPN rule, not a failure"
+      echo "$(date): telegram: skipped (no-vpn) — notified." >>"$LOG"
+    fi
+  else
+    echo "$(date): telegram: fresh." >>"$LOG"
+  fi
+
+  if [ -n "$telegram_failed" ] && [ "$telegram_failed" != "0" ]; then
+    telegram_alarm=1
+    bluex_notify "BlueX Telegram failed channels" "${telegram_failed} channel(s) failed on the last run — check $LOG_HINT"
+    echo "$(date): telegram: FAILED-CHANNELS (${telegram_failed}) — notified." >>"$LOG"
+  fi
+fi
+
 
 # ---- exit codes from the most recent heartbeat -------------------------------
 # bluex-nightly.sh writes these for us and, until this branch, nobody read them.
@@ -126,8 +233,12 @@ fi
 if [ "$mode" != "continuous" ] && [ "$sentiment_skipped" = "true" ]; then
   bluex_notify "BlueX sentiment skipped" "Last run scraped but never annotated (no budget left) — check $LOG_HINT"
   echo "$(date): fresh, but sentiment was skipped on the last run — notified." >>"$LOG"
+  # An otherwise-healthy Bluesky exit must still surface a Telegram-side
+  # alarm — see the "computed unconditionally" note above.
+  [ "$telegram_alarm" -eq 1 ] && exit 1
   exit 0
 fi
 
 echo "$(date): fresh." >>"$LOG"
+[ "$telegram_alarm" -eq 1 ] && exit 1
 exit 0
