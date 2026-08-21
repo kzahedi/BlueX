@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup
 
+from tools.social.telegram.vpn_gate import VPNNotActiveError, proton_vpn_active
+
 USER_AGENT = ("BlueX-Research-Collector/1.0 "
               "(+academic research; contact keyan.zahedi@gmail.com)")
 PAGE_DELAY_SECONDS = 2.0
@@ -105,7 +107,20 @@ def parse_preview_html(html: str) -> list["Message"]:
     return out
 
 
-def fetch_page(username: str, before: int | None, session: requests.Session) -> str:
+def fetch_page(username: str, before: int | None, session: requests.Session,
+                vpn_check=None) -> str:
+    """Fetch one t.me/s/<username> page.
+
+    F2 hardening: the ProtonVPN gate is enforced HERE, at the network
+    boundary, not only at call sites -- so ungated access to Telegram is
+    structurally impossible rather than merely conventional. vpn_check is
+    injectable for tests; production callers get the real gate
+    (tools.social.telegram.vpn_gate.proton_vpn_active) by default.
+    """
+    check = vpn_check if vpn_check is not None else proton_vpn_active
+    if not check():
+        raise VPNNotActiveError(
+            "ProtonVPN not active — refusing to contact Telegram")
     url = f"https://t.me/s/{username}"
     params = {"before": before} if before is not None else {}
     try:

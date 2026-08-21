@@ -170,7 +170,7 @@ class TestFetchPageDelay(unittest.TestCase):
         from tools.social.telegram import preview
         session = _FakeSession(_FakeResponse(text="...tgme_widget_message_wrap...", status_ok=True))
         with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
-            preview.fetch_page("telegram", None, session)
+            preview.fetch_page("telegram", None, session, vpn_check=lambda: True)
         mock_sleep.assert_called_once()
 
     def test_sleep_called_on_no_preview_error(self):
@@ -178,7 +178,7 @@ class TestFetchPageDelay(unittest.TestCase):
         session = _FakeSession(_FakeResponse(text="<html>join page</html>", status_ok=True))
         with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
             with self.assertRaises(preview.NoPreviewError):
-                preview.fetch_page("somechan", None, session)
+                preview.fetch_page("somechan", None, session, vpn_check=lambda: True)
         mock_sleep.assert_called_once()
 
     def test_sleep_called_on_http_error(self):
@@ -186,7 +186,7 @@ class TestFetchPageDelay(unittest.TestCase):
         session = _FakeSession(_FakeResponse(text="", status_ok=False))
         with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
             with self.assertRaises(Exception):
-                preview.fetch_page("telegram", None, session)
+                preview.fetch_page("telegram", None, session, vpn_check=lambda: True)
         mock_sleep.assert_called_once()
 
     def test_before_zero_is_sent_as_param(self):
@@ -200,8 +200,45 @@ class TestFetchPageDelay(unittest.TestCase):
                 return _FakeResponse(text="...tgme_widget_message_wrap...", status_ok=True)
 
         with unittest.mock.patch.object(preview.time, "sleep"):
-            preview.fetch_page("telegram", 0, _CapturingSession())
+            preview.fetch_page("telegram", 0, _CapturingSession(),
+                               vpn_check=lambda: True)
         self.assertEqual(captured["params"], {"before": 0})
+
+
+class _RecordingSession:
+    """Records whether .get was ever called, for asserting it was NOT."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def get(self, *args, **kwargs):
+        self.calls += 1
+        return _FakeResponse(text="...tgme_widget_message_wrap...")
+
+
+class TestFetchPageVpnGate(unittest.TestCase):
+    """F2: the gate lives at the network boundary itself (fetch_page), not
+    only at call sites -- so ungated access is structurally impossible.
+    """
+
+    def test_raises_and_never_calls_session_get_when_vpn_down(self):
+        from tools.social.telegram import preview
+        session = _RecordingSession()
+        with self.assertRaises(preview.VPNNotActiveError):
+            preview.fetch_page("telegram", None, session, vpn_check=lambda: False)
+        self.assertEqual(session.calls, 0)
+
+    def test_default_vpn_check_is_the_real_gate(self):
+        # No vpn_check passed -> fetch_page must consult the real gate
+        # (tools.social.telegram.vpn_gate.proton_vpn_active), not silently
+        # skip enforcement. Patch the real gate to simulate "VPN down".
+        from tools.social.telegram import preview
+        session = _RecordingSession()
+        with unittest.mock.patch.object(preview, "proton_vpn_active",
+                                        return_value=False):
+            with self.assertRaises(preview.VPNNotActiveError):
+                preview.fetch_page("telegram", None, session)
+        self.assertEqual(session.calls, 0)
 
 
 if __name__ == "__main__":

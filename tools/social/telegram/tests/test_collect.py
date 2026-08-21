@@ -104,6 +104,26 @@ class TestCollect(unittest.TestCase):
             "SELECT COUNT(*) FROM coverage WHERE channel='chan'").fetchone()
         self.assertGreater(rows[0], 0)
 
+    def test_vpn_not_active_error_from_fetch_is_recorded_not_crash(self):
+        # F2: fetch_page itself may raise VPNNotActiveError at the network
+        # boundary (e.g. VPN dropped between the per-page check and the
+        # actual HTTP call). collect_channel must record this as a failure,
+        # not let it propagate as a crash.
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.vpn_gate import VPNNotActiveError
+
+        def fetch(username, before):
+            raise VPNNotActiveError("ProtonVPN not active — refusing to "
+                                    "contact Telegram")
+
+        # record_coverage() is still called (never let a coverage error mask
+        # the real failure reason) -- it simply has nothing to record since
+        # no page ever succeeded, same as the NoPreviewError path above.
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(r["failure_reason"], "aborted: ProtonVPN not active")
+        self.assertEqual(r["new_messages"], 0)
+
     def test_vpn_check_none_behaves_exactly_as_before(self):
         from tools.social.telegram.collect import run
         fetch = make_fake_fetch("chan", [1, 2, 3])
@@ -111,6 +131,43 @@ class TestCollect(unittest.TestCase):
         self.assertTrue(report["ok"])
         statuses = {c["channel"]: c["status"] for c in report["channels"]}
         self.assertEqual(statuses, {"chan": "complete"})
+
+    def test_per_page_vpn_check_stops_mid_walk_no_further_fetch(self):
+        # F1: a mid-channel VPN drop must be caught within a single
+        # channel's page loop, not only between channels.
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import get_cursor
+
+        fetch_calls = []
+
+        def fetch(username, before):
+            fetch_calls.append(before)
+            return make_fake_fetch("chan", list(range(1, 14)))(username, before)
+
+        vpn_states = [True, True, False]
+
+        def vpn_check():
+            return vpn_states.pop(0)
+
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill",
+                            vpn_check=vpn_check)
+
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(r["failure_reason"], "aborted: ProtonVPN not active")
+        # Only 2 pages were fetched before the abort on page 3's check.
+        self.assertEqual(len(fetch_calls), 2)
+        # Messages from the two completed pages were retained.
+        self.assertEqual(r["new_messages"], 10)
+        rows = self.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE channel='chan'").fetchone()
+        self.assertEqual(rows[0], 10)
+        # Coverage was recorded for the aborted channel, same as other
+        # failure paths.
+        cov = self.conn.execute(
+            "SELECT COUNT(*) FROM coverage WHERE channel='chan'").fetchone()
+        self.assertGreater(cov[0], 0)
+        # A cursor was NOT cleared (the walk is incomplete, must resume).
+        self.assertIsNotNone(get_cursor(self.conn, "chan"))
 
     def test_vpn_check_aborts_remaining_channels_when_it_goes_false(self):
         from tools.social.telegram.collect import run
