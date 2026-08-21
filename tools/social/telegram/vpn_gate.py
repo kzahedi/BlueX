@@ -26,6 +26,17 @@ import subprocess
 
 PROTON_SUBNET_PREFIX = "10.2.0."
 
+# Probe the path TELEGRAM traffic will actually take, not a generic host: a
+# host-specific route (split tunnel, or a DNS tool installing a /32) can send
+# 1.1.1.1 through the tunnel while t.me still exits via en0. Two addresses
+# from Telegram's ranges; ALL must route through the tunnel interface.
+ROUTE_PROBE_TARGETS = ("149.154.167.99", "149.154.175.100")
+
+# Telegram publishes AAAA records. If an IPv6 route to Telegram exists and it
+# does NOT go through the tunnel, requests could leak over IPv6 while every
+# IPv4 check reads green. No IPv6 route at all is safe (nothing to leak over).
+ROUTE_PROBE_TARGET_V6 = "2001:67c:4e8:f004::9"
+
 
 class VPNNotActiveError(Exception):
     """Raised at the network boundary when ProtonVPN is not active."""
@@ -111,14 +122,33 @@ def proton_vpn_active() -> bool:
     if utun_name is None:
         return False
 
+    # Every Telegram probe address must route through that same interface.
+    for target in ROUTE_PROBE_TARGETS:
+        try:
+            route_result = subprocess.run(
+                ["/sbin/route", "-n", "get", target],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception:
+            return False
+        if route_interface(route_result.stdout or "") != utun_name:
+            return False
+
+    # IPv6: a route that exists but bypasses the tunnel is a leak path. A
+    # missing/unresolvable IPv6 route is fine — there is nothing to leak over.
     try:
-        route_result = subprocess.run(
-            ["/sbin/route", "-n", "get", "1.1.1.1"],
+        route6_result = subprocess.run(
+            ["/sbin/route", "-n", "get", "-inet6", ROUTE_PROBE_TARGET_V6],
             capture_output=True,
             text=True,
             timeout=5,
         )
     except Exception:
         return False
+    iface6 = route_interface(route6_result.stdout or "")
+    if iface6 is not None and iface6 != utun_name:
+        return False
 
-    return route_interface(route_result.stdout or "") == utun_name
+    return True

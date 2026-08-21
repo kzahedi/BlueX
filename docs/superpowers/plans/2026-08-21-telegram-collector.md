@@ -65,13 +65,25 @@ Run: `python3 -c "import requests, bs4" 2>/dev/null || python3 -m pip install --
 
 - [ ] **Step 2: Capture the live fixture**
 
-Telegram's own public channel is stable and harmless for a fixture:
+Telegram's own public channel is stable and harmless for a fixture.
+
+**Bare `curl` to t.me is FORBIDDEN** — every request to Telegram must pass the
+ProtonVPN gate (see the design spec's VPN-gate section). Capture through
+`fetch_page`, which enforces the gate and refuses when the VPN is down:
 
 ```bash
-curl -s -A "BlueX-Research-Collector/1.0 (+academic research; contact keyan.zahedi@gmail.com)" \
-  "https://t.me/s/telegram" -o tools/social/telegram/tests/fixtures/tgme_sample.html
-grep -c "tgme_widget_message_wrap" tools/social/telegram/tests/fixtures/tgme_sample.html
+python3 - <<'EOF'
+import pathlib, requests
+from tools.social.telegram.preview import fetch_page   # gate is inside fetch_page
+html = fetch_page("telegram", None, requests.Session())
+out = pathlib.Path("tools/social/telegram/tests/fixtures/tgme_sample.html")
+out.write_text(html, encoding="utf-8")
+print(html.count("tgme_widget_message_wrap"), "message wraps captured")
+EOF
 ```
+
+If the VPN is not active this raises `VPNNotActiveError` and writes nothing —
+that is correct behaviour, not a bug to work around.
 
 Expected: a count ≥ 10. If 0, the page layout changed — STOP and report BLOCKED with the first 50 lines of the file.
 
@@ -1105,3 +1117,16 @@ Expected: exit 0 (no approved channels yet → empty run is `ok`), heartbeat JSO
 - **Not covered by design (out of scope):** watchdog extension for the telegram heartbeat — deferred deliberately; the daily job is one-shot and its heartbeat is inspectable; wire it into the watchdog when the corpus goes into production use.
 - **Type consistency:** `Message` fields match `messages` columns; `APPROVED` statuses match `channels.py` transitions and `candidates.approve_candidate`; `fetch(username, before)` signature identical in tests and production lambda.
 - **Placeholders:** none; all code inline.
+
+---
+
+## Post-hardening note (2026-08-21)
+
+The code listings in Tasks 1 and 5 above are **pre-VPN-gate snapshots**. The
+shipped implementation enforces a hard ProtonVPN gate: `preview.fetch_page`
+checks `vpn_gate.proton_vpn_active()` immediately before `session.get` and
+raises `VPNNotActiveError`; `collect_channel` re-checks before every page and
+records `"aborted: ProtonVPN not active"` as a reconciliation failure; the
+daily job calls the same Python gate. Do not re-implement from the listings
+verbatim — read the current source, and see the design spec's VPN-gate
+section for the rule.

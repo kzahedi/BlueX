@@ -167,3 +167,80 @@ class TestProtonVpnActive(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProbesTelegramPathNotGenericInternet(unittest.TestCase):
+    """The routing probe must ask about the path Telegram traffic will
+    actually take. Probing a generic address (1.1.1.1) passes when a
+    host-specific route sends that one address through the tunnel while the
+    real default — and thus t.me — exits via en0 (split tunnel, or a DNS
+    tool installing a /32 route)."""
+
+    def test_probe_targets_are_telegram_addresses(self):
+        from tools.social.telegram import vpn_gate
+        self.assertTrue(vpn_gate.ROUTE_PROBE_TARGETS,
+                        "no route probe targets configured")
+        for target in vpn_gate.ROUTE_PROBE_TARGETS:
+            self.assertTrue(target.startswith("149.154."),
+                            f"probe {target!r} is not a Telegram address; "
+                            "probing a generic host can pass while Telegram "
+                            "traffic leaks via another interface")
+
+    def test_all_probe_targets_must_agree(self):
+        """If any probed Telegram address routes off-tunnel, fail closed."""
+        from tools.social.telegram import vpn_gate
+        ifc = ("utun9: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1420\n"
+               "\tinet 10.2.0.2 --> 10.2.0.2 netmask 0xffffffff\n")
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            class R:
+                pass
+            r = R()
+            if cmd[0].endswith("ifconfig"):
+                r.stdout = ifc
+            else:
+                # first Telegram address tunnels, second leaks via en0
+                iface = "utun9" if len(calls) == 2 else "en0"
+                r.stdout = f"   route to: x\n   interface: {iface}\n"
+            return r
+
+        orig = vpn_gate.subprocess.run
+        vpn_gate.subprocess.run = fake_run
+        try:
+            self.assertFalse(vpn_gate.proton_vpn_active(),
+                             "must fail closed when any Telegram probe "
+                             "routes off the tunnel")
+        finally:
+            vpn_gate.subprocess.run = orig
+
+
+class TestIPv6NotIgnored(unittest.TestCase):
+    """Telegram publishes AAAA records: an IPv6 default route outside the
+    tunnel could carry t.me traffic while the IPv4 check reads green."""
+
+    def test_ipv6_route_off_tunnel_fails_closed(self):
+        from tools.social.telegram import vpn_gate
+        ifc = ("utun9: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1420\n"
+               "\tinet 10.2.0.2 --> 10.2.0.2 netmask 0xffffffff\n")
+
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            r = R()
+            if cmd[0].endswith("ifconfig"):
+                r.stdout = ifc
+            elif "-inet6" in cmd:
+                r.stdout = "   route to: 2001:67c::1\n   interface: en0\n"
+            else:
+                r.stdout = "   route to: x\n   interface: utun9\n"
+            return r
+
+        orig = vpn_gate.subprocess.run
+        vpn_gate.subprocess.run = fake_run
+        try:
+            self.assertFalse(vpn_gate.proton_vpn_active(),
+                             "an IPv6 route via en0 must fail closed")
+        finally:
+            vpn_gate.subprocess.run = orig
