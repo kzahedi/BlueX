@@ -59,3 +59,4 @@ __pycache__/
 # tools/benchmark: compiled swift scorer, rebuilt on demand by support/nl_score.py
 tools/benchmark/support/nl_score
 .pytest_cache/
+tools/social/telegram/seed_channels.csv
