@@ -242,6 +242,17 @@ class _Sandbox:
         self.run_log_dir = self.store_dir / "logs"
         self.job_tmpdir = self.store_dir / "tmp"
         self.notify_log = tmp_path / "notifications.log"
+        # Telegram daily job (net.pulsschlag.bluex.telegram.daily) — heartbeat lives
+        # next to the rest of the social data on the store volume, same as
+        # bluex-telegram-daily.sh writes it for real. The skip-streak state file sits
+        # right beside it (see bluex-watchdog.sh) since it exists only to remember
+        # what that single-slot heartbeat cannot: the last few runs' outcomes.
+        self.telegram_heartbeat = self.store_dir / "social/telegram-heartbeat.json"
+        self.telegram_skip_state = self.store_dir / "social/telegram-skip-streak.log"
+        # LaunchAgents live under $HOME, which this sandbox already redirects.
+        self.telegram_plist = (
+            self.home / "Library/LaunchAgents/net.pulsschlag.bluex.telegram.daily.plist"
+        )
 
         for d in (self.bin, self.stubs, self.store_dir, self.log_dir):
             d.mkdir(parents=True, exist_ok=True)
@@ -308,6 +319,40 @@ class _Sandbox:
 
     def age_store(self, age_seconds):
         self._age(self.store, age_seconds)
+
+    def write_healthy_bluesky_heartbeat(self, age_seconds=60):
+        """A baseline 'nothing wrong on the Bluesky side' heartbeat + store.
+
+        Used by the telegram-focused tests below so they exercise only the new
+        telegram behaviour, without also tripping the pre-existing staleness/
+        failure checks this watchdog already had (those have their own decision
+        table above).
+        """
+        self.write_heartbeat(
+            age_seconds=age_seconds,
+            finishedAt="2026-08-20T02:11:00Z",
+            scrapeExit=0,
+            sentimentExit=0,
+            stoppedAtDeadline=False,
+            sentimentSkipped=False,
+            log=str(self.log_dir / "nightly_x.log"),
+        )
+        self.age_store(age_seconds)
+
+    def write_telegram_heartbeat(self, age_seconds=0, **fields):
+        self.telegram_heartbeat.parent.mkdir(parents=True, exist_ok=True)
+        self.telegram_heartbeat.write_text(json.dumps(fields))
+        self._age(self.telegram_heartbeat, age_seconds)
+
+    def install_telegram_plist(self):
+        self.telegram_plist.parent.mkdir(parents=True, exist_ok=True)
+        self.telegram_plist.write_text("<plist/>")
+
+    def seed_telegram_skip_history(self, *entries):
+        """Pre-existing state-file lines, oldest first: (ts, skipped_bool)."""
+        self.telegram_skip_state.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"{ts} {1 if skipped else 0}" for ts, skipped in entries]
+        self.telegram_skip_state.write_text("\n".join(lines) + "\n")
 
     @staticmethod
     def _age(path: Path, age_seconds):
@@ -1203,3 +1248,156 @@ def test_watchdogs_stale_threshold_is_conservative_for_a_long_pass(sandbox):
     result = sandbox.run(WATCHDOG)
     assert result.returncode == 0, sandbox.notifications
     assert sandbox.notifications == ""
+
+
+# ---------------------------------------------------------------------------
+# 9. bluex-watchdog.sh — Telegram daily job coverage.
+# ---------------------------------------------------------------------------
+# net.pulsschlag.bluex.telegram.daily runs once a day (06:17, one-shot, not
+# KeepAlive) and writes its own heartbeat with a different, smaller contract
+# (ts/mode/exit/ok_channels/failed_channels[/skipped]) — this deliberately
+# closes the watchdog gap left open when that job was implemented. Every test
+# here starts from a healthy Bluesky heartbeat/store so only the new telegram
+# behaviour is under test; the decision table above already covers the
+# Bluesky side on its own.
+
+_TELEGRAM_FRESH = 60
+_TELEGRAM_STALE = 40 * 3600  # > the 36h threshold
+
+
+def test_telegram_fresh_heartbeat_is_healthy_and_silent(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=5,
+        failed_channels=0,
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert sandbox.notifications == "", sandbox.notifications
+    assert "telegram" in sandbox.watchdog_log().lower()
+
+
+def test_telegram_heartbeat_older_than_36h_is_stale(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_STALE,
+        ts="2026-08-19T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=5,
+        failed_channels=0,
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1, f"{result.stdout}\n{result.stderr}"
+    assert "Telegram" in sandbox.notifications
+    assert "stale" in sandbox.notifications.lower(), sandbox.notifications
+    assert "1d" in sandbox.notifications, sandbox.notifications
+
+
+def test_telegram_heartbeat_missing_and_plist_installed_is_stale(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    assert not sandbox.telegram_heartbeat.exists()
+    sandbox.install_telegram_plist()
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1, f"{result.stdout}\n{result.stderr}"
+    assert "Telegram" in sandbox.notifications
+    assert "stale" in sandbox.notifications.lower(), sandbox.notifications
+
+
+def test_telegram_heartbeat_missing_and_not_installed_is_not_alarming(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    assert not sandbox.telegram_heartbeat.exists()
+    assert not sandbox.telegram_plist.exists()
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "Telegram" not in sandbox.notifications, sandbox.notifications
+    assert "not installed" in sandbox.watchdog_log().lower()
+
+
+def test_telegram_no_vpn_skip_is_visible_but_not_alarming(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=0,
+        failed_channels=0,
+        skipped="no-vpn",
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "no-vpn" in sandbox.notifications.lower() or "no vpn" in sandbox.notifications.lower(), (
+        sandbox.notifications
+    )
+    assert "Telegram" in sandbox.notifications
+
+
+def test_three_consecutive_no_vpn_skips_are_called_out_explicitly(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.seed_telegram_skip_history(
+        ("2026-08-19T06:17:01+00:00", True),
+        ("2026-08-20T06:17:02+00:00", True),
+    )
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=0,
+        failed_channels=0,
+        skipped="no-vpn",
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "3" in sandbox.notifications
+    assert "consecutive" in sandbox.notifications.lower(), sandbox.notifications
+
+
+def test_telegram_failed_channels_warns_with_the_count(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=3,
+        failed_channels=2,
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1, f"{result.stdout}\n{result.stderr}"
+    assert "2" in sandbox.notifications
+    assert "failed" in sandbox.notifications.lower(), sandbox.notifications
+    assert "Telegram" in sandbox.notifications
+
+
+def test_a_telegram_problem_does_not_mask_a_bluesky_problem_and_vice_versa(sandbox):
+    """Both signals must surface together — neither side may swallow the other."""
+    sandbox.write_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        finishedAt="2026-08-21T02:11:00Z",
+        scrapeExit=2,
+        sentimentExit=0,
+        stoppedAtDeadline=False,
+        sentimentSkipped=False,
+        log=str(sandbox.log_dir / "nightly_x.log"),
+    )
+    sandbox.age_store(_TELEGRAM_FRESH)
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=3,
+        failed_channels=2,
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1, f"{result.stdout}\n{result.stderr}"
+    assert "BlueX nightly failing" in sandbox.notifications
+    assert "scrape (exit 2)" in sandbox.notifications
+    assert "Telegram" in sandbox.notifications
+    assert "failed" in sandbox.notifications.lower()
