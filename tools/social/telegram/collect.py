@@ -22,9 +22,11 @@ def collect_channel(conn, username, fetch, mode, max_pages=None):
         before = get_cursor(conn, username) if mode == "backfill" else None
         while True:
             if max_pages is not None and pages >= max_pages:
+                record_coverage(conn, username)
                 return {"channel": username, "status": "failed",
                         "new_messages": new_total,
                         "failure_reason": f"page budget exhausted ({max_pages})"}
+            fetched_before = before
             msgs = parse_preview_html(fetch(username, before))
             pages += 1
             if not msgs:
@@ -33,6 +35,13 @@ def collect_channel(conn, username, fetch, mode, max_pages=None):
             new_total += inserted
             oldest = min(m.msg_id for m in msgs)
             if mode == "backfill":
+                if fetched_before is not None and oldest >= fetched_before:
+                    record_coverage(conn, username)
+                    return {"channel": username, "status": "failed",
+                            "new_messages": new_total,
+                            "failure_reason": (
+                                f"no progress: page at before={fetched_before}"
+                                f" returned oldest={oldest}")}
                 set_cursor(conn, username, oldest)
                 if oldest <= 1:
                     break
@@ -47,6 +56,10 @@ def collect_channel(conn, username, fetch, mode, max_pages=None):
         return {"channel": username, "status": "complete",
                 "new_messages": new_total, "failure_reason": None}
     except (NoPreviewError, requests.RequestException) as e:
+        try:
+            record_coverage(conn, username)
+        except Exception:
+            pass  # never let a coverage error mask the real failure reason
         return {"channel": username, "status": "failed",
                 "new_messages": new_total, "failure_reason": str(e)}
 
