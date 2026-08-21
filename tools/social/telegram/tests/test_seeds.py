@@ -4,9 +4,17 @@ import pathlib
 import unittest
 
 
+SEED_CSV = pathlib.Path("tools/social/telegram/seed_channels.csv")
+
+
+# The seed list is deliberately NOT in this repository (it lives in a private
+# Gitea repo; the working copy is git-ignored). These tests validate it when
+# present and skip cleanly on checkouts without it.
+@unittest.skipUnless(SEED_CSV.exists(), "seed_channels.csv not present "
+                     "(kept out of the public repo; fetch from private Gitea)")
 class TestSeedCsv(unittest.TestCase):
     def test_csv_well_formed_with_provenance(self):
-        p = pathlib.Path("tools/social/telegram/seed_channels.csv")
+        p = SEED_CSV
         rows = list(csv.DictReader(p.open(encoding="utf-8")))
         self.assertGreaterEqual(len(rows), 30)
         for r in rows:
@@ -43,7 +51,7 @@ class TestSeedCsv(unittest.TestCase):
         # must resolve to exactly 4 fields. Correctly RFC-4180-quoted commas
         # are consumed inside their field by csv.reader and do not add
         # fields, so this only fails on genuine unquoted-comma corruption.
-        p = pathlib.Path("tools/social/telegram/seed_channels.csv")
+        p = SEED_CSV
         with p.open(encoding="utf-8", newline="") as fp:
             records = list(csv.reader(fp))
         header, data_rows = records[0], records[1:]
