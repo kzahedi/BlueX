@@ -51,6 +51,26 @@ cd "$REPO" || exit 1
 PYTHON=/opt/miniconda3/envs/bluex/bin/python3
 [ -x "$PYTHON" ] || PYTHON=python3
 
+# Hard rule: never contact Telegram unless ProtonVPN is connected — the
+# user's home IP must never reach t.me. collect.py's CLI now self-gates on
+# tools.social.telegram.vpn_gate.proton_vpn_active() before opening any HTTP
+# session, so this check is defense in depth (catches the case before we
+# even spend the python startup cost, and keeps the heartbeat/skip semantics
+# visible at the job-script level too). A skipped day is retried tomorrow —
+# never run without VPN.
+if ! /sbin/ifconfig | grep -q "inet 10\.2\.0\."; then
+  echo "$(date): ProtonVPN not active — skipping Telegram run (hard rule: never expose home IP)" >> "$HOME/Library/Logs/BlueX/telegram.log"
+  "$PYTHON" - "$HEARTBEAT" <<'EOF'
+import json, sys, datetime
+hb = sys.argv[1]
+json.dump({"ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+           "mode": "telegram-incremental", "exit": 0,
+           "ok_channels": 0, "failed_channels": 0,
+           "skipped": "no-vpn"}, open(hb, "w"))
+EOF
+  exit 0
+fi
+
 # collect.py prints exactly one JSON object to stdout (its report) — keep that
 # on its own stream/file so the heartbeat parser never has to pick a JSON
 # object out of merged stdout+stderr noise. stderr (tracebacks, warnings)
