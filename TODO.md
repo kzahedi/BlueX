@@ -225,6 +225,19 @@ counter-speech: human annotation from scratch, or drop the third research target
 - [x] **Scrape floor lowered to 2023-01-01** (`21c2203`, applied to the live store
       2026-08-13). Oldest root already back to 2023-12-25 and walking further. Costs zero
       extra API calls — `FeedScraper` was already walking full history and discarding.
+- [ ] **Nightly BlueX store backup to the NAS — near-term, load-bearing.** The corpus
+      (2.46M posts) is irreplaceable — deleted replies can't be re-scraped; archival is
+      the point of the project — and currently has **zero backup**. Add a nightly launchd
+      job copying a consistent snapshot of `default.store` (`sqlite3 .backup` or
+      `VACUUM INTO`, never a raw file copy of a live WAL store) plus the incivility score
+      files and `social/telegram.db` to the NAS. Decided 2026-08-21 with the NAS-storage
+      split: live stores stay on Eregion (SQLite never lives on a network share); the
+      NAS holds shared corpora (zeitgeist PostgreSQL) and backups.
+- [ ] **Telegram → NAS PostgreSQL export (later option, not now).** If cross-project
+      queries ever need Telegram messages next to the zeitgeist speech/headline corpora,
+      add an export job (local `telegram.db` → NAS Postgres). Deliberately an export, not
+      direct writes: the always-on collector must not depend on the NAS being reachable,
+      and its live SQLite stays local. Do only when an actual cross-corpus query needs it.
 - [ ] Author profile probe (plan Tasks 2/3/4/6/7b) — enforcement latency, account age,
       handle-change history. Note `getProfiles` does **not** return moderation labels; the
       labeler endpoint does.
