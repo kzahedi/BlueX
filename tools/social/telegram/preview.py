@@ -82,7 +82,7 @@ def parse_preview_html(html: str) -> list["Message"]:
 
         media_type = media_ref = None
         photo = div.select_one(".tgme_widget_message_photo_wrap[style]")
-        video = div.select_one(".tgme_widget_message_video_player, video.tgme_widget_message_video")
+        video = div.select_one("video[src]")
         doc = div.select_one(".tgme_widget_message_document_title")
         if photo:
             media_type = "photo"
@@ -107,13 +107,18 @@ def parse_preview_html(html: str) -> list["Message"]:
 
 def fetch_page(username: str, before: int | None, session: requests.Session) -> str:
     url = f"https://t.me/s/{username}"
-    params = {"before": before} if before else {}
-    resp = session.get(url, params=params,
-                       headers={"User-Agent": USER_AGENT}, timeout=30,
-                       allow_redirects=True)
-    resp.raise_for_status()
-    if "tgme_widget_message_wrap" not in resp.text:
-        # Channels without a preview redirect to the join page.
-        raise NoPreviewError(f"{username}: no public web preview")
-    time.sleep(PAGE_DELAY_SECONDS + random.uniform(0.0, 1.5))
-    return resp.text
+    params = {"before": before} if before is not None else {}
+    try:
+        resp = session.get(url, params=params,
+                           headers={"User-Agent": USER_AGENT}, timeout=30,
+                           allow_redirects=True)
+        resp.raise_for_status()
+        if "tgme_widget_message_wrap" not in resp.text:
+            # Channels without a preview redirect to the join page.
+            raise NoPreviewError(f"{username}: no public web preview")
+        return resp.text
+    finally:
+        # The delay must always run -- including on HTTP errors (e.g. 429s)
+        # and no-preview channels -- so a caller looping over many channels
+        # never hammers Telegram with zero delay on failure paths.
+        time.sleep(PAGE_DELAY_SECONDS + random.uniform(0.0, 1.5))

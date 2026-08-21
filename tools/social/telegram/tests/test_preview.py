@@ -1,6 +1,7 @@
 import json
 import pathlib
 import unittest
+import unittest.mock
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -28,6 +29,15 @@ class TestParsePreview(unittest.TestCase):
         expected = json.loads((FIXTURES / "tgme_sample_expected.json").read_text())
         got = [vars(m) for m in parse_preview_html(self.html)]
         self.assertEqual(got, expected)
+
+    def test_video_media_ref_captured(self):
+        from tools.social.telegram.preview import parse_preview_html
+        msgs = parse_preview_html(self.html)
+        videos = [m for m in msgs if m.media_type == "video"]
+        self.assertTrue(videos, "fixture should contain at least one video message")
+        for m in videos:
+            self.assertIsNotNone(m.media_ref)
+            self.assertTrue(m.media_ref.startswith("http"), m.media_ref)
 
 
 class TestSyntheticPaths(unittest.TestCase):
@@ -130,6 +140,68 @@ class TestParseViews(unittest.TestCase):
         self.assertEqual(parse_views("882"), 882)
         self.assertEqual(parse_views("1.2K"), 1200)
         self.assertEqual(parse_views("3.4M"), 3400000)
+
+
+class _FakeResponse:
+    def __init__(self, text="", status_ok=True):
+        self.text = text
+        self._status_ok = status_ok
+
+    def raise_for_status(self):
+        if not self._status_ok:
+            import requests
+            raise requests.HTTPError("429 Too Many Requests")
+
+
+class _FakeSession:
+    def __init__(self, response):
+        self._response = response
+
+    def get(self, *args, **kwargs):
+        return self._response
+
+
+class TestFetchPageDelay(unittest.TestCase):
+    """The politeness delay must always run, even on error/no-preview paths --
+    callers loop over many channels and must not hammer Telegram on failures.
+    """
+
+    def test_sleep_called_on_success(self):
+        from tools.social.telegram import preview
+        session = _FakeSession(_FakeResponse(text="...tgme_widget_message_wrap...", status_ok=True))
+        with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
+            preview.fetch_page("telegram", None, session)
+        mock_sleep.assert_called_once()
+
+    def test_sleep_called_on_no_preview_error(self):
+        from tools.social.telegram import preview
+        session = _FakeSession(_FakeResponse(text="<html>join page</html>", status_ok=True))
+        with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
+            with self.assertRaises(preview.NoPreviewError):
+                preview.fetch_page("somechan", None, session)
+        mock_sleep.assert_called_once()
+
+    def test_sleep_called_on_http_error(self):
+        from tools.social.telegram import preview
+        session = _FakeSession(_FakeResponse(text="", status_ok=False))
+        with unittest.mock.patch.object(preview.time, "sleep") as mock_sleep:
+            with self.assertRaises(Exception):
+                preview.fetch_page("telegram", None, session)
+        mock_sleep.assert_called_once()
+
+    def test_before_zero_is_sent_as_param(self):
+        # before=0 is a legitimate value (not "no before") and must not be dropped.
+        from tools.social.telegram import preview
+        captured = {}
+
+        class _CapturingSession:
+            def get(self, url, params=None, **kwargs):
+                captured["params"] = params
+                return _FakeResponse(text="...tgme_widget_message_wrap...", status_ok=True)
+
+        with unittest.mock.patch.object(preview.time, "sleep"):
+            preview.fetch_page("telegram", 0, _CapturingSession())
+        self.assertEqual(captured["params"], {"before": 0})
 
 
 if __name__ == "__main__":
