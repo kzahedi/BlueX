@@ -5,6 +5,7 @@
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{xcolor}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black,
             citecolor=blue!50!black}
@@ -12,7 +13,7 @@
 \title{Classifying hate and counter speech in Bluesky replies to news outlets:\\
        a proposal grounded in measurement}
 \author{BlueX project}
-\date{14 August 2026}
+\date{14 August 2026 --- revised 21 August 2026}
 
 \begin{document}
 \maketitle
@@ -31,7 +32,10 @@ platform-moderation labels that might have replaced it turn out to be almost
 entirely retracted. We propose a low-cost architecture---paragraph embeddings
 trained unsupervised on the full corpus, a small supervised classifier on top, an
 abstention threshold, and score-banded human validation---and state in advance what
-would falsify it.
+would falsify it. The classifier is organised as a \emph{consensus committee} of
+deliberately decorrelated local models; the committee's disagreement, together with
+a sample of its unanimous verdicts, directs where the scarce human labelling budget
+is spent.
 \end{abstract}
 
 \section{Motivation and scope}
@@ -274,12 +278,14 @@ precisely the blind spot that produced the fall to $0.61$--$0.68$. It also learn
 the corpus's own bilingual vocabulary, which off-the-shelf models lack. Cost:
 CPU-hours, no GPU.
 
-\paragraph{Stage 2: small supervised classifier.} Fit regularised logistic
-regression on the embeddings using the 238 active hate labels, the 881 \texttt{rude}
-labels, and negatives drawn from the Stage~0 sample. Following
+\paragraph{Stage 2: small supervised classifier, organised as a committee.} Fit
+regularised logistic regression on the embeddings using the 238 active hate labels,
+the 881 \texttt{rude} labels, and negatives drawn from the Stage~0 sample. Following
 \cite{garland2020countering}, use an ensemble rather than a single model and retain
 at least one interpretable member: TF--IDF's strong showing suggests lexical
-features carry much of the signal, and coefficients can be read directly.
+features carry much of the signal, and coefficients can be read directly. The
+ensemble is structured as a consensus committee whose members are chosen for
+decorrelation, not merely for accuracy (\S\ref{sec:committee}).
 
 \paragraph{Stage 3: abstention.} Classify only where confidence exceeds $\tau$;
 otherwise return ``unjudged''. Choose $\tau$ from the calibration curves of
@@ -298,6 +304,78 @@ a large model can exploit without overfitting. And an embedding trained on the c
 itself represents the majority class---ordinary replies---whereas a model fine-tuned
 only on hate versus \texttt{rude} has never seen it.
 
+\subsection{The consensus committee, and disagreement as a sampling signal}
+\label{sec:committee}
+
+\paragraph{Composition.} A committee's votes carry information only insofar as its
+members err \emph{independently}; three fine-tunes of the same encoder would agree
+confidently for identical reasons. The members are therefore chosen to represent
+different families of failure:
+
+\begin{enumerate}
+\item \textbf{TF--IDF $+$ logistic regression} --- pure surface-lexical signal
+      ($0.943$ in the benchmark), near-zero inference cost, coefficients readable.
+\item \textbf{doc2vec $+$ logistic regression} --- distributional but order-blind,
+      trained unsupervised on the corpus itself (Stage~1), so it alone has seen the
+      majority class.
+\item \textbf{A fine-tuned contextual encoder} --- \texttt{twitter-roberta-base} or
+      \texttt{xlm-roberta-base}, the only member sensitive to word order and
+      context; $\sim$145 posts per second on project hardware.
+\item \textbf{Optionally, a small local LLM (8B class) as tie-breaker.} Roughly two
+      orders of magnitude slower than the encoder, it never scores the full corpus;
+      it is consulted only on the disagreement region the cheap members define. Its
+      verdicts are automatic labels and fall under the audit obligation of
+      \S\ref{sec:validation}, item~3.
+\end{enumerate}
+
+Apple's \texttt{NLTagger} is excluded on measurement: AUC $0.508$
+(\S\ref{sec:measurements}).
+
+\paragraph{Aggregation.} Members return calibrated scores, not hard votes. The
+committee's verdict is the mean score; its \emph{disagreement} is the spread
+(standard deviation) across members. Spread is a finer signal than vote counts: a
+2--1 split at scores $(0.51, 0.49, 0.52)$ is near-consensus, while $(0.95, 0.05,
+0.50)$ at the same majority is maximal conflict. Abstention (Stage~3) applies to the
+mean; high spread is itself grounds to abstain, since a committee that cannot agree
+should not be counted.
+
+\paragraph{Disagreement-driven human review.} The committee's output partitions the
+corpus into three regions, each of which earns human labels for a different reason:
+
+\begin{itemize}
+\item \textbf{High spread (the split region).} Query-by-committee sampling: labels
+      here are maximally informative for improving the members, and at a base rate
+      of a few percent they are worth far more than uniform draws, most of which
+      land on unambiguous neutral content.
+\item \textbf{Unanimous positive.} All current members inherit the same construct
+      bias---they measure incivility more readily than hate (the $0.198$
+      dissociation)---so the committee can be \emph{confidently wrong in a
+      correlated direction}: a rude-but-not-hateful post drawing three assured
+      ``hate'' scores. Reviewing a sample of unanimous positives measures precision
+      exactly where correlated error hides, and coincides with the top band of the
+      score-banded calibration already adopted.
+\item \textbf{Unanimous negative.} A smaller sample bounds the false-negative rate
+      at the confident end; without it, ``the committee found nothing'' is
+      unfalsifiable.
+\end{itemize}
+
+\paragraph{Statistical discipline.} Labels drawn by disagreement are maximally
+non-random. They must never enter the base-rate estimate, and if they are used to
+retrain the members that selected them, they cease to be held-out gold. Both traps
+are handled by machinery that already exists: every label records its sampling
+frame, so committee-drawn labels carry a distinct frame kind (recording the member
+models, their versions, and the score snapshot that triggered selection) and are
+partitionable from uniform-random labels in every later analysis. Stage~0's uniform
+sample remains the only source of prevalence estimates. Committee-drawn labels are
+spent on \emph{validation and calibration} of the committee; any retraining on them
+converts them explicitly from gold to training data, recorded as such, and they are
+thereafter excluded from evaluation.
+
+\paragraph{Ordering.} The committee is built \emph{after} Stage~0, not before. Only
+the measured base rate says what the disagreement region contains: at 1\,\%
+prevalence versus 5\,\%, the same split region has a very different composition,
+and the number of disagreement cases worth reviewing changes accordingly.
+
 \section{Labelling programme}
 \label{sec:validation}
 
@@ -314,6 +392,11 @@ spent only where nothing cheaper can substitute.
 \item \textbf{Audit of any automatic labels.} If an LLM or external API generates
       training labels at volume, a hand-labelled subset must measure how good those
       labels are. Without it the pipeline rests on an unmeasured assumption.
+\item \textbf{Committee-directed review} (\S\ref{sec:committee}). Samples from the
+      high-disagreement region, the unanimous-positive band, and the
+      unanimous-negative band, each recorded under its own sampling frame. These
+      labels calibrate and validate the committee; they never feed the base-rate
+      estimate.
 \end{enumerate}
 
 Human labels are \textbf{held-out gold and never training data}: with a few hundred
@@ -371,6 +454,11 @@ aspiration is the worst of the three options.
       task and must be the headline.
 \item \textbf{Reintroducing an incivility filter.} Toxicity is anti-correlated with
       hate here. The result is counter-intuitive and therefore easy to forget.
+\item \textbf{Correlated committee confidence.} Every member inherits the same
+      incivility-versus-hate construct bias, so unanimity is not independence.
+      Consensus alone must never be promoted to ground truth; the unanimous bands
+      are sampled for human review precisely because agreement can be confidently
+      wrong in the same direction.
 \item \textbf{Treating moderation labels as ground truth for recall.} They record
       what was reported and actioned. A model scoring poorly against them may be
       finding hate nobody reported.
