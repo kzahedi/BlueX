@@ -199,5 +199,213 @@ class TestCollect(unittest.TestCase):
         self.assertTrue(report["ok"])  # failed-with-reason = accounted
 
 
+class TestBackfillCompletionSkip(unittest.TestCase):
+    """A backfill run must not re-walk a channel that a previous backfill
+    already completed -- the completion marker is the signal, not the
+    absence of a cursor."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_completed_channel_with_no_cursor_is_skipped_no_fetch(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import mark_backfill_complete
+
+        mark_backfill_complete(self.conn, "chan")
+
+        calls = []
+        def fetch(username, before):
+            calls.append((username, before))
+            raise AssertionError("fetch must never be called for a "
+                                  "completed channel with no cursor")
+
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+
+        self.assertEqual(calls, [])
+        self.assertEqual(r["status"], "complete")
+        self.assertEqual(r["new_messages"], 0)
+        self.assertIsNone(r["failure_reason"])
+        self.assertEqual(r["skipped"], "already-backfilled")
+
+    def test_interrupted_channel_still_resumes_despite_stale_marker(self):
+        # A channel that was already marked complete once, then got a
+        # cursor from a later (interrupted) re-walk, must still resume --
+        # the presence of a cursor means the walk is not finished.
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import (mark_backfill_complete,
+                                                  set_cursor, get_cursor)
+
+        mark_backfill_complete(self.conn, "chan")
+        set_cursor(self.conn, "chan", 6)
+
+        calls = []
+        fetch = make_fake_fetch("chan", list(range(1, 14)), calls)
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+
+        self.assertGreater(len(calls), 0)
+        self.assertEqual(calls[0], 6)
+        self.assertNotIn("skipped", r)
+        self.assertEqual(r["status"], "complete")
+        self.assertIsNone(get_cursor(self.conn, "chan"))
+
+    def test_never_backfilled_channel_is_not_skipped(self):
+        from tools.social.telegram.collect import collect_channel
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+        self.assertNotIn("skipped", r)
+        self.assertEqual(r["status"], "complete")
+
+    def test_completing_a_backfill_writes_the_marker(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import backfill_completed_at
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        collect_channel(self.conn, "chan", fetch, mode="backfill")
+        self.assertIsNotNone(backfill_completed_at(self.conn, "chan"))
+
+    def test_force_backfill_rewalks_a_completed_channel(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import mark_backfill_complete
+
+        mark_backfill_complete(self.conn, "chan")
+        calls = []
+        fetch = make_fake_fetch("chan", list(range(1, 14)), calls)
+
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill",
+                            force=True)
+
+        self.assertGreater(len(calls), 0)
+        self.assertNotIn("skipped", r)
+        self.assertEqual(r["status"], "complete")
+        self.assertEqual(r["new_messages"], 13)
+
+    def test_run_reconciliation_ok_unaffected_by_skip(self):
+        from tools.social.telegram.collect import run
+        from tools.social.telegram.store import mark_backfill_complete
+
+        mark_backfill_complete(self.conn, "chan")
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        report = run(self.conn, fetch, mode="backfill")
+        self.assertTrue(report["ok"])
+        statuses = {c["channel"]: c["status"] for c in report["channels"]}
+        self.assertEqual(statuses, {"chan": "complete"})
+        self.assertEqual(report["channels"][0]["skipped"], "already-backfilled")
+
+    def test_run_force_flag_rewalks_completed_channels(self):
+        from tools.social.telegram.collect import run
+        from tools.social.telegram.store import mark_backfill_complete
+
+        mark_backfill_complete(self.conn, "chan")
+        calls = []
+        fetch = make_fake_fetch("chan", [1, 2, 3], calls)
+        report = run(self.conn, fetch, mode="backfill", force=True)
+        self.assertGreater(len(calls), 0)
+        self.assertNotIn("skipped", report["channels"][0])
+
+
+class TestIncrementalModeUnaffectedByMarker(unittest.TestCase):
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_incremental_never_reads_or_writes_the_marker(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import backfill_completed_at
+
+        self.assertIsNone(backfill_completed_at(self.conn, "chan"))
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+        self.assertEqual(r["status"], "complete")
+        self.assertNotIn("skipped", r)
+        # incremental never writes the marker even on a clean completion
+        self.assertIsNone(backfill_completed_at(self.conn, "chan"))
+
+    def test_incremental_still_fetches_even_when_marker_already_set(self):
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import mark_backfill_complete
+
+        mark_backfill_complete(self.conn, "chan")
+        calls = []
+        fetch = make_fake_fetch("chan", [1, 2, 3], calls)
+        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+        self.assertGreater(len(calls), 0)
+        self.assertNotIn("skipped", r)
+
+
+class TestMarkChannelCompleteMaintenance(unittest.TestCase):
+    """Idempotent maintenance helper for a channel that is genuinely
+    complete in the live DB but carries a stale cursor and no marker
+    (e.g. AllesAusserMainstream)."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_marks_complete_and_clears_stale_cursor(self):
+        from tools.social.telegram.collect import mark_channel_complete
+        from tools.social.telegram.store import (set_cursor, get_cursor,
+                                                  backfill_completed_at)
+
+        set_cursor(self.conn, "chan", 6206)
+        mark_channel_complete(self.conn, "chan")
+
+        self.assertIsNone(get_cursor(self.conn, "chan"))
+        self.assertIsNotNone(backfill_completed_at(self.conn, "chan"))
+
+    def test_idempotent_when_run_twice(self):
+        from tools.social.telegram.collect import mark_channel_complete
+        from tools.social.telegram.store import get_cursor
+
+        mark_channel_complete(self.conn, "chan")
+        mark_channel_complete(self.conn, "chan")
+        self.assertIsNone(get_cursor(self.conn, "chan"))
+
+    def test_subsequent_backfill_run_skips_it(self):
+        from tools.social.telegram.collect import (mark_channel_complete,
+                                                    collect_channel)
+
+        set_cursor_before = None
+        mark_channel_complete(self.conn, "chan")
+
+        calls = []
+        def fetch(username, before):
+            calls.append(before)
+            raise AssertionError("must not fetch after maintenance mark")
+
+        r = collect_channel(self.conn, "chan", fetch, mode="backfill")
+        self.assertEqual(calls, [])
+        self.assertEqual(r["skipped"], "already-backfilled")
+
+
+class TestForceBackfillCliFlag(unittest.TestCase):
+    """The --force-backfill flag must exist, default to False, and not be
+    required for the --mark-complete maintenance path."""
+
+    def test_flag_defaults_false_and_mode_optional_with_mark_complete(self):
+        from tools.social.telegram.collect import _build_arg_parser
+
+        ap = _build_arg_parser()
+        args = ap.parse_args(["--db", "x.db", "--mode", "backfill"])
+        self.assertFalse(args.force_backfill)
+
+        args2 = ap.parse_args(["--db", "x.db", "--force-backfill",
+                               "--mode", "backfill"])
+        self.assertTrue(args2.force_backfill)
+
+        # --mark-complete does not require --mode.
+        args3 = ap.parse_args(["--db", "x.db", "--mark-complete", "chan"])
+        self.assertEqual(args3.mark_complete, "chan")
+        self.assertIsNone(args3.mode)
+
+
 if __name__ == "__main__":
     unittest.main()

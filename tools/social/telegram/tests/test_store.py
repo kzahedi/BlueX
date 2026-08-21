@@ -44,6 +44,89 @@ class TestStore(unittest.TestCase):
         self.assertEqual(json.loads(row[3]), [3, 4])
 
 
+class TestBackfillCompletionMarker(unittest.TestCase):
+    """Explicit completion marker on `channels` so backfill can tell a
+    finished channel from one that has never been walked."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('testchan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_backfill_completed_at_is_none_before_marking(self):
+        from tools.social.telegram.store import backfill_completed_at
+        self.assertIsNone(backfill_completed_at(self.conn, "testchan"))
+
+    def test_mark_backfill_complete_sets_timestamp(self):
+        from tools.social.telegram.store import (mark_backfill_complete,
+                                                  backfill_completed_at)
+        mark_backfill_complete(self.conn, "testchan")
+        stamp = backfill_completed_at(self.conn, "testchan")
+        self.assertIsNotNone(stamp)
+        self.assertIsInstance(stamp, str)
+
+    def test_unknown_channel_returns_none(self):
+        from tools.social.telegram.store import backfill_completed_at
+        self.assertIsNone(backfill_completed_at(self.conn, "nope"))
+
+
+class TestChannelsSchemaMigration(unittest.TestCase):
+    """open_db must add backfill_complete_at to an EXISTING channels table
+    (production databases predate this column) without touching existing
+    rows' data."""
+
+    def test_migration_adds_column_and_preserves_existing_rows(self):
+        import tempfile
+        import os
+        import sqlite3
+        from tools.social.telegram.store import open_db
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            # Build the OLD schema by hand: no backfill_complete_at column.
+            old_conn = sqlite3.connect(path)
+            old_conn.executescript("""
+                CREATE TABLE channels(
+                  username TEXT PRIMARY KEY, title TEXT, source_list TEXT,
+                  inclusion_criterion TEXT, status TEXT NOT NULL,
+                  added_at TEXT DEFAULT (datetime('now')),
+                  decided_by_user_at TEXT);
+            """)
+            old_conn.execute(
+                "INSERT INTO channels(username, title, status) "
+                "VALUES ('oldchan', 'Old Channel', 'seed_approved')")
+            old_conn.commit()
+            old_conn.close()
+
+            cols_before = {r[1] for r in sqlite3.connect(path).execute(
+                "PRAGMA table_info(channels)")}
+            self.assertNotIn("backfill_complete_at", cols_before)
+
+            conn = open_db(path)
+            cols_after = {r[1] for r in conn.execute(
+                "PRAGMA table_info(channels)")}
+            self.assertIn("backfill_complete_at", cols_after)
+
+            row = conn.execute(
+                "SELECT username, title, status, backfill_complete_at "
+                "FROM channels WHERE username='oldchan'").fetchone()
+            self.assertEqual(row, ("oldchan", "Old Channel",
+                                   "seed_approved", None))
+            conn.close()
+
+            # Idempotent: opening it again must not error or duplicate.
+            conn2 = open_db(path)
+            n, = conn2.execute(
+                "SELECT COUNT(*) FROM channels").fetchone()
+            self.assertEqual(n, 1)
+            conn2.close()
+        finally:
+            os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()
 

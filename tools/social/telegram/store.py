@@ -42,7 +42,18 @@ def open_db(path: str) -> sqlite3.Connection:
     # mid-collection instead of a short wait.
     conn.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT_SECONDS * 1000)}")
     conn.executescript(_SCHEMA)
+    _migrate_channels_add_backfill_complete_at(conn)
     return conn
+
+
+def _migrate_channels_add_backfill_complete_at(conn) -> None:
+    """CREATE TABLE IF NOT EXISTS never adds a column to a channels table
+    that already exists from before this column was introduced -- this
+    runs on every open() and is a no-op once the column is present."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)")}
+    if "backfill_complete_at" not in cols:
+        conn.execute("ALTER TABLE channels ADD COLUMN backfill_complete_at TEXT")
+        conn.commit()
 
 
 def upsert_messages(conn, msgs) -> int:
@@ -73,6 +84,23 @@ def set_cursor(conn, channel: str, before) -> None:
 def get_cursor(conn, channel: str):
     row = conn.execute("SELECT before FROM cursors WHERE channel=?",
                        (channel,)).fetchone()
+    return row[0] if row else None
+
+
+def mark_backfill_complete(conn, channel: str) -> None:
+    """Record that a backfill walk reached msg_id 1 for `channel`. This is
+    the completion marker a later backfill run checks so it doesn't re-walk
+    a channel's entire history for zero new rows."""
+    conn.execute(
+        "UPDATE channels SET backfill_complete_at=datetime('now') "
+        "WHERE username=?", (channel,))
+    conn.commit()
+
+
+def backfill_completed_at(conn, channel: str):
+    row = conn.execute(
+        "SELECT backfill_complete_at FROM channels WHERE username=?",
+        (channel,)).fetchone()
     return row[0] if row else None
 
 
