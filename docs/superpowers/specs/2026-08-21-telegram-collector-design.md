@@ -108,6 +108,59 @@ failure mode being designed out).
   descriptive User-Agent; back-off on HTTP 429/5xx. Staying polite is what keeps
   route 1 viable.
 
+## 6a. VPN gate
+
+Absolute rule: no request may reach Telegram (`t.me`) unless ProtonVPN is
+connected. The user's home IP must never appear in Telegram's logs. This is not
+a preference to be balanced against convenience — a leak here is a safety
+incident, not a bug report.
+
+**Detection** (`tools/social/telegram/vpn_gate.py`): `proton_vpn_active()`
+requires BOTH (a) a `utun*` interface that is `UP`/`RUNNING` and carries a
+`10.2.0.x` address (`/sbin/ifconfig`, parsed per-interface-block, not a bare
+substring search — a stale post-crash utun, a Docker/VM bridge, or another
+WireGuard tool on the same subnet must not read as "connected"), AND (b) the
+OS routing table agreeing that the same interface actually carries traffic
+(`/sbin/route -n get 1.1.1.1` → `interface:` line). Any subprocess error or
+timeout on either command fails CLOSED (treated as VPN-down), never open.
+
+**Enforcement points** (defense in depth — each layer independently refuses,
+so a leak requires every layer to fail at once):
+1. **Network boundary** (`preview.fetch_page`): the gate is checked
+   immediately before every `session.get()` call, inside `fetch_page` itself,
+   not only at its call sites. This is what makes ungated access to Telegram
+   *structurally* impossible rather than a convention callers must remember
+   to follow — even a caller that forgets to check the gate still can't
+   reach `t.me` without it, because the only function that makes the HTTP
+   call enforces it internally. Raises `VPNNotActiveError` when down.
+2. **Per-page, mid-channel** (`collect.py: collect_channel`): checked at the
+   top of every page iteration, not just once per channel — a single
+   channel's backfill walk can run for hours across hundreds of pages, and a
+   tunnel drop partway through must stop the walk on the next page, not run
+   to completion on a downed tunnel. Recorded as a normal accounted failure
+   (`status: "failed"`, `failure_reason: "aborted: ProtonVPN not active"`),
+   never a silent skip or a crash.
+3. **CLI hard-abort** (`collect.py`, `check_reachable.py`): both CLIs check
+   the gate before opening any HTTP session and exit 2 with a JSON error body
+   if it's down — the process never even gets to construct a request.
+4. **launchd job** (`tools/jobs/bluex-telegram-daily.sh`): calls the same
+   Python `proton_vpn_active()` (via a one-line `python3 -c`) before invoking
+   `collect.py`, rather than keeping its own shell-level `ifconfig | grep`
+   check — a second, divergent implementation of "is the VPN up" is exactly
+   the kind of drift that produced the original leaky gate. There is a
+   single source of truth for VPN detection: the Python function.
+
+`run(..., vpn_check=None)` is deliberately still a valid, tested call shape
+(no gating when the caller passes no `vpn_check`) — that's collect.py's
+plumbing being exercised with a fake fetcher in tests, not an ungated
+production path. In production the real gate is closed by enforcement point 1
+above regardless of what `vpn_check` a caller does or doesn't pass: the actual
+HTTP call always goes through `fetch_page`, which refuses on its own.
+
+**Seed-list curation:** verifying that a candidate channel resolves must go
+through the gated `check_reachable.py` CLI, never bare `curl` — see the plan
+doc's seed-list Step 1.
+
 ## 7. Ethics and legal basis
 
 - **Public channels only.** Private or invite-only groups are permanently out of

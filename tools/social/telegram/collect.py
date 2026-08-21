@@ -19,13 +19,24 @@ from tools.social.telegram.store import (APPROVED, get_cursor, open_db,
                                          record_coverage, set_cursor,
                                          upsert_messages)
 from tools.social.telegram.candidates import update_candidates
+from tools.social.telegram.vpn_gate import VPNNotActiveError
+
+_VPN_DOWN_REASON = "aborted: ProtonVPN not active"
 
 
-def collect_channel(conn, username, fetch, mode, max_pages=None):
+def collect_channel(conn, username, fetch, mode, max_pages=None, vpn_check=None):
     new_total, pages = 0, 0
     try:
         before = get_cursor(conn, username) if mode == "backfill" else None
         while True:
+            # F1: checked at the top of EVERY page iteration -- a mid-channel
+            # tunnel drop must stop the walk immediately, not go unnoticed
+            # for the rest of a (potentially hours-long) channel walk.
+            if vpn_check is not None and not vpn_check():
+                record_coverage(conn, username)
+                return {"channel": username, "status": "failed",
+                        "new_messages": new_total,
+                        "failure_reason": _VPN_DOWN_REASON}
             if max_pages is not None and pages >= max_pages:
                 record_coverage(conn, username)
                 return {"channel": username, "status": "failed",
@@ -60,13 +71,18 @@ def collect_channel(conn, username, fetch, mode, max_pages=None):
         record_coverage(conn, username)
         return {"channel": username, "status": "complete",
                 "new_messages": new_total, "failure_reason": None}
-    except (NoPreviewError, requests.RequestException) as e:
+    except (NoPreviewError, requests.RequestException, VPNNotActiveError) as e:
         try:
             record_coverage(conn, username)
         except Exception:
             pass  # never let a coverage error mask the real failure reason
+        # F2: VPNNotActiveError can also surface here if fetch_page's own
+        # network-boundary gate tripped (e.g. VPN dropped between our
+        # per-page check above and the actual HTTP call) -- recorded with
+        # the same reason string as the per-page check, never a crash.
+        reason = _VPN_DOWN_REASON if isinstance(e, VPNNotActiveError) else str(e)
         return {"channel": username, "status": "failed",
-                "new_messages": new_total, "failure_reason": str(e)}
+                "new_messages": new_total, "failure_reason": reason}
 
 
 def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None):
@@ -78,13 +94,19 @@ def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None):
     results = []
     aborted = False
     for c in channels:
-        if aborted or (vpn_check is not None and not vpn_check()):
-            aborted = True
+        if aborted:
             results.append({"channel": c, "status": "failed",
                              "new_messages": 0,
-                             "failure_reason": "aborted: ProtonVPN not active"})
+                             "failure_reason": _VPN_DOWN_REASON})
             continue
-        results.append(collect_channel(conn, c, fetch, mode, max_pages))
+        r = collect_channel(conn, c, fetch, mode, max_pages, vpn_check=vpn_check)
+        if vpn_check is not None and r["failure_reason"] == _VPN_DOWN_REASON:
+            # Once one channel aborts on a VPN drop, don't bother checking
+            # again for the rest of the run -- it isn't coming back up
+            # mid-run, and every remaining channel is accounted for as
+            # aborted without spending a fetch attempt on any of them.
+            aborted = True
+        results.append(r)
     update_candidates(conn)
     ok = all(r["status"] == "complete" or r["failure_reason"] for r in results)
     return {"mode": mode, "channels": results, "ok": ok}

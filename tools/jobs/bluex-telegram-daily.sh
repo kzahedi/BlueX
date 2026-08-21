@@ -54,11 +54,23 @@ PYTHON=/opt/miniconda3/envs/bluex/bin/python3
 # Hard rule: never contact Telegram unless ProtonVPN is connected — the
 # user's home IP must never reach t.me. collect.py's CLI now self-gates on
 # tools.social.telegram.vpn_gate.proton_vpn_active() before opening any HTTP
-# session, so this check is defense in depth (catches the case before we
-# even spend the python startup cost, and keeps the heartbeat/skip semantics
-# visible at the job-script level too). A skipped day is retried tomorrow —
-# never run without VPN.
-if ! /sbin/ifconfig | grep -q "inet 10\.2\.0\."; then
+# session, so this check is defense in depth (keeps the heartbeat/skip
+# semantics visible at the job-script level too, before we even spend the
+# python module-import startup cost of collect.py itself). A skipped day is
+# retried tomorrow — never run without VPN.
+#
+# This calls the SAME hardened Python detection collect.py uses
+# (utun interface UP/RUNNING on the Proton subnet, AND route-table agreement
+# that it actually carries traffic) rather than keeping an independent shell
+# `ifconfig | grep "inet 10.2.0."` check here. That grep is exactly the
+# unanchored substring logic the Python gate was hardened away from — it
+# doesn't require a tunnel interface, doesn't require UP/RUNNING, and would
+# pass for a stale post-crash utun, a Docker/VM bridge, or another WireGuard
+# tool on the same subnet. Keeping it here as a "belt and suspenders" check
+# would just be a second, weaker, divergent implementation that could pass
+# in cases the real gate rejects. Single source of truth for "is the VPN
+# up": the Python function, called from every layer.
+if ! "$PYTHON" -c "import sys; sys.path.insert(0, '$REPO'); from tools.social.telegram.vpn_gate import proton_vpn_active; sys.exit(0 if proton_vpn_active() else 1)"; then
   echo "$(date): ProtonVPN not active — skipping Telegram run (hard rule: never expose home IP)" >> "$HOME/Library/Logs/BlueX/telegram.log"
   "$PYTHON" - "$HEARTBEAT" <<'EOF'
 import json, sys, datetime
