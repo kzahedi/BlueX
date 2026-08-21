@@ -7,6 +7,11 @@
 # Ops rule: new channels must be backfilled (collect.py --mode backfill)
 # before they rely on this incremental job — incremental has no resume
 # checkpoints.
+#
+# Ops rule: after any FAILED incremental run for a channel, run a bounded
+# backfill for that channel — incremental's early-stop can otherwise
+# permanently skip the window between a crash point and the previous max
+# msg_id.
 set -u
 
 DATA=/Volumes/Eregion/bluex-data/social
@@ -27,6 +32,8 @@ mkdir -p "$DATA" "$LOGDIR" 2>/dev/null
 # ($HOME/Library/Logs/BlueX), never to the (possibly unwritable) store, for
 # the same reason lib-bluex-job.sh keeps its control plane off the external
 # volume.
+mkdir -p "$HOME/Library/Logs/BlueX" 2>/dev/null
+
 if ! touch "$DATA/.probe" 2>/dev/null; then
   echo "$(date): store not writable (EPERM/TCC?) — skipping run" >> "$HOME/Library/Logs/BlueX/telegram.log"
   exit 0
@@ -37,19 +44,18 @@ cd "$REPO" || exit 1
 
 # launchd's PATH is minimal and does not include conda, so python3 resolved
 # via bare PATH here would be /usr/bin/python3 — which lacks this collector's
-# third-party deps (requests, beautifulsoup4). Per this machine's convention
-# (CLAUDE.md: "Use conda environment particula for Python development"), the
-# `particula` conda env has them; fall back to plain PATH python3 so the
-# script still runs (and fails loudly rather than silently) somewhere without
-# that env.
-PYTHON=/opt/miniconda3/envs/particula/bin/python3
+# third-party deps (requests, beautifulsoup4). The `bluex` conda env is
+# dedicated to this collector and has them; fall back to plain PATH python3
+# so the script still runs (and fails loudly rather than silently) somewhere
+# without that env.
+PYTHON=/opt/miniconda3/envs/bluex/bin/python3
 [ -x "$PYTHON" ] || PYTHON=python3
 
 # collect.py prints exactly one JSON object to stdout (its report) — keep that
 # on its own stream/file so the heartbeat parser never has to pick a JSON
 # object out of merged stdout+stderr noise. stderr (tracebacks, warnings)
 # still lands in $LOG for human debugging.
-"$PYTHON" tools/social/telegram/collect.py --db "$DATA/telegram.db" \
+"$PYTHON" -m tools.social.telegram.collect --db "$DATA/telegram.db" \
   --mode incremental >"$JSONOUT" 2>"$LOG"
 EXIT=$?
 
