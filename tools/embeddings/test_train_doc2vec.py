@@ -3,6 +3,8 @@
 hundred short bilingual docs) so training runs in seconds -- see
 build_fixture_store() below. No real BlueX store is touched.
 """
+import glob
+import io
 import json
 import os
 import shutil
@@ -10,10 +12,13 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 import train_doc2vec as td
+from tools.common.single_instance import single_instance
 
 
 EN_SENTENCES = [
@@ -233,6 +238,68 @@ class CooldownTests(unittest.TestCase):
         )
         self.assertTrue(len(sleeps) > 0)
         self.assertTrue(all(s >= 1 for s in sleeps))
+
+
+class TrainLockTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.store_path = os.path.join(self.tmpdir, "fixture.store")
+        self.out_dir = os.path.join(self.tmpdir, "out")
+        build_fixture_store(self.store_path, n_docs=20)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_train_exits_3_and_writes_nothing_when_lock_held(self):
+        os.makedirs(self.out_dir, exist_ok=True)
+        lock_path = os.path.join(self.out_dir, ".train.lock")
+        argv = [
+            "train",
+            "--store", self.store_path,
+            "--out-dir", self.out_dir,
+            "--epochs", "1",
+            "--limit", "5",
+            "--workers", "1",
+            "--cool-seconds", "0",
+        ]
+        buf = io.StringIO()
+        with single_instance(lock_path):
+            with self.assertRaises(SystemExit) as cm:
+                with redirect_stdout(buf):
+                    td.main(argv)
+        self.assertEqual(cm.exception.code, 3)
+
+        printed = json.loads(buf.getvalue().strip())
+        self.assertFalse(printed["ok"])
+        self.assertIn("already using this output directory", printed["error"])
+        self.assertEqual(printed["out_dir"], self.out_dir)
+
+        # No model/checkpoint files were written -- the lock check must gate
+        # before any training work starts.
+        written = glob.glob(os.path.join(self.out_dir, "doc2vec-epoch*.model*"))
+        self.assertEqual(written, [])
+        self.assertFalse(os.path.exists(os.path.join(self.out_dir, td.FINAL_MODEL_NAME)))
+
+    def test_probe_stays_lock_free_while_train_lock_is_held(self):
+        # probe is read-only; it must never be blocked by another run's
+        # training lock on the same out-dir.
+        result = td.run_train(
+            store_path=self.store_path,
+            out_dir=self.out_dir,
+            epochs=1,
+            vector_size=8,
+            window=2,
+            min_count=1,
+            workers=1,
+            seed=1,
+            cool_seconds=0,
+        )
+        lock_path = os.path.join(self.out_dir, ".train.lock")
+        with single_instance(lock_path):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = td.main(["probe", "--model", result["final_model_path"]])
+            self.assertEqual(rc, 0)
 
 
 class ProbeTests(unittest.TestCase):

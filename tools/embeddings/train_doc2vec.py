@@ -78,6 +78,7 @@ import glob
 import json
 import multiprocessing
 import os
+import pathlib
 import re
 import sqlite3
 import sys
@@ -89,6 +90,9 @@ from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "incivility"))
 import pacing  # noqa: E402 -- see sys.path.insert above; reuses the LLMPace-derived cool-down scheme
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from tools.common.single_instance import AlreadyRunningError, single_instance  # noqa: E402
 
 DEFAULT_STORE_DIR = os.environ.get("BLUEX_STORE_DIR", "/Volumes/Eregion/bluex-data")
 DEFAULT_STORE_FILENAME = "default.store"
@@ -113,6 +117,13 @@ DEFAULT_SEED = 42
 CHECKPOINT_PREFIX = "doc2vec-epoch"
 FINAL_MODEL_NAME = "doc2vec-final.model"
 FINAL_METADATA_NAME = "doc2vec-final.meta.json"
+
+# Lock file name, relative to --out-dir. Keyed on the output directory
+# because that's the resource two concurrent training runs actually
+# corrupt: they'd both write the same doc2vec-epochNNN.model* filenames.
+# `probe` is read-only and deliberately does not take this lock (see
+# tools/common/single_instance.py's module docstring).
+TRAIN_LOCK_FILENAME = ".train.lock"
 
 
 # --------------------------------------------------------------------------
@@ -492,13 +503,28 @@ def main(argv=None):
         if not os.path.exists(store_path):
             parser.error("store not found: %s" % store_path)
 
-        result = run_train(
-            store_path=store_path, out_dir=args.out_dir, epochs=args.epochs,
-            vector_size=args.vector_size, window=args.window, min_count=args.min_count,
-            dm=args.dm, dbow_words=args.dbow_words, seed=args.seed, workers=args.workers,
-            limit=args.limit, resume=args.resume,
-            work_seconds=args.work_seconds, cool_seconds=args.cool_seconds,
-        )
+        # Single-instance lock, keyed on --out-dir, acquired BEFORE any
+        # training work (including build_vocab) -- see TRAIN_LOCK_FILENAME
+        # above and tools/common/single_instance.py's module docstring.
+        os.makedirs(args.out_dir, exist_ok=True)
+        lock_path = os.path.join(args.out_dir, TRAIN_LOCK_FILENAME)
+        try:
+            with single_instance(lock_path):
+                result = run_train(
+                    store_path=store_path, out_dir=args.out_dir, epochs=args.epochs,
+                    vector_size=args.vector_size, window=args.window, min_count=args.min_count,
+                    dm=args.dm, dbow_words=args.dbow_words, seed=args.seed, workers=args.workers,
+                    limit=args.limit, resume=args.resume,
+                    work_seconds=args.work_seconds, cool_seconds=args.cool_seconds,
+                )
+        except AlreadyRunningError:
+            print(json.dumps({
+                "ok": False,
+                "error": "another training run is already using this output directory",
+                "out_dir": args.out_dir,
+            }))
+            raise SystemExit(3)
+
         print("wrote %s" % result["final_model_path"])
         print("wrote %s" % result["metadata_path"])
         print(json.dumps(result["metadata"], ensure_ascii=False, indent=2))

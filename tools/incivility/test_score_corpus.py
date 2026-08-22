@@ -5,14 +5,20 @@ the score_fn boundary (score_corpus/score_batch_with_retry take a plain
 callable), and the store is a temp SQLite file built with the real
 ZPOST column shapes, never the real BlueX store on /Volumes/Eregion.
 """
+import io
 import json
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 import score_corpus
+from tools.common.single_instance import single_instance
 
 POST_DDL = """
 CREATE TABLE ZPOST (
@@ -389,6 +395,41 @@ class RunIntegrationTests(unittest.TestCase):
             self.assertIn("not a hate", content.lower())
         finally:
             shutil.rmtree(tmpdir)
+
+
+class MainLockTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.store_path = os.path.join(self.tmpdir, "default.store")
+        make_store(self.store_path, [("uri-%d" % i, "text %d" % i) for i in range(5)])
+        self.out_dir = os.path.join(self.tmpdir, "out")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_main_exits_3_and_writes_nothing_when_lock_held(self):
+        os.makedirs(self.out_dir, exist_ok=True)
+        lock_path = os.path.join(self.out_dir, ".score.lock")
+        argv = ["--store", self.store_path, "--out", self.out_dir]
+
+        buf = io.StringIO()
+        with single_instance(lock_path):
+            with self.assertRaises(SystemExit) as cm:
+                with redirect_stdout(buf):
+                    score_corpus.main(argv)
+        self.assertEqual(cm.exception.code, 3)
+
+        printed = json.loads(buf.getvalue().strip())
+        self.assertFalse(printed["ok"])
+        self.assertIn("already", printed["error"])
+        self.assertEqual(printed["out_dir"], self.out_dir)
+
+        # No work started: no jsonl/summary/progress files written.
+        written = [
+            f for f in os.listdir(self.out_dir)
+            if f not in (".score.lock",)
+        ]
+        self.assertEqual(written, [])
 
 
 if __name__ == "__main__":
