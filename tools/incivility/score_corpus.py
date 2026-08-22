@@ -91,12 +91,16 @@ import argparse
 import datetime as dt
 import json
 import os
+import pathlib
 import sqlite3
 import sys
 import tempfile
 import time
 
 import pacing
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from tools.common.single_instance import AlreadyRunningError, single_instance  # noqa: E402
 
 MODEL_ID = "unitary/unbiased-toxic-roberta"
 # Pinned to the commit the local HF cache's "main" ref resolves to, so a run
@@ -113,6 +117,14 @@ DEFAULT_OUT_DIR = "/Volumes/Eregion/bluex-incivility"
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BACKOFF = 0.5
+
+# Lock file name, relative to --out. Keyed on the output directory because
+# that's the resource two concurrent scoring runs would corrupt: they'd both
+# append to (or overwrite) incivility-scores-*.jsonl files in the same
+# place, interleaving records into a dataset this project depends on. See
+# tools/common/single_instance.py's module docstring for the lock-what-
+# writes-not-what-reads boundary.
+SCORE_LOCK_FILENAME = ".score.lock"
 
 REPLIES_QUERY = (
     "SELECT ZURI, ZTEXT FROM ZPOST WHERE ZISROOTPOST = 0 AND ZURI IS NOT NULL "
@@ -601,10 +613,25 @@ def main(argv=None):
     if not os.path.exists(store_path):
         parser.error("store not found: %s" % store_path)
 
-    jsonl_path, summary_path, summary = run(
-        store_path, args.out, args.batch_size, args.limit, args.resume, device=args.device,
-        work_seconds=args.work_seconds, cool_seconds=args.cool_seconds,
-    )
+    # Single-instance lock, keyed on --out, acquired BEFORE any work
+    # (including model load) -- two concurrent runs would interleave
+    # records into the same incivility-scores-*.jsonl output. See
+    # SCORE_LOCK_FILENAME above and tools/common/single_instance.py.
+    os.makedirs(args.out, exist_ok=True)
+    lock_path = os.path.join(args.out, SCORE_LOCK_FILENAME)
+    try:
+        with single_instance(lock_path):
+            jsonl_path, summary_path, summary = run(
+                store_path, args.out, args.batch_size, args.limit, args.resume, device=args.device,
+                work_seconds=args.work_seconds, cool_seconds=args.cool_seconds,
+            )
+    except AlreadyRunningError:
+        print(json.dumps({
+            "ok": False,
+            "error": "another scoring run is already using this output directory",
+            "out_dir": args.out,
+        }))
+        raise SystemExit(3)
 
     write_readme(args.out)
 

@@ -20,8 +20,7 @@ from tools.social.telegram.store import (APPROVED, backfill_completed_at,
                                          max_msg_id, open_db, record_coverage,
                                          set_cursor, upsert_messages)
 from tools.social.telegram.candidates import update_candidates
-from tools.social.telegram.single_instance import (AlreadyRunningError,
-                                                    single_instance)
+from tools.common.single_instance import AlreadyRunningError, single_instance
 from tools.social.telegram.vpn_gate import VPNNotActiveError
 
 _VPN_DOWN_REASON = "aborted: ProtonVPN not active"

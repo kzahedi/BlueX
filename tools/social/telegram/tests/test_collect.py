@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from tools.social.telegram.preview import NoPreviewError
-from tools.social.telegram.single_instance import single_instance
+from tools.common.single_instance import single_instance
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
 
