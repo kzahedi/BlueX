@@ -1358,6 +1358,51 @@ def test_three_consecutive_no_vpn_skips_are_called_out_explicitly(sandbox):
     assert "consecutive" in sandbox.notifications.lower(), sandbox.notifications
 
 
+def test_telegram_locked_skip_is_visible_but_not_alarming(sandbox):
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:03+00:00",
+        mode="telegram-incremental",
+        exit=3,
+        ok_channels=0,
+        failed_channels=0,
+        skipped="locked",
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "locked" in sandbox.notifications.lower() or "already running" in sandbox.notifications.lower(), (
+        sandbox.notifications
+    )
+    assert "Telegram" in sandbox.notifications
+
+
+def test_many_consecutive_locked_skips_do_not_trigger_the_no_vpn_streak_alarm(sandbox):
+    # A long supervised backfill can legitimately make the scheduled
+    # incremental run stand down for many days in a row -- that must never
+    # read as the no-vpn "corpus has stopped growing" streak alarm.
+    sandbox.seed_telegram_skip_history(
+        ("2026-08-17T06:17:01+00:00", False),
+        ("2026-08-18T06:17:02+00:00", False),
+        ("2026-08-19T06:17:03+00:00", False),
+        ("2026-08-20T06:17:04+00:00", False),
+    )
+    sandbox.write_healthy_bluesky_heartbeat()
+    sandbox.write_telegram_heartbeat(
+        age_seconds=_TELEGRAM_FRESH,
+        ts="2026-08-21T06:17:05+00:00",
+        mode="telegram-incremental",
+        exit=3,
+        ok_channels=0,
+        failed_channels=0,
+        skipped="locked",
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "consecutive" not in sandbox.notifications.lower(), sandbox.notifications
+    assert "stopped growing" not in sandbox.notifications.lower(), sandbox.notifications
+
+
 def test_telegram_failed_channels_warns_with_the_count(sandbox):
     sandbox.write_healthy_bluesky_heartbeat()
     sandbox.write_telegram_heartbeat(

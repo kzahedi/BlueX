@@ -96,6 +96,29 @@ fi
   --mode incremental >"$JSONOUT" 2>"$LOG"
 EXIT=$?
 
+# Exit 3 (distinct from the VPN gate's 2 and the reconciliation failure's 1):
+# collect.py's own single-instance lock (fcntl.flock on
+# "$DATA/telegram.db.collector.lock") found another collector process
+# already holding it — a manual backfill or restart racing this scheduled
+# run, most likely — and stood down without collecting or touching the
+# network. That is CORRECT, polite behaviour under the rate-limit
+# discipline, not a failure: log it plainly and write a normal (exit 0)
+# heartbeat so the watchdog reports it as a visible-but-non-alarming skip,
+# exactly like the no-vpn skip above, rather than paging anyone. Tomorrow's
+# scheduled run (or the backfill finishing) recovers it naturally.
+if [ "$EXIT" -eq 3 ]; then
+  echo "$(date): another collector already running — skipping this run" >> "$HOME/Library/Logs/BlueX/telegram.log"
+  "$PYTHON" - "$HEARTBEAT" <<'EOF'
+import json, sys, datetime
+hb = sys.argv[1]
+json.dump({"ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+           "mode": "telegram-incremental", "exit": 0,
+           "ok_channels": 0, "failed_channels": 0,
+           "skipped": "locked"}, open(hb, "w"))
+EOF
+  exit 0
+fi
+
 "$PYTHON" - "$JSONOUT" "$HEARTBEAT" "$EXIT" <<'EOF'
 import json, sys, datetime
 jsonout, hb, code = sys.argv[1], sys.argv[2], int(sys.argv[3])

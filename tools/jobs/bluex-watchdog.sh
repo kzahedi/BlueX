@@ -133,6 +133,19 @@ else
       bluex_notify "BlueX Telegram skipped (no VPN)" "Last run was skipped: no-vpn — expected under the hard VPN rule, not a failure"
       echo "$(date): telegram: skipped (no-vpn) — notified." >>"$LOG"
     fi
+  elif [ "$telegram_skipped" = "locked" ]; then
+    # A single-instance lock stand-down: the scheduled run found another
+    # collector process (a supervised backfill, most likely) already
+    # holding the lock and politely refused to race it. Correct, expected
+    # behaviour — never an alarm — but it must stay visible. Deliberately
+    # NOT fed into skip_streak/TELEGRAM_SKIP_STREAK_THRESHOLD (that streak
+    # only ever counts "no-vpn", see the skip_flag assignment above): a
+    # multi-day supervised backfill can legitimately produce many
+    # consecutive locked-skips, and that is NOT the same failure mode as a
+    # VPN that never comes back — it must never be mistaken for a stalled
+    # corpus, so no streak escalation exists for it at all.
+    bluex_notify "BlueX Telegram skipped (locked)" "Last run stood down: another collector was already running — expected when a backfill is in progress, not a failure"
+    echo "$(date): telegram: skipped (locked) — another collector already running — notified." >>"$LOG"
   else
     echo "$(date): telegram: fresh." >>"$LOG"
   fi
