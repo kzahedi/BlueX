@@ -1,6 +1,14 @@
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from tools.social.telegram.preview import NoPreviewError
+from tools.social.telegram.single_instance import single_instance
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
 
 
 def page_html(channel, ids):
@@ -477,6 +485,45 @@ class TestForceBackfillCliFlag(unittest.TestCase):
         args3 = ap.parse_args(["--db", "x.db", "--mark-complete", "chan"])
         self.assertEqual(args3.mark_complete, "chan")
         self.assertIsNone(args3.mode)
+
+
+class TestCollectSingleInstanceLock(unittest.TestCase):
+    """Exercises collect.py's __main__ wiring of the single-instance lock via
+    a real subprocess -- the lock file is pre-held by THIS process (a second,
+    independent fd, same as a genuinely racing collector process would be),
+    so the child must refuse to even start collecting.
+
+    Uses a nonexistent sqlite path in a temp dir and never touches the
+    network or the live DB: exit 3 must fire before open_db() or
+    requests.Session() are ever reached, so a bogus --db path is safe here.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = str(pathlib.Path(self._tmpdir.name) / "telegram.db")
+        self.lock_path = self.db_path + ".collector.lock"
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _run_collect(self, *extra_args):
+        return subprocess.run(
+            [sys.executable, "-m", "tools.social.telegram.collect",
+             "--db", self.db_path, "--mode", "incremental", *extra_args],
+            cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=30)
+
+    def test_second_collector_exits_3_with_json_and_does_not_collect(self):
+        with single_instance(self.lock_path):
+            result = self._run_collect()
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report, {"ok": False,
+                                   "error": "another collector is already "
+                                            "running",
+                                   "mode": "incremental"})
+        # No DB file must have been created -- proof open_db() was never
+        # reached, i.e. no work happened before the lock check gave up.
+        self.assertFalse(pathlib.Path(self.db_path).exists())
 
 
 if __name__ == "__main__":

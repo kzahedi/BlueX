@@ -20,6 +20,8 @@ from tools.social.telegram.store import (APPROVED, backfill_completed_at,
                                          max_msg_id, open_db, record_coverage,
                                          set_cursor, upsert_messages)
 from tools.social.telegram.candidates import update_candidates
+from tools.social.telegram.single_instance import (AlreadyRunningError,
+                                                    single_instance)
 from tools.social.telegram.vpn_gate import VPNNotActiveError
 
 _VPN_DOWN_REASON = "aborted: ProtonVPN not active"
@@ -174,6 +176,12 @@ if __name__ == "__main__":
     ap = _build_arg_parser()
     args = ap.parse_args()
 
+    # --mark-complete is a lock-free maintenance path: no network, no long
+    # work, just a couple of writes -- it stays exactly as it was before the
+    # single-instance lock existed. It is safe to run concurrently with a
+    # collector holding the lock, and requiring the lock here would only
+    # block a cheap, useful maintenance fixup behind an hours-long backfill
+    # for no reason.
     if args.mark_complete:
         conn = open_db(args.db)
         mark_channel_complete(conn, args.mark_complete)
@@ -183,19 +191,34 @@ if __name__ == "__main__":
     if not args.mode:
         ap.error("--mode is required unless --mark-complete is given")
 
-    # Hard rule: never contact Telegram unless ProtonVPN is connected — the
-    # user's home IP must never reach t.me. Checked BEFORE opening any HTTP
-    # session, no override flag exists, this is absolute.
-    if not proton_vpn_active():
-        print(json.dumps({"ok": False,
-                          "error": "ProtonVPN not active — refusing to "
-                                   "contact Telegram"}))
-        raise SystemExit(2)
+    # Single-instance lock, acquired BEFORE any work (including the VPN
+    # check) -- see single_instance.py's module docstring for why this is
+    # flock-based rather than a PID file. Per store, so an unrelated store's
+    # collector never contends with this one.
+    lock_path = f"{args.db}.collector.lock"
+    try:
+        with single_instance(lock_path):
+            # Hard rule: never contact Telegram unless ProtonVPN is
+            # connected — the user's home IP must never reach t.me. Checked
+            # BEFORE opening any HTTP session, no override flag exists,
+            # this is absolute.
+            if not proton_vpn_active():
+                print(json.dumps({"ok": False,
+                                  "error": "ProtonVPN not active — refusing "
+                                           "to contact Telegram"}))
+                raise SystemExit(2)
 
-    conn = open_db(args.db)
-    session = requests.Session()
-    report = run(conn, lambda u, b: fetch_page(u, b, session), args.mode,
-                 max_pages=args.max_pages, only_channel=args.channel,
-                 vpn_check=proton_vpn_active, force=args.force_backfill)
-    print(json.dumps(report, indent=1))
-    raise SystemExit(0 if report["ok"] else 1)
+            conn = open_db(args.db)
+            session = requests.Session()
+            report = run(conn, lambda u, b: fetch_page(u, b, session),
+                         args.mode, max_pages=args.max_pages,
+                         only_channel=args.channel,
+                         vpn_check=proton_vpn_active,
+                         force=args.force_backfill)
+            print(json.dumps(report, indent=1))
+            raise SystemExit(0 if report["ok"] else 1)
+    except AlreadyRunningError:
+        print(json.dumps({"ok": False,
+                          "error": "another collector is already running",
+                          "mode": args.mode}))
+        raise SystemExit(3)
