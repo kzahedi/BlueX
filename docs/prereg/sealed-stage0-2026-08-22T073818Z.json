@@ -1,0 +1,33 @@
+{
+  "sealed_file": "sealed-stage0-2026-08-22T073818Z.jsonl.gz",
+  "sha256": "becafc4bf40f298997d3500093752cc2f1275b85f6325f027a8b338efc7588a3",
+  "record_count": 4249018,
+  "distinct_uri_count": 2124509,
+  "created_at": "2026-08-22T07:38:40Z",
+  "intent": "Pre-registration: these model predictions over every Stage-0-eligible reply post were sealed BEFORE any human Stage 0 label existed in the store (the seal guard checked and found zero ZANNOTATION rows with ZSTAGE='human'). Comparing them against human labels after Monday's session is therefore unbiased evidence of each model's accuracy on the deployment distribution, not hindsight.",
+  "manifest_is_tamper_evident_anchor": "This manifest is committed to git. Its git commit timestamp is the tamper-evident proof that these predictions existed before Stage 0 labelling happened -- provable independent of anything on this machine. This file is never edited after being committed; `verify`/`compare` recompute the sealed file's sha256 and refuse to proceed on any mismatch.",
+  "models": {
+    "incivility_toxicity": {
+      "meaning": "toxicity head score from unitary/unbiased-toxic-roberta (tools/incivility/score_corpus.py). An INCIVILITY detector, not a hate detector: it rates moderator-labelled 'rude' posts as MORE toxic than moderator-labelled hate posts ('intolerant'/'threat') 80% of the time (hate-vs-rude AUC 0.198, worse than chance, wrong direction). null means this post was never scored by that pipeline -- not that its score is 0.",
+      "model_id": "unitary/unbiased-toxic-roberta",
+      "model_revision": "36295dd80b422dc49f40052021430dae76241adc",
+      "source_files": [
+        "incivility-scores-2026-08-11T131928Z.jsonl",
+        "incivility-scores-2026-08-11T153517Z.jsonl"
+      ],
+      "n_scored": 2085088
+    },
+    "tfidf_lr_hate_vs_rude": {
+      "meaning": "P(hate | one of {hate, rude}) -- NOT P(hate) on arbitrary text. TF-IDF + LogisticRegression trained on moderator-labelled intolerant/threat/extremist/intolerant-race (positive) vs rude (negative) posts. Known weak on random text (AUC 0.61-0.68, see docs/superpowers/notes/2026-08-13-hate-vs-rude-finetune-diagnostic.md) -- that weakness, measured honestly on a truly random sample, is what this pre-registration exists to capture.",
+      "training_label_source_file": "label-harvest-posts-2026-08-10T124533Z.jsonl",
+      "training_label_counts": {
+        "positive": 235,
+        "hard_negative": 872
+      },
+      "random_state": 20260822,
+      "sklearn_version": "1.9.0",
+      "vectorizer": "TfidfVectorizer(max_features=20000, ngram_range=(1,2), min_df=2, sublinear_tf=True)",
+      "classifier": "LogisticRegression(max_iter=2000, class_weight='balanced')"
+    }
+  }
+}
