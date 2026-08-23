@@ -2,8 +2,7 @@ import os
 import tempfile
 import unittest
 
-from tools.social.telegram.single_instance import (AlreadyRunningError,
-                                                    single_instance)
+from tools.common.single_instance import AlreadyRunningError, single_instance
 
 
 class TestSingleInstance(unittest.TestCase):

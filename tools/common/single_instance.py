@@ -15,6 +15,22 @@ the lock to the OS file-descriptor table instead -- the kernel releases it
 automatically when the holding process dies for ANY reason, including
 SIGKILL, so a stale lock *file* on disk (contents or not) never blocks a
 fresh acquisition.
+
+Shared out of tools/social/telegram/ (its original, single-user home) so
+every long-running job in this repo can guard itself the same way. Originally
+promoted to guard the Telegram collector; now also wired into
+tools/embeddings/train_doc2vec.py (train subcommand only) and
+tools/incivility/score_corpus.py, both keyed on their output directory.
+
+BOUNDARY: lock what writes, not what reads. Read-only analysis/inspection
+tools (tools/analysis/incivility_structure.py, tools/labelling/base_rate.py,
+tools/prereg/seal_predictions.py's verify/compare, and this project's
+train_doc2vec.py `probe` subcommand) are deliberately left unlocked --
+concurrent reads of the same file(s) are harmless, and adding a lock there
+would only manufacture false single-instance failures for two processes that
+were never going to corrupt anything. Lock the resource that a second,
+concurrent writer would actually corrupt (a store, an output directory,
+an append-only file) -- not every process that happens to touch it.
 """
 import contextlib
 import fcntl
