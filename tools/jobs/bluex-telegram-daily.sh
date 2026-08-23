@@ -11,12 +11,19 @@
 # zero fetch calls, rather than silently full-walking it. No human needs to
 # remember this rule for it to hold.
 #
-# A FAILED incremental run for a channel (429/crash/kill) no longer needs a
-# follow-up bounded backfill to close the window it left behind: incremental
-# mode reads the channel's contiguous max msg_id before it walks and pages
-# backward until it genuinely overlaps that known history (not merely until
-# a page inserts zero new rows), so the next incremental run recovers any
-# hole an interrupted run left on its own.
+# This job is TOP-UP ONLY. --mode incremental stops at the channel's raw
+# newest stored msg_id (store.newest_msg_id) -- cheap and bounded, one or
+# two pages for a channel that is already up to date. It deliberately does
+# NOT walk down to the contiguous-history overlap: measured 2026-08-22 on
+# EvaHermanOffiziell (87,000+ stored messages with an old gap low in its
+# history), the old rule made the daily run walk the entire channel --
+# ~4,400 page fetches, four hours, zero inserts -- and it would have
+# repeated every single day.
+#
+# Gap repair (walking back to a genuinely gapless overlap, healing a hole
+# left by a crashed run) is now `--mode repair` -- an explicit, operator-
+# invoked walk, deliberately never run from this scheduled job. Run it by
+# hand: collect.py --db ... --mode repair --channel <username>.
 set -u
 
 DATA=/Volumes/Eregion/bluex-data/social

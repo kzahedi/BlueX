@@ -108,6 +108,44 @@ failure mode being designed out).
   descriptive User-Agent; back-off on HTTP 429/5xx. Staying polite is what keeps
   route 1 viable.
 
+### 6b. Collector modes: top-up vs. repair
+
+`collect.py --mode` has three values, and the distinction between the latter two is
+subtle enough to have already been gotten wrong once (see the incident below):
+
+- **`backfill`** — initial full history walk for a channel, down to msg_id 1.
+  Supervised batch, not scheduled.
+- **`incremental`** — the daily launchd job. **Top-up only.** Stops walking back
+  once a page's minimum msg_id is `<=` the channel's raw `MAX(msg_id)`
+  (`store.newest_msg_id`), or the page is empty, or the page budget runs out.
+  Cheap and bounded: one or two page fetches for a channel that's already up to
+  date, regardless of how much older history it holds or how gappy that older
+  history is.
+- **`repair`** — explicit, operator-invoked only, **never** run by the scheduled
+  job. Stops walking back once a page overlaps the top of the channel's
+  *contiguous* prefix from its oldest message (`store.max_msg_id`) instead — so
+  it deliberately walks all the way down to heal a real hole left by a crashed
+  run, however deep that hole sits. This is the behaviour incremental used to
+  have.
+
+Both modes carry the same backstop regardless: if `--max-unproductive-pages`
+(default 20) consecutive fetched pages insert zero new messages, the walk stops
+early with `status: "complete"` and a `stopped` key explaining why, rather than
+grinding on unboundedly.
+
+**Incident that motivated this split (measured 2026-08-22):** a prior fix made
+incremental use the contiguous-prefix stop condition unconditionally — correct
+for repairing a crash-induced hole, but conflated with the daily default. Channel
+`EvaHermanOffiziell` holds 87,000+ stored messages but has an old gap low in its
+history, so its contiguous-prefix top sat far below its newest stored id. The
+scheduled incremental run walked back through the *entire* channel to try to
+reach that old contiguous top — **~4,400 page fetches over roughly four hours,
+zero new messages inserted** — and would have repeated that every single day.
+Splitting top-up (`incremental`, cheap, raw-max stop) from repair
+(`repair`, expensive, contiguous-prefix stop, opt-in) plus the unproductive-pages
+backstop is the fix: the backstop alone would have caught this specific incident
+within about a minute (a handful of pages) instead of four hours.
+
 ## 6a. VPN gate
 
 Absolute rule: no request may reach Telegram (`t.me`) unless ProtonVPN is

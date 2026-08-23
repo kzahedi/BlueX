@@ -162,6 +162,38 @@ class TestMaxMsgId(unittest.TestCase):
         self.assertIsNone(max_msg_id(self.conn, "nope"))
 
 
+class TestNewestMsgId(unittest.TestCase):
+    """newest_msg_id() is the raw MAX(msg_id) -- deliberately NOT the
+    contiguous-prefix top that max_msg_id() reports. A channel storing
+    1..100 plus a disjoint island 156..160 must give newest_msg_id==160
+    (raw max, includes the island) and max_msg_id==100 (contiguous prefix,
+    stops at the gap) -- documenting the difference by example, since
+    conflating the two is exactly the bug that made the daily incremental
+    job walk an entire 87k-message channel for zero new rows (measured
+    2026-08-22, EvaHermanOffiziell)."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+
+    def test_none_when_no_messages(self):
+        from tools.social.telegram.store import newest_msg_id
+        self.assertIsNone(newest_msg_id(self.conn, "testchan"))
+
+    def test_raw_max_vs_contiguous_top_on_the_same_island(self):
+        from tools.social.telegram.store import (upsert_messages, max_msg_id,
+                                                  newest_msg_id)
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 101)])
+        upsert_messages(self.conn, [make_msg(i) for i in range(156, 161)])
+        self.assertEqual(newest_msg_id(self.conn, "testchan"), 160)
+        self.assertEqual(max_msg_id(self.conn, "testchan"), 100)
+
+    def test_unknown_channel_returns_none(self):
+        from tools.social.telegram.store import upsert_messages, newest_msg_id
+        upsert_messages(self.conn, [make_msg(1)])
+        self.assertIsNone(newest_msg_id(self.conn, "nope"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

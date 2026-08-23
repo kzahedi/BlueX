@@ -359,10 +359,12 @@ def make_msg(msg_id, channel="chan"):
 
 
 class TestIncrementalOverlapWalk(unittest.TestCase):
-    """I1: an interrupted incremental run can leave a permanent hole. A
-    later incremental run must walk back past a page that inserts zero new
-    rows -- stopping there was the defect -- and only stop once it
-    genuinely overlaps known contiguous history."""
+    """`--mode incremental` is top-up only: its stop condition is the raw
+    MAX(msg_id) (store.newest_msg_id), not the contiguous-prefix top. Gap
+    repair (walking back to a genuinely gapless overlap) is `--mode
+    repair`'s job now -- see TestRepairOverlapWalk below, which carries the
+    coverage this class used to (the ad49a90 "interrupted run hole is
+    recovered" test moved there verbatim in spirit, adapted to repair)."""
 
     def setUp(self):
         from tools.social.telegram.store import open_db
@@ -387,7 +389,95 @@ class TestIncrementalOverlapWalk(unittest.TestCase):
         self.assertEqual(r["new_messages"], 0)
         self.assertEqual(r["failure_reason"], "no history: run backfill first")
 
-    def test_interrupted_run_hole_is_recovered_by_the_next_incremental_run(self):
+    def test_deep_old_gap_stops_within_a_couple_of_pages_not_a_full_walk(self):
+        # The regression that motivated this fix, measured 2026-08-22 on
+        # EvaHermanOffiziell: a channel with 87k+ stored messages but an
+        # old gap low in its history has a contiguous-prefix top far below
+        # its newest stored id. Under the OLD behaviour (incremental using
+        # max_msg_id, the contiguous prefix) this walked the ENTIRE
+        # channel -- ~4,400 fetches, four hours, zero inserts -- every
+        # single day. Scaled down here: stored ids 1..50 (an old,
+        # unrepaired gap) plus 2000..90000 (the bulk of real history).
+        # Incremental must use the RAW max (2000..90000's top, i.e. 90000)
+        # as its stop condition and so only walk the couple of pages above
+        # it, never approaching the old gap near 50.
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import upsert_messages
+
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 51)])
+        upsert_messages(self.conn, [make_msg(i) for i in range(2000, 90001)])
+
+        calls = []
+        # A few genuinely new messages sit above the stored top (90000).
+        fetch = make_fake_fetch("chan", list(range(2000, 90006)), calls)
+
+        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+
+        self.assertEqual(r["status"], "complete")
+        self.assertLessEqual(len(calls), 3)
+        self.assertEqual(r["new_messages"], 5)  # 90001..90005 only
+
+    def test_repair_mode_on_the_same_deep_old_gap_walks_far_more_pages(self):
+        # Same channel shape as above, but --mode repair deliberately uses
+        # the contiguous-prefix stop condition and so walks all the way
+        # down toward the old gap near msg_id 50 -- far more pages than
+        # incremental's couple.
+        from tools.social.telegram.collect import collect_channel
+        from tools.social.telegram.store import upsert_messages
+
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 51)])
+        upsert_messages(self.conn, [make_msg(i) for i in range(2000, 90001)])
+
+        incremental_calls = []
+        fetch_incremental = make_fake_fetch(
+            "chan", list(range(2000, 90006)), incremental_calls)
+        collect_channel(self.conn, "chan", fetch_incremental, mode="incremental")
+
+        repair_calls = []
+        fetch_repair = make_fake_fetch(
+            "chan", list(range(2000, 90006)), repair_calls)
+        r = collect_channel(self.conn, "chan", fetch_repair, mode="repair")
+
+        self.assertEqual(r["status"], "complete")
+        # repair walks deep enough to run into the unproductive-pages guard
+        # (it is grinding through a huge already-stored contiguous range on
+        # the way toward the old gap) -- either way, far more pages than
+        # incremental's couple.
+        self.assertGreater(len(repair_calls), len(incremental_calls) + 10)
+
+
+class TestRepairOverlapWalk(unittest.TestCase):
+    """I1: an interrupted run can leave a permanent hole. `--mode repair`
+    (an explicit, operator-invoked walk -- never the scheduled daily job)
+    must walk back past a page that inserts zero new rows -- stopping
+    there was the original defect -- and only stop once it genuinely
+    overlaps known contiguous history. This is the ad49a90 coverage,
+    moved from incremental mode (which is now top-up only) to repair."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_channel_with_no_history_fails_without_any_fetch(self):
+        from tools.social.telegram.collect import collect_channel
+
+        calls = []
+        def fetch(username, before):
+            calls.append((username, before))
+            raise AssertionError("fetch must never be called for a "
+                                  "channel with no stored history")
+
+        r = collect_channel(self.conn, "chan", fetch, mode="repair")
+
+        self.assertEqual(calls, [])
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(r["new_messages"], 0)
+        self.assertEqual(r["failure_reason"], "no history: run backfill first")
+
+    def test_interrupted_run_hole_is_recovered_by_a_repair_run(self):
         from tools.social.telegram.collect import collect_channel
         from tools.social.telegram.store import upsert_messages
 
@@ -401,7 +491,7 @@ class TestIncrementalOverlapWalk(unittest.TestCase):
         calls = []
         fetch = make_fake_fetch("chan", list(range(1, 166)), calls)
 
-        r = collect_channel(self.conn, "chan", fetch, mode="incremental")
+        r = collect_channel(self.conn, "chan", fetch, mode="repair")
 
         self.assertEqual(r["status"], "complete")
         got = {row[0] for row in self.conn.execute(
@@ -416,6 +506,63 @@ class TestIncrementalOverlapWalk(unittest.TestCase):
         # final page (96-100) where it overlaps known history and stops).
         self.assertEqual(len(calls), 14)
         self.assertEqual(calls[-1], 101)  # the boundary-overlap page
+
+
+class TestUnproductivePagesGuard(unittest.TestCase):
+    """Backstop for every mode: if N consecutive fetched pages insert zero
+    new messages, stop rather than grind on unboundedly. This would have
+    caught the 2026-08-22 incident within a minute (a handful of pages)
+    instead of four hours (~4,400 pages)."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db, upsert_messages
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+        # Contiguous prefix 1..5 only -- far below the page the fake fetch
+        # keeps returning, so neither the incremental (raw max) nor repair
+        # (contiguous max) overlap stop would trigger on their own; only
+        # the unproductive-pages guard can stop this walk.
+        upsert_messages(self.conn, [make_msg(i) for i in range(1, 6)])
+        # Pre-store the page the fake fetch will keep re-serving, so every
+        # fetch of it inserts zero new rows.
+        upsert_messages(self.conn, [make_msg(i) for i in range(50, 55)])
+
+    def test_stops_after_n_pages_with_status_complete_and_stopped_key(self):
+        from tools.social.telegram.collect import collect_channel
+
+        calls = []
+
+        def fetch(username, before):
+            calls.append(before)
+            # Always the same already-stored page, ignoring `before`.
+            return page_html("chan", [50, 51, 52, 53, 54])
+
+        r = collect_channel(self.conn, "chan", fetch, mode="repair",
+                            max_unproductive_pages=20)
+
+        self.assertEqual(r["status"], "complete")
+        self.assertEqual(r["stopped"],
+                          "unproductive: 20 pages with no new messages")
+        self.assertEqual(r["new_messages"], 0)
+        self.assertEqual(len(calls), 20)
+
+    def test_default_max_unproductive_pages_is_20(self):
+        from tools.social.telegram.collect import collect_channel
+
+        calls = []
+
+        def fetch(username, before):
+            calls.append(before)
+            return page_html("chan", [50, 51, 52, 53, 54])
+
+        r = collect_channel(self.conn, "chan", fetch, mode="repair")
+
+        self.assertEqual(r["status"], "complete")
+        self.assertEqual(r["stopped"],
+                          "unproductive: 20 pages with no new messages")
+        self.assertEqual(len(calls), 20)
 
 
 class TestMarkChannelCompleteMaintenance(unittest.TestCase):

@@ -17,18 +17,29 @@ from tools.social.telegram.preview import (NoPreviewError, fetch_page,
                                            parse_preview_html)
 from tools.social.telegram.store import (APPROVED, backfill_completed_at,
                                          get_cursor, mark_backfill_complete,
-                                         max_msg_id, open_db, record_coverage,
-                                         set_cursor, upsert_messages)
+                                         max_msg_id, newest_msg_id, open_db,
+                                         record_coverage, set_cursor,
+                                         upsert_messages)
 from tools.social.telegram.candidates import update_candidates
 from tools.common.single_instance import AlreadyRunningError, single_instance
 from tools.social.telegram.vpn_gate import VPNNotActiveError
 
 _VPN_DOWN_REASON = "aborted: ProtonVPN not active"
 
+# Backstop for every mode: N consecutive fetched pages that insert zero new
+# messages means the walk is grinding for no benefit (e.g. a channel whose
+# incremental/repair overlap target is wrong, or any other condition that
+# makes "keep walking back" unproductive) -- stop rather than run
+# unboundedly. This is what would have caught the 2026-08-22
+# EvaHermanOffiziell incident (~4,400 unproductive pages over four hours)
+# within a minute instead.
+DEFAULT_MAX_UNPRODUCTIVE_PAGES = 20
+
 
 def collect_channel(conn, username, fetch, mode, max_pages=None,
-                     vpn_check=None, force=False):
-    new_total, pages = 0, 0
+                     vpn_check=None, force=False,
+                     max_unproductive_pages=DEFAULT_MAX_UNPRODUCTIVE_PAGES):
+    new_total, pages, unproductive_streak = 0, 0, 0
     try:
         before = get_cursor(conn, username) if mode == "backfill" else None
         # A completed backfill clears its cursor as the completion signal,
@@ -41,13 +52,23 @@ def collect_channel(conn, username, fetch, mode, max_pages=None,
                     "new_messages": 0, "failure_reason": None,
                     "skipped": "already-backfilled"}
         overlap_max = None
-        if mode == "incremental":
+        if mode in ("incremental", "repair"):
             # I1: a channel with no stored history has no resume
             # checkpoints -- silently full-walking it here would be an
             # uncheckpointed, unbounded backfill hiding inside what's
-            # supposed to be a bounded incremental run. Fail loudly and
-            # accounted-for instead; a human runs backfill first.
-            overlap_max = max_msg_id(conn, username)
+            # supposed to be a bounded incremental/repair run. Fail loudly
+            # and accounted-for instead; a human runs backfill first.
+            #
+            # incremental (top-up only, the daily default) stops at the
+            # raw MAX(msg_id): cheap and bounded, one or two pages for a
+            # channel that is already up to date. repair (explicit,
+            # operator-invoked, never the scheduled job) stops at the
+            # CONTIGUOUS-prefix top instead, so it walks all the way down
+            # to heal a real hole -- see store.newest_msg_id/max_msg_id
+            # docstrings for exactly why each is correct for its mode and
+            # wrong for the other.
+            overlap_max = (newest_msg_id(conn, username) if mode == "incremental"
+                           else max_msg_id(conn, username))
             if overlap_max is None:
                 return {"channel": username, "status": "failed",
                         "new_messages": 0,
@@ -73,6 +94,13 @@ def collect_channel(conn, username, fetch, mode, max_pages=None,
                 break
             inserted = upsert_messages(conn, msgs)
             new_total += inserted
+            unproductive_streak = 0 if inserted else unproductive_streak + 1
+            if unproductive_streak >= max_unproductive_pages:
+                record_coverage(conn, username)
+                return {"channel": username, "status": "complete",
+                        "new_messages": new_total, "failure_reason": None,
+                        "stopped": (f"unproductive: {max_unproductive_pages}"
+                                    " pages with no new messages")}
             oldest = min(m.msg_id for m in msgs)
             if mode == "backfill":
                 if fetched_before is not None and oldest >= fetched_before:
@@ -86,13 +114,13 @@ def collect_channel(conn, username, fetch, mode, max_pages=None,
                 if oldest <= 1:
                     break
                 before = oldest
-            else:  # incremental: walk back until the page's own minimum
-                   # overlaps already-known contiguous history, or we hit
+            else:  # incremental/repair: walk back until the page's own
+                   # minimum overlaps the mode's overlap target, or we hit
                    # the very start. NOT merely because a page inserted
-                   # zero new rows -- that early-stop is the defect (I1):
-                   # a page can be entirely already-known while a real
-                   # gap still sits further back, left by an earlier
-                   # interrupted run.
+                   # zero new rows -- that early-stop is the defect (I1)
+                   # that repair mode exists to avoid: a page can be
+                   # entirely already-known while a real gap still sits
+                   # further back, left by an earlier interrupted run.
                 before = oldest
                 if oldest <= overlap_max or oldest <= 1:
                     break
@@ -126,7 +154,7 @@ def mark_channel_complete(conn, channel: str) -> None:
 
 
 def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None,
-        force=False):
+        force=False, max_unproductive_pages=DEFAULT_MAX_UNPRODUCTIVE_PAGES):
     channels = [r[0] for r in conn.execute(
         "SELECT username FROM channels WHERE status IN (?,?) ORDER BY username",
         APPROVED)]
@@ -141,7 +169,8 @@ def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None,
                              "failure_reason": _VPN_DOWN_REASON})
             continue
         r = collect_channel(conn, c, fetch, mode, max_pages,
-                            vpn_check=vpn_check, force=force)
+                            vpn_check=vpn_check, force=force,
+                            max_unproductive_pages=max_unproductive_pages)
         if vpn_check is not None and r["failure_reason"] == _VPN_DOWN_REASON:
             # Once one channel aborts on a VPN drop, don't bother checking
             # again for the rest of the run -- it isn't coming back up
@@ -157,9 +186,22 @@ def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None,
 def _build_arg_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
-    ap.add_argument("--mode", choices=["backfill", "incremental"])
+    ap.add_argument("--mode", choices=["backfill", "incremental", "repair"],
+                    help="backfill: initial history walk to msg_id 1. "
+                         "incremental: daily top-up only, stops at the raw "
+                         "newest stored msg_id -- cheap and bounded, never "
+                         "walks deep. repair: explicit, operator-invoked "
+                         "gap-healing walk that stops at the contiguous-"
+                         "history overlap instead -- can walk very deep; "
+                         "never run this from the scheduled daily job.")
     ap.add_argument("--channel")
     ap.add_argument("--max-pages", type=int)
+    ap.add_argument("--max-unproductive-pages", type=int,
+                    default=DEFAULT_MAX_UNPRODUCTIVE_PAGES,
+                    help="stop (status complete) after this many "
+                         "consecutive fetched pages insert zero new "
+                         "messages, in any mode (default "
+                         f"{DEFAULT_MAX_UNPRODUCTIVE_PAGES})")
     ap.add_argument("--force-backfill", action="store_true",
                     help="ignore backfill completion markers and re-walk "
                          "even channels already marked complete")
@@ -213,7 +255,8 @@ if __name__ == "__main__":
                          args.mode, max_pages=args.max_pages,
                          only_channel=args.channel,
                          vpn_check=proton_vpn_active,
-                         force=args.force_backfill)
+                         force=args.force_backfill,
+                         max_unproductive_pages=args.max_unproductive_pages)
             print(json.dumps(report, indent=1))
             raise SystemExit(0 if report["ok"] else 1)
     except AlreadyRunningError:

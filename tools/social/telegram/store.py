@@ -108,13 +108,24 @@ def max_msg_id(conn, channel: str):
     """Highest msg_id in the CONTIGUOUS block starting at the channel's
     oldest stored message -- NOT simply the table's raw MAX(msg_id).
 
-    An interrupted incremental run can leave a disjoint island of newer
-    ids above a real gap (e.g. it saved the newest page, then died,
-    before walking back far enough to fill in beneath it). Reporting the
-    raw max there would make a later incremental overlap-walk stop the
-    instant it re-encounters that island, never reaching the actual gap
-    below it. Reporting the top of the genuinely gapless prefix instead
-    means the walk keeps going until it reconnects with real history.
+    Use this ONLY for a deliberate gap-REPAIR walk (`--mode repair`). An
+    interrupted incremental run can leave a disjoint island of newer ids
+    above a real gap (e.g. it saved the newest page, then died, before
+    walking back far enough to fill in beneath it). Reporting the raw max
+    there would make a later overlap-walk stop the instant it
+    re-encounters that island, never reaching the actual gap below it.
+    Reporting the top of the genuinely gapless prefix instead means the
+    walk keeps going until it reconnects with real history -- at the cost
+    of being expensive: for a large channel this is a full walk from the
+    top down to wherever the earliest gap sits, however deep that is.
+
+    Do NOT use this as the daily incremental job's stop condition -- that
+    was the bug (measured 2026-08-22, EvaHermanOffiziell: an old gap deep
+    in an 87k-message history made the contiguous prefix top land far
+    below the newest stored id, so the scheduled "incremental" run walked
+    the entire channel, ~4,400 fetches, zero inserts, four hours, and
+    would repeat every day). Use `newest_msg_id()` for that.
+
     Returns None if the channel has no stored messages at all.
     """
     rows = conn.execute(
@@ -129,6 +140,34 @@ def max_msg_id(conn, channel: str):
         top = mid
         prev = mid
     return top
+
+
+def newest_msg_id(conn, channel: str):
+    """Raw MAX(msg_id) across ALL stored messages for `channel`, island or
+    no island -- NOT the contiguous-prefix top that `max_msg_id()` reports.
+
+    Use this as the daily incremental job's ("top-up only") stop
+    condition: walk back from the newest page until a page's own minimum
+    msg_id is <= this value, or the page is empty. That is cheap and
+    bounded -- one or two pages for a channel that is already up to date
+    -- because it only cares "have we reached ids we already hold", not
+    "have we reached a genuinely gapless run of history". It will walk
+    past (and re-fetch) an island of already-stored newer ids without
+    noticing it as a stopping point, which is fine for top-up: an island
+    means those ids are already in the store, so re-fetching them just
+    re-upserts rows that are already there (zero new inserts, no harm) on
+    the way down to the raw max.
+
+    Do NOT use this to repair a hole left by a crashed run -- it will
+    stop at the top of an island above the hole and never reach it. Use
+    `max_msg_id()` (via `--mode repair`) for that.
+
+    Returns None if the channel has no stored messages at all.
+    """
+    row = conn.execute(
+        "SELECT MAX(msg_id) FROM messages WHERE channel=?",
+        (channel,)).fetchone()
+    return row[0] if row and row[0] is not None else None
 
 
 def channel_status(conn, username: str):
