@@ -37,6 +37,16 @@ final class LabelBatch {
 
     var drawnURIs: [String]
     var labelledURIs: [String]
+
+    /// URIs the annotator deliberately set aside without recording a decision.
+    /// Defaulted to `[]` so adding this property is a SwiftData lightweight
+    /// migration on existing stores (every pre-existing `LabelBatch` row reads back
+    /// with an empty array rather than failing to decode). A skipped URI is excluded
+    /// from a normal `openBatch` resume (see `openBatch`'s doc comment) but is never
+    /// lost — it stays in this array until the annotator revisits it explicitly and
+    /// records a decision, at which point `record` moves it out into `labelledURIs`.
+    var skippedURIs: [String] = []
+
     var passNumber: Int
 
     /// The batch this one was drawn from, when this is a second (or later) pass over
@@ -71,6 +81,7 @@ final class LabelBatch {
         self.seedBitPattern = Int64(bitPattern: seed)
         self.drawnURIs = drawnURIs
         self.labelledURIs = []
+        self.skippedURIs = []
         self.passNumber = passNumber
         self.sourceBatchID = sourceBatchID
         self.completedAt = nil

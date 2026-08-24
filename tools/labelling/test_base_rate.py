@@ -88,12 +88,16 @@ def test_normalize_uuid_garbage_returns_none():
 # Fixture store builder
 # --------------------------------------------------------------------------
 
-def make_store(tmp_path, batches, annotations, uuid_encoding="text"):
-    """batches: list of dicts {id: uuid.UUID, kind: str, pass_number: int}.
+def make_store(tmp_path, batches, annotations, uuid_encoding="text", with_skipped_column=True):
+    """batches: list of dicts {id: uuid.UUID, kind: str, pass_number: int,
+    skipped_uris: list[str] (optional, defaults to [])}.
     annotations: list of dicts {speech_class: str, batch_id: uuid.UUID|None,
     pass_number: int|None (annotation-level, informational only)}.
     uuid_encoding: "text" (dashed string) or "blob" (raw 16 bytes) -- exercises
     both possible SwiftData storage forms for ZID/ZBATCHID.
+    with_skipped_column: when False, ZLABELBATCH is created WITHOUT
+    ZSKIPPEDURIS at all -- exercises the pre-migration store this column may
+    not exist on yet.
     """
     path = str(tmp_path / "fixture.store")
     conn = sqlite3.connect(path)
@@ -101,9 +105,10 @@ def make_store(tmp_path, batches, annotations, uuid_encoding="text"):
         "CREATE TABLE ZANNOTATION (Z_PK INTEGER PRIMARY KEY, ZSTAGE VARCHAR, "
         "ZSPEECHCLASS VARCHAR, ZBATCHID BLOB, ZPASSNUMBER INTEGER)"
     )
+    skipped_col = ", ZSKIPPEDURIS VARCHAR" if with_skipped_column else ""
     conn.execute(
         "CREATE TABLE ZLABELBATCH (Z_PK INTEGER PRIMARY KEY, ZID BLOB, "
-        "ZFRAMEJSON VARCHAR, ZPASSNUMBER INTEGER)"
+        "ZFRAMEJSON VARCHAR, ZPASSNUMBER INTEGER%s)" % skipped_col
     )
 
     def encode(u):
@@ -113,10 +118,18 @@ def make_store(tmp_path, batches, annotations, uuid_encoding="text"):
 
     for b in batches:
         frame_json = json.dumps({"kind": b["kind"]})
-        conn.execute(
-            "INSERT INTO ZLABELBATCH (ZID, ZFRAMEJSON, ZPASSNUMBER) VALUES (?, ?, ?)",
-            (encode(b["id"]), frame_json, b["pass_number"]),
-        )
+        if with_skipped_column:
+            skipped_json = json.dumps(b.get("skipped_uris", []))
+            conn.execute(
+                "INSERT INTO ZLABELBATCH (ZID, ZFRAMEJSON, ZPASSNUMBER, ZSKIPPEDURIS) "
+                "VALUES (?, ?, ?, ?)",
+                (encode(b["id"]), frame_json, b["pass_number"], skipped_json),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO ZLABELBATCH (ZID, ZFRAMEJSON, ZPASSNUMBER) VALUES (?, ?, ?)",
+                (encode(b["id"]), frame_json, b["pass_number"]),
+            )
 
     for a in annotations:
         conn.execute(
@@ -417,3 +430,125 @@ def test_main_succeeds_and_writes_files_on_real_data(tmp_path):
     files = os.listdir(out_dir)
     assert any(f.startswith("base-rate-") and f.endswith(".json") for f in files)
     assert "README.md" in files
+
+
+# --------------------------------------------------------------------------
+# Skips -- visible, excluded from the estimate, never silently absorbed
+# --------------------------------------------------------------------------
+
+def test_decode_string_array_from_json_text():
+    assert br.decode_string_array('["at://a", "at://b"]') == ["at://a", "at://b"]
+
+
+def test_decode_string_array_from_json_bytes():
+    assert br.decode_string_array(b'["at://a"]') == ["at://a"]
+
+
+def test_decode_string_array_none_is_empty():
+    assert br.decode_string_array(None) == []
+
+
+def test_decode_string_array_unparseable_returns_none():
+    assert br.decode_string_array(b"\xff\xfe\x00garbage") is None
+
+
+def test_skip_count_reported_and_excluded_from_estimate(tmp_path):
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": 1,
+                  "skipped_uris": ["at://s1", "at://s2"]}],
+        annotations=[
+            {"speech_class": "hate", "batch_id": batch_id, "pass_number": 1},
+            {"speech_class": "neutral", "batch_id": batch_id, "pass_number": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["run_status"] == "ok"
+    # Skips must never appear in the numerator/denominator of the prevalence estimate.
+    assert report["n_included"] == 2
+    assert report["hate_prevalence"] == pytest.approx(0.5)
+
+    assert report["n_skipped"] == 2
+    assert report["skip_rate"] == pytest.approx(2 / 4)  # 2 skipped of 4 offered (2 decided + 2 skipped)
+
+
+def test_skip_count_zero_when_no_skips(tmp_path):
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[{"speech_class": "neutral", "batch_id": batch_id, "pass_number": 1}],
+    )
+    report = br.compute_report(store)
+    assert report["n_skipped"] == 0
+    assert report["skip_rate"] == pytest.approx(0.0)
+
+
+def test_skip_count_sums_across_multiple_uniform_pass1_batches(tmp_path):
+    batch1 = uuid.uuid4()
+    batch2 = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[
+            {"id": batch1, "kind": "uniformRandom", "pass_number": 1, "skipped_uris": ["at://s1"]},
+            {"id": batch2, "kind": "uniformRandom", "pass_number": 1, "skipped_uris": ["at://s2", "at://s3"]},
+        ],
+        annotations=[
+            {"speech_class": "neutral", "batch_id": batch1, "pass_number": 1},
+            {"speech_class": "neutral", "batch_id": batch2, "pass_number": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["n_skipped"] == 3
+
+
+def test_skips_on_filtered_or_pass2_batches_are_not_counted(tmp_path):
+    # Only uniformRandom pass-1 batches feed the estimate -- a filtered or
+    # second-pass batch's skips are out of scope for this report, exactly like
+    # its labels are.
+    uniform_batch = uuid.uuid4()
+    filtered_batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[
+            {"id": uniform_batch, "kind": "uniformRandom", "pass_number": 1,
+             "skipped_uris": ["at://s1"]},
+            {"id": filtered_batch, "kind": "filtered", "pass_number": 1,
+             "skipped_uris": ["at://s2", "at://s3"]},
+        ],
+        annotations=[
+            {"speech_class": "neutral", "batch_id": uniform_batch, "pass_number": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["n_skipped"] == 1
+
+
+def test_missing_skipped_uris_column_is_handled_not_crashed(tmp_path):
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[{"speech_class": "neutral", "batch_id": batch_id, "pass_number": 1}],
+        with_skipped_column=False,
+    )
+    report = br.compute_report(store)
+    assert report["run_status"] == "ok"
+    assert report["n_skipped"] == 0
+    assert any("skippedURIs" in note or "ZSKIPPEDURIS" in note for note in report["schema_notes"])
+
+
+def test_render_report_text_includes_skip_line_and_caveat(tmp_path):
+    batch_id = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch_id, "kind": "uniformRandom", "pass_number": 1,
+                  "skipped_uris": ["at://s1"]}],
+        annotations=[{"speech_class": "neutral", "batch_id": batch_id, "pass_number": 1}],
+    )
+    report = br.compute_report(store)
+    text = br.render_report_text(report, store)
+    assert "1 item" in text and "skipped" in text
+    assert "excluded from the estimate" in text
+    assert "biases the estimate toward the decidable subset" in text

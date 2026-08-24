@@ -91,7 +91,17 @@ final class LabellingFormattingTests: XCTestCase {
     // MARK: - batch list
 
     func testBatchProgressSummary() {
-        XCTAssertEqual(LabellingFormatting.batchProgressSummary(labelled: 30, drawn: 100), "30/100 labelled")
+        XCTAssertEqual(LabellingFormatting.batchProgressSummary(labelled: 24, skipped: 2, drawn: 100),
+                        "24 labelled · 2 skipped · 74 remaining")
+    }
+
+    /// Every batch-progress string must reconcile: labelled + skipped + remaining ==
+    /// drawn, however the counts are split.
+    func testBatchProgressSummaryCountsReconcile() {
+        XCTAssertEqual(LabellingFormatting.batchProgressSummary(labelled: 0, skipped: 0, drawn: 5),
+                        "0 labelled · 0 skipped · 5 remaining")
+        XCTAssertEqual(LabellingFormatting.batchProgressSummary(labelled: 5, skipped: 0, drawn: 5),
+                        "5 labelled · 0 skipped · 0 remaining")
     }
 
     func testPassLabel() {

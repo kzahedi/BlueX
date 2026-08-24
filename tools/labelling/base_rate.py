@@ -78,6 +78,7 @@ import datetime as dt
 import json
 import math
 import os
+import plistlib
 import sqlite3
 import sys
 import tempfile
@@ -187,6 +188,47 @@ def normalize_uuid(value):
     return None
 
 
+def decode_string_array(value):
+    """Decode a `[String]` column value (e.g. `LabelBatch.skippedURIs`) into a
+    Python list, or `None` if it cannot be interpreted at all -- never raises,
+    mirroring `normalize_uuid`'s "corrupt/foreign value must not crash the
+    reader" discipline.
+
+    `None` in the store means "empty array" (the empty case is also SwiftData's
+    default for `skippedURIs`), so `None` in -> `[]` out, distinct from a value
+    present but undecodable, which returns `None` so the caller can tell the
+    difference between "no skips" and "could not read this".
+
+    This tool has NOT been able to observe empirically how SwiftData encodes a
+    bare `[String]` column in this store (same caveat as `normalize_uuid` for
+    UUID columns). Two encodings are tried: UTF-8 JSON (a plain JSON array of
+    strings -- the most likely TEXT-column form) and, for BLOB values that
+    aren't valid JSON, a binary property list (the array form Core Data's
+    transformable attributes typically use).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+        return decoded if isinstance(decoded, list) else None
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+            return decoded if isinstance(decoded, list) else None
+        except (ValueError, TypeError, UnicodeDecodeError):
+            pass
+        try:
+            decoded = plistlib.loads(raw)
+            return list(decoded) if isinstance(decoded, list) else None
+        except Exception:
+            return None
+    return None
+
+
 def fetch_human_annotations(conn):
     """Return (rows, flags). Each row is a dict: pk, speech_class,
     batch_id_raw (None if column absent or value is NULL),
@@ -245,7 +287,10 @@ def fetch_human_annotations(conn):
 
 def fetch_batches(conn):
     """Return (batches, meta). `batches` maps normalized UUID string ->
-    {"kind": str|None, "pass_number": int|None}.
+    {"kind": str|None, "pass_number": int|None, "skipped_count": int|None}.
+    `skipped_count` is `None` when `ZSKIPPEDURIS` is absent from the store
+    (pre-migration) or its value couldn't be decoded for that row -- callers
+    must not treat `None` as zero.
 
     `meta` is a dict with a `"status"` key distinguishing the two distinct
     ways this can be unusable -- collapsing them was a real finding (a
@@ -263,19 +308,24 @@ def fetch_batches(conn):
     needed = ("ZID", "ZFRAMEJSON", "ZPASSNUMBER")
 
     if not table_exists(conn, "ZLABELBATCH"):
-        return {}, {"status": "missing_table"}
+        return {}, {"status": "missing_table", "has_skipped_column": False}
 
     cols = column_map(conn, "ZLABELBATCH")
     missing = [c for c in needed if c not in cols]
     if missing:
-        return {}, {"status": "missing_columns", "missing": missing, "found": sorted(cols)}
+        return {}, {"status": "missing_columns", "missing": missing, "found": sorted(cols),
+                     "has_skipped_column": "ZSKIPPEDURIS" in cols}
 
-    rows = conn.execute(
-        "SELECT %s, %s, %s FROM ZLABELBATCH" % (cols["ZID"], cols["ZFRAMEJSON"], cols["ZPASSNUMBER"])
-    ).fetchall()
+    has_skipped_column = "ZSKIPPEDURIS" in cols
+    select_cols = [cols["ZID"], cols["ZFRAMEJSON"], cols["ZPASSNUMBER"]]
+    if has_skipped_column:
+        select_cols.append(cols["ZSKIPPEDURIS"])
+
+    rows = conn.execute("SELECT %s FROM ZLABELBATCH" % ", ".join(select_cols)).fetchall()
 
     batches = {}
-    for zid_raw, frame_json, pass_number in rows:
+    for row in rows:
+        zid_raw, frame_json, pass_number = row[0], row[1], row[2]
         norm = normalize_uuid(zid_raw)
         if norm is None:
             continue
@@ -286,8 +336,12 @@ def fetch_batches(conn):
                 kind = frame.get("kind") if isinstance(frame, dict) else None
             except (ValueError, TypeError):
                 kind = None
-        batches[norm] = {"kind": kind, "pass_number": pass_number}
-    return batches, {"status": "ok"}
+        skipped_count = None
+        if has_skipped_column:
+            decoded = decode_string_array(row[3])
+            skipped_count = len(decoded) if decoded is not None else None
+        batches[norm] = {"kind": kind, "pass_number": pass_number, "skipped_count": skipped_count}
+    return batches, {"status": "ok", "has_skipped_column": has_skipped_column}
 
 
 # --------------------------------------------------------------------------
@@ -323,6 +377,28 @@ def classify_label(annotation, batches, batches_available):
         return ("excluded", "pass_%s" % pass_label, speech_class)
 
     return ("included", None, speech_class)
+
+
+def count_skipped(batches):
+    """Sum `skipped_count` over exactly the batches that are in scope for the
+    estimate -- `kind == "uniformRandom"` and `pass_number == 1`, the same
+    two conditions `classify_label` uses to decide inclusion. A skip is not
+    an annotation, so it never appears in `annotations`/`build_report` at
+    all; this is the only place skipped URIs are counted, kept deliberately
+    parallel to the label-inclusion rule so "how many were skipped from the
+    SAME sample the estimate is drawn from" is unambiguous.
+
+    A batch whose `skipped_count` is `None` (column absent or that row's
+    value undecodable) contributes 0 -- silently undercounting is safer here
+    than crashing, but see `schema_notes` for whether that undercount is
+    actually happening.
+    """
+    total = 0
+    for batch in batches.values():
+        if batch.get("kind") != "uniformRandom" or batch.get("pass_number") != 1:
+            continue
+        total += batch.get("skipped_count") or 0
+    return total
 
 
 def build_report(annotations, batches, batches_available):
@@ -457,6 +533,21 @@ def render_report_text(report, store_path):
         lines.append("  - %s: %d" % (reason, count))
     lines.append("")
 
+    n_skipped = report.get("n_skipped", 0)
+    item_word = "item" if n_skipped == 1 else "items"
+    lines.append(
+        "%d %s skipped (excluded from the estimate) -- skip rate %s of items offered "
+        "from this sample." % (n_skipped, item_word, format_pct(report.get("skip_rate", 0.0)))
+    )
+    lines.append(
+        "Caveat: skips are not annotations, so they are correctly excluded from "
+        "both the numerator and denominator above -- but heavy skipping of "
+        "ambiguous items biases the estimate toward the decidable subset, since "
+        "whatever made an item hard enough to set aside is exactly what is missing "
+        "from the prevalence figure below."
+    )
+    lines.append("")
+
     if report["run_status"] != "ok":
         lines.append("RESULT: no base rate computed (%s)." % report["run_status"])
         lines.append(report["message"])
@@ -534,12 +625,22 @@ def compute_report(store_path):
             "excluded as no_label_batch_table until this is resolved."
             % (batches_meta["missing"], batches_meta["found"])
         )
+    if batches_available and not batches_meta.get("has_skipped_column", False):
+        schema_notes.append(
+            "ZLABELBATCH has no ZSKIPPEDURIS column yet -- skipped items cannot be "
+            "counted on this store until it is migrated (skippedURIs was added "
+            "alongside the skip-persistence fix); n_skipped is reported as 0, which "
+            "may undercount actual skips rather than reflect that none happened."
+        )
     if not schema_notes:
         schema_notes.append("ZANNOTATION/ZLABELBATCH schema found as expected; no migration gaps detected.")
 
     breakdown = build_report(annotations, batches, batches_available)
+    n_skipped = count_skipped(batches) if batches_available else 0
 
     n = breakdown["n_included"]
+    skip_denominator = n + n_skipped
+    skip_rate = (n_skipped / skip_denominator) if skip_denominator > 0 else 0.0
     report = {
         "generated_at": now_iso(),
         "store": os.path.abspath(store_path),
@@ -549,6 +650,8 @@ def compute_report(store_path):
         "included_other_class": breakdown["included_other_class"],
         "n_excluded": breakdown["n_excluded"],
         "excluded_by_reason": breakdown["excluded_by_reason"],
+        "n_skipped": n_skipped,
+        "skip_rate": skip_rate,
     }
 
     if n == 0:

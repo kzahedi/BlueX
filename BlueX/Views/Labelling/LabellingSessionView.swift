@@ -66,12 +66,19 @@ struct LabellingSessionView: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 40))
                 .foregroundStyle(Color.counterBorder)
-            Text("Batch complete")
+            Text(viewModel.isRevisitingSkips ? "Revisit complete" : "Batch complete")
                 .font(.title3)
                 .foregroundStyle(Color.primaryText)
-            Text("Every item offered this session has a decision recorded or was skipped.")
+            Text(viewModel.isRevisitingSkips
+                 ? "Every previously-skipped item offered this session has a decision recorded, or was left skipped."
+                 : "Every item offered this session has a decision recorded or was set aside as skipped.")
                 .font(.caption)
                 .foregroundStyle(Color.secondaryText)
+            Text(LabellingFormatting.batchProgressSummary(
+                labelled: viewModel.batchLabelledCount, skipped: viewModel.batchSkippedCount,
+                drawn: viewModel.batchDrawnCount))
+                .font(.caption)
+                .foregroundStyle(Color.mutedText)
         }
     }
 
@@ -80,6 +87,10 @@ struct LabellingSessionView: View {
     private var session: some View {
         VStack(alignment: .leading, spacing: 12) {
             progressHeader
+
+            if viewModel.isRevisitingSkips {
+                revisitBanner
+            }
 
             if let error = viewModel.recordError {
                 recordErrorBanner(error)
@@ -125,6 +136,18 @@ struct LabellingSessionView: View {
             }
             .padding(.horizontal, 16)
         }
+    }
+
+    /// Shown for the whole duration of a revisit session — never let a previously
+    /// set-aside item be presented as if it were fresh, ordinary work.
+    private var revisitBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.uturn.backward.circle").foregroundStyle(Color.neutralBorder)
+            Text("Revisiting previously skipped items — these were deliberately set aside, not new")
+                .font(.caption)
+                .foregroundStyle(Color.secondaryText)
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Record errors
@@ -176,7 +199,7 @@ struct LabellingSessionView: View {
             Spacer()
             if blocking {
                 Button("Skip anyway") {
-                    viewModel.skip()
+                    viewModel.skip(context: modelContext)
                     noteText = ""
                     focus = .session
                 }
@@ -328,7 +351,7 @@ struct LabellingSessionView: View {
         case "1": viewModel.record("hate", note: note.isEmpty ? nil : note, context: modelContext)
         case "2": viewModel.record("counter", note: note.isEmpty ? nil : note, context: modelContext)
         case "3": viewModel.record("neutral", note: note.isEmpty ? nil : note, context: modelContext)
-        case "0": viewModel.skip()
+        case "0": viewModel.skip(context: modelContext)
         default: return
         }
         // Only clear the typed note once the session has actually advanced past this

@@ -59,6 +59,19 @@ final class LabelBatchTests: XCTestCase {
         XCTAssertEqual(fetched[0].seed, largeSeed)
     }
 
+    func testSkippedURIsDefaultsToEmptyAndRoundTrips() throws {
+        let batch = LabelBatch(frame: .uniformRandom, poolSizeAtDraw: 4, seed: 7,
+                                drawnURIs: ["at://a", "at://b"], passNumber: 1)
+        XCTAssertEqual(batch.skippedURIs, [])
+
+        batch.skippedURIs.append("at://a")
+        context.insert(batch)
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(fetched[0].skippedURIs, ["at://a"])
+    }
+
     func testDrawnURIsOrderIsPreserved() throws {
         let uris = ["at://z", "at://a", "at://m", "at://b"]
         let batch = LabelBatch(frame: .uniformRandom, poolSizeAtDraw: 4, seed: 7,

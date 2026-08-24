@@ -311,7 +311,8 @@ struct LabellingHomeView: View {
                         .foregroundStyle(Color.primaryText)
                     Text("\(LabellingFormatting.passLabel(batch.passNumber)) · " +
                          LabellingFormatting.batchProgressSummary(
-                             labelled: batch.labelledURIs.count, drawn: batch.drawnURIs.count) +
+                             labelled: batch.labelledURIs.count, skipped: batch.skippedURIs.count,
+                             drawn: batch.drawnURIs.count) +
                          " · created \(batch.createdAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
                         .foregroundStyle(Color.secondaryText)
@@ -325,6 +326,18 @@ struct LabellingHomeView: View {
                 }
                 .buttonStyle(.bordered)
                 .font(.system(size: 11))
+
+                if !batch.skippedURIs.isEmpty {
+                    Button("Revisit \(batch.skippedURIs.count) skipped") {
+                        Task {
+                            guard let reader = try? AggregateReader() else { return }
+                            await viewModel.openBatch(batch.id, reader: reader, revisitSkipped: true)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.neutralBorder)
+                    .font(.system(size: 11))
+                }
 
                 if batch.passNumber == 1 && batch.completedAt != nil && !hasSecondPass {
                     Button("Create second pass") {

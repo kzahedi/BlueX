@@ -220,22 +220,142 @@ final class LabellingViewModelTests: XCTestCase {
         XCTAssertNotNil(batch.completedAt)
     }
 
-    func testSkipAdvancesWithoutRecordingAndLeavesURIUnlabelled() async throws {
+    func testSkipPersistsURIIntoSkippedURIsAndAdvances() async throws {
         let vm = makeViewModel(seed: 13)
         await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
         let batchID = try XCTUnwrap(vm.currentBatchID)
         await vm.openBatch(batchID, reader: reader)
         let firstURI = try XCTUnwrap(vm.currentItem?.uri)
 
-        vm.skip()
+        vm.skip(context: context)
         XCTAssertEqual(vm.currentIndex, 1)
 
         let annotations = try context.fetch(FetchDescriptor<Annotation>())
-        XCTAssertTrue(annotations.isEmpty)
+        XCTAssertTrue(annotations.isEmpty, "a skip must never write an Annotation")
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertEqual(batch.skippedURIs, [firstURI])
+        XCTAssertTrue(batch.labelledURIs.isEmpty)
+    }
+
+    /// A resumed session must never re-offer a URI that was deliberately skipped —
+    /// that is exactly the bug this task fixes (`openBatch` must filter by
+    /// `labelledURIs ∪ skippedURIs`, not `labelledURIs` alone).
+    func testResumeAfterSkipNeverReOffersTheSkippedURI() async throws {
+        let vm = makeViewModel(seed: 13)
+        await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+        let firstURI = try XCTUnwrap(vm.currentItem?.uri)
+
+        vm.skip(context: context)
 
         let vm2 = makeViewModel(seed: 13)
         await vm2.openBatch(batchID, reader: reader)
-        XCTAssertTrue(vm2.sessionItems.contains { $0.uri == firstURI })
+        XCTAssertFalse(vm2.sessionItems.contains { $0.uri == firstURI },
+                        "a skipped URI must not be re-offered by an ordinary resume")
+    }
+
+    /// Mirrors `testSaveFailureLeavesNothingPersistedAndDoesNotAdvance` exactly, for
+    /// `skip()`: a failed save must roll back the `skippedURIs` append, leave
+    /// `currentIndex` untouched, and publish `.saveFailed`.
+    func testSkipSaveFailureRollsBackAppendAndDoesNotAdvance() async throws {
+        let vm = makeViewModel(seed: 13)
+        await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+        XCTAssertEqual(vm.sessionItems.count, 2)
+
+        let readOnlyConfig = ModelConfiguration(schema: BlueXSchema.all, url: storeURL,
+                                                 allowsSave: false, cloudKitDatabase: .none)
+        let readOnlyContainer = try ModelContainer(for: BlueXSchema.all, configurations: readOnlyConfig)
+        let readOnlyContext = ModelContext(readOnlyContainer)
+
+        vm.skip(context: readOnlyContext)
+
+        let failure = try XCTUnwrap(vm.recordError)
+        guard case .saveFailed = failure else {
+            return XCTFail("expected .saveFailed, got \(failure)")
+        }
+        XCTAssertEqual(vm.currentIndex, 0, "must not advance on a failed save")
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertTrue(batch.skippedURIs.isEmpty, "skippedURIs must not be appended on a failed save")
+    }
+
+    // MARK: - Revisit skipped
+
+    /// The revisit path offers exactly the skipped URIs, and deciding one removes it
+    /// from `skippedURIs` and adds it to `labelledURIs`.
+    func testRevisitSkippedOffersExactlySkippedURIsAndPromotesOnDecide() async throws {
+        let vm = makeViewModel(seed: 13)
+        await vm.createBatch(frame: .uniformRandom, size: 4, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+
+        let skippedURI = try XCTUnwrap(vm.currentItem?.uri)
+        vm.skip(context: context)
+        // Label the rest normally so we have a clean labelled/skipped split.
+        while !vm.isSessionComplete {
+            vm.record("neutral", note: nil, context: context)
+        }
+
+        let vm2 = makeViewModel(seed: 13)
+        await vm2.openBatch(batchID, reader: reader, revisitSkipped: true)
+        XCTAssertEqual(Set(vm2.sessionItems.map(\.uri)), [skippedURI])
+        XCTAssertTrue(vm2.isRevisitingSkips)
+
+        vm2.record("hate", note: nil, context: context)
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertFalse(batch.skippedURIs.contains(skippedURI), "decided revisit must leave skippedURIs")
+        XCTAssertTrue(batch.labelledURIs.contains(skippedURI), "decided revisit must land in labelledURIs")
+    }
+
+    /// Skipping again during a revisit session must leave the URI in `skippedURIs`
+    /// (idempotent — no duplicate entries).
+    func testRevisitSkippedAgainLeavesItSkipped() async throws {
+        let vm = makeViewModel(seed: 13)
+        await vm.createBatch(frame: .uniformRandom, size: 2, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+        let skippedURI = try XCTUnwrap(vm.currentItem?.uri)
+        vm.skip(context: context)
+
+        let vm2 = makeViewModel(seed: 13)
+        await vm2.openBatch(batchID, reader: reader, revisitSkipped: true)
+        XCTAssertEqual(vm2.sessionItems.map(\.uri), [skippedURI])
+
+        vm2.skip(context: context)
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertEqual(batch.skippedURIs, [skippedURI])
+    }
+
+    /// Progress counts must always reconcile: labelled + skipped + remaining ==
+    /// drawnURIs.count.
+    func testProgressCountsReconcileWithDrawnCount() async throws {
+        let vm = makeViewModel(seed: 13)
+        await vm.createBatch(frame: .uniformRandom, size: 4, reader: reader)
+        let batchID = try XCTUnwrap(vm.currentBatchID)
+        await vm.openBatch(batchID, reader: reader)
+
+        vm.record("hate", note: nil, context: context)
+        vm.skip(context: context)
+        vm.record("neutral", note: nil, context: context)
+        // One item left unlabelled/unskipped this session.
+
+        let batch = try XCTUnwrap(context.fetch(
+            FetchDescriptor<LabelBatch>(predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        let remaining = batch.drawnURIs.count - batch.labelledURIs.count - batch.skippedURIs.count
+        XCTAssertEqual(batch.labelledURIs.count + batch.skippedURIs.count + remaining, batch.drawnURIs.count)
+        XCTAssertEqual(batch.labelledURIs.count, 2)
+        XCTAssertEqual(batch.skippedURIs.count, 1)
+        XCTAssertEqual(remaining, 1)
     }
 
     // MARK: - Second pass / blindness

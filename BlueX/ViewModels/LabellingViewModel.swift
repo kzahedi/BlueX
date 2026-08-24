@@ -125,6 +125,19 @@ final class LabellingViewModel {
     private(set) var currentBatchID: UUID?
     private(set) var currentPassNumber: Int = 1
 
+    /// `true` when the current session was opened via the "revisit skipped" path
+    /// (`openBatch(_:reader:revisitSkipped: true)`) rather than the ordinary resume
+    /// path. The view must use this to make clear these items were previously set
+    /// aside — never present a revisited skip as if it were fresh.
+    private(set) var isRevisitingSkips: Bool = false
+
+    /// Counts for the currently-open batch, kept in step with `record`/`skip` so the
+    /// UI can always show an honest "labelled · skipped · remaining" breakdown that
+    /// reconciles to `drawnURIs.count` without a separate fetch.
+    private(set) var batchDrawnCount: Int = 0
+    private(set) var batchLabelledCount: Int = 0
+    private(set) var batchSkippedCount: Int = 0
+
     /// The items presented this session, in presentation order. Built exclusively from
     /// `AggregateReader.LabellingContext` — see the type's doc comment on blindness.
     private(set) var sessionItems: [AggregateReader.LabellingContext] = []
@@ -210,12 +223,19 @@ final class LabellingViewModel {
 
     // MARK: - Open / resume batch
 
-    /// Loads the session for an existing batch: unlabelled URIs first (so a partially
-    /// labelled batch resumes where it left off), presented in draw order for pass 1
-    /// but shuffled per-session for pass 2 — so a pass-2 annotator sees a different
-    /// order each time they open it, never the pass-1 order that produced their first
-    /// answers, which would let position alone cue recall.
-    func openBatch(_ id: UUID, reader: AggregateReader) async {
+    /// Loads the session for an existing batch: unlabelled, unskipped URIs first (so
+    /// a partially labelled batch resumes where it left off), presented in draw order
+    /// for pass 1 but shuffled per-session for pass 2 — so a pass-2 annotator sees a
+    /// different order each time they open it, never the pass-1 order that produced
+    /// their first answers, which would let position alone cue recall.
+    ///
+    /// A URI the annotator deliberately skipped stays excluded from this ordinary
+    /// resume — `labelledURIs ∪ skippedURIs` is excluded, not `labelledURIs` alone —
+    /// so a resumed session never silently re-presents a set-aside item as if it were
+    /// new work. Pass `revisitSkipped: true` to open a session over exactly the
+    /// batch's `skippedURIs` instead; `isRevisitingSkips` is published so the caller
+    /// can make clear these items were previously set aside.
+    func openBatch(_ id: UUID, reader: AggregateReader, revisitSkipped: Bool = false) async {
         loadState = .loading
         let containerFactory = self.containerFactory
         do {
@@ -227,16 +247,23 @@ final class LabellingViewModel {
                 guard let batch = try context.fetch(descriptor).first else {
                     throw LabellingError.batchNotFound
                 }
-                let labelled = Set(batch.labelledURIs)
-                var unlabelled = batch.drawnURIs.filter { !labelled.contains($0) }
-                if batch.passNumber >= 2 {
-                    unlabelled.shuffle()
+                var toPresent: [String]
+                if revisitSkipped {
+                    toPresent = batch.skippedURIs
+                } else {
+                    let excluded = Set(batch.labelledURIs).union(batch.skippedURIs)
+                    toPresent = batch.drawnURIs.filter { !excluded.contains($0) }
+                    if batch.passNumber >= 2 {
+                        toPresent.shuffle()
+                    }
                 }
-                let contexts = try reader.labellingContext(uris: unlabelled)
+                let contexts = try reader.labellingContext(uris: toPresent)
                 let byURI = Dictionary(uniqueKeysWithValues: contexts.map { ($0.uri, $0) })
-                let ordered = unlabelled.compactMap { byURI[$0] }
+                let ordered = toPresent.compactMap { byURI[$0] }
                 return (batchID: batch.id, passNumber: batch.passNumber,
-                        drawnCount: batch.drawnURIs.count, items: ordered)
+                        drawnCount: batch.drawnURIs.count, items: ordered,
+                        labelledCount: batch.labelledURIs.count,
+                        skippedCount: batch.skippedURIs.count)
             }.value
             guard !Task.isCancelled else { return }
             currentBatchID = result.batchID
@@ -244,6 +271,10 @@ final class LabellingViewModel {
             sessionItems = result.items
             currentIndex = 0
             presentedAt = clock()
+            isRevisitingSkips = revisitSkipped
+            batchDrawnCount = result.drawnCount
+            batchLabelledCount = result.labelledCount
+            batchSkippedCount = result.skippedCount
             poolState = result.drawnCount == 0 ? .empty
                 : (result.items.isEmpty ? .exhausted : .available(result.items.count))
             loadState = .loaded
@@ -307,6 +338,14 @@ final class LabellingViewModel {
 
         let previousCompletedAt = batch.completedAt
         batch.labelledURIs.append(uri)
+        // If this item had previously been skipped (a revisit session deciding it,
+        // or any other path that lands here for an already-skipped URI), it must be
+        // promoted out of skippedURIs — a decided item is never left showing as both
+        // labelled and skipped.
+        let wasSkipped = batch.skippedURIs.contains(uri)
+        if wasSkipped {
+            batch.skippedURIs.removeAll { $0 == uri }
+        }
         let allLabelled = Set(batch.drawnURIs).isSubset(of: Set(batch.labelledURIs))
         if allLabelled {
             batch.completedAt = decidedAt
@@ -325,19 +364,63 @@ final class LabellingViewModel {
             if batch.labelledURIs.last == uri {
                 batch.labelledURIs.removeLast()
             }
+            if wasSkipped && !batch.skippedURIs.contains(uri) {
+                batch.skippedURIs.append(uri)
+            }
             batch.completedAt = previousCompletedAt
             recordError = .saveFailed(String(describing: error))
             return
         }
 
+        batchLabelledCount += 1
+        if wasSkipped {
+            batchSkippedCount -= 1
+        }
         currentIndex += 1
         presentedAt = clock()
     }
 
-    /// Advances past the current item without recording anything — the URI stays
-    /// unlabelled, so a later `openBatch` resume offers it again.
-    func skip() {
-        guard currentIndex < sessionItems.count else { return }
+    /// Advances past the current item without recording anything, but — unlike the
+    /// old behaviour — persists that decision: the URI is appended to the batch's
+    /// `skippedURIs` and saved, following the same save-failure discipline as
+    /// `record`. A skipped URI stays excluded from the ordinary `openBatch` resume
+    /// (see its doc comment) so it is never silently re-offered as if it were new
+    /// work, but it is not lost — it stays revisitable via
+    /// `openBatch(_:reader:revisitSkipped: true)` until the annotator decides it.
+    ///
+    /// If the URI is already in `skippedURIs` (skipping it again during a revisit
+    /// session), this is a no-op append — idempotent, no duplicate entries — but
+    /// still advances.
+    func skip(context: ModelContext) {
+        recordError = nil
+        guard currentIndex < sessionItems.count, let item = currentItem,
+              let batchID = currentBatchID else { return }
+
+        let batchDescriptor = FetchDescriptor<LabelBatch>(
+            predicate: #Predicate<LabelBatch> { $0.id == batchID })
+        guard let batch = try? context.fetch(batchDescriptor).first else {
+            recordError = .batchNotFound
+            return
+        }
+
+        let uri = item.uri
+        let alreadySkipped = batch.skippedURIs.contains(uri)
+        if !alreadySkipped {
+            batch.skippedURIs.append(uri)
+            do {
+                try context.save()
+            } catch {
+                // Roll back — a failed save must leave skippedURIs untouched and not
+                // advance, exactly like `record`'s own save-failure discipline.
+                if batch.skippedURIs.last == uri {
+                    batch.skippedURIs.removeLast()
+                }
+                recordError = .saveFailed(String(describing: error))
+                return
+            }
+            batchSkippedCount += 1
+        }
+
         currentIndex += 1
         presentedAt = clock()
     }

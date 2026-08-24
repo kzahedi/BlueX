@@ -79,9 +79,13 @@ enum LabellingFormatting {
 
     // MARK: - Batch list
 
-    /// "N/M labelled" — progress within a batch, independent of pass number.
-    static func batchProgressSummary(labelled: Int, drawn: Int) -> String {
-        "\(labelled)/\(drawn) labelled"
+    /// "N labelled · M skipped · K remaining" — progress within a batch, independent
+    /// of pass number. Skipped items are never folded into "labelled": a skip is a
+    /// deliberate non-decision, not a completed label, and the three counts always
+    /// reconcile to `drawn` so nothing about the batch's state is hidden.
+    static func batchProgressSummary(labelled: Int, skipped: Int, drawn: Int) -> String {
+        let remaining = max(0, drawn - labelled - skipped)
+        return "\(labelled) labelled · \(skipped) skipped · \(remaining) remaining"
     }
 
     static func passLabel(_ passNumber: Int) -> String {
