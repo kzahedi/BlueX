@@ -30,6 +30,50 @@ source "$JOBS_DIR/lib-bluex-job.sh"
 
 SCRAPE="$BLUEX_BIN/blueX-scrape"
 
+# Single-instance lock for the scrape invocation itself — a DIFFERENT problem than
+# $BLUEX_LOCK above (that mkdir lock only ever coordinates this loop against
+# bluex-nightly.sh's own pass-taking; it says nothing about a manually launched
+# blueX-scrape, or any other invocation, racing this agent directly). Measured
+# incident: two blueX-scrape processes ran against the same SwiftData store for
+# about a minute — doubled Bluesky request rate, store write-lock contention,
+# duplicated work, and nothing noticed.
+#
+# Deliberately NOT a PID file, for the same reason tools/common/single_instance.py
+# gives for the Telegram collector: a PID file left behind by a SIGKILL is
+# indistinguishable from a live holder without extra liveness checks, which is
+# exactly the race this has to avoid. flock ties the lock to the kernel's
+# open-file-description table instead, so it releases automatically on ANY exit of
+# the holder (clean, crashed, or SIGKILLed) and a stale lock *file* on disk never
+# blocks a fresh acquisition.
+#
+# macOS has no flock(1), so this is a small inline python3 helper — python3 is
+# already a hard dependency of this script family (see the interruptible-CLI test
+# stub). It acquires an exclusive, non-blocking flock and then execs the scraper
+# IN THE SAME PROCESS while holding the descriptor, so the kernel keeps holding the
+# lock for the scraper's entire lifetime with no separate watcher process needed to
+# release it. `os.open` marks its descriptors close-on-exec by default (PEP 446);
+# `os.set_inheritable` undoes that specifically so exec does not silently release
+# the lock the instant the scraper starts. Exit 3 on a lock miss (never runs the
+# scraper) mirrors the Telegram collector's own single-instance stand-down code.
+SCRAPE_LOCK="$BLUEX_STORE_DIR/.bluex-scrape.lock"
+# BEGIN bluex-scrape-lock.py — tools/jobs/test_jobs.py extracts this verbatim to
+# unit-test the locking primitive directly; keep the markers and heredoc intact.
+SCRAPE_LOCK_PY=$(cat <<'PYEOF'
+import fcntl, os, sys
+
+lock_path = sys.argv[1]
+args = sys.argv[2:]
+fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    sys.exit(3)
+os.set_inheritable(fd, True)
+os.execvp(args[0], args)
+PYEOF
+)
+# END bluex-scrape-lock.py
+
 # Inter-pass sleep after a pass completes (success OR failure) — one bad pass must
 # not spin the loop hot, and it must not shorten the interval either. 20 minutes in
 # production; overridable so the tests do not sleep for real.
@@ -94,13 +138,20 @@ bluex_probe_store_writable() {
 # one at a glance; "permissionBlocked" is what lets the watchdog tell the TCC-EPERM
 # state apart from a generic stale/failed reading. scrapeExit is the last PASS's
 # exit code — 0 while permission-blocked, since no pass has even attempted to run.
+# "skipped" (4th, optional arg) mirrors the Telegram job's own heartbeat
+# convention: an optional string key, present only when this tick stood down
+# instead of doing real work, so the watchdog can tell "ran cleanly" apart from
+# "correctly declined to run" without a new heartbeat shape for every reason.
 bluex_continuous_write_heartbeat() {
-  local scrape_rc="$1" blocked="$2" log="$3"
+  local scrape_rc="$1" blocked="$2" log="$3" skipped="${4:-}"
+  local skipped_line=""
+  [ -n "$skipped" ] && skipped_line="  \"skipped\": \"$skipped\","
   cat >"$BLUEX_HEARTBEAT" <<JSON
 {
   "finishedAt": "$(date -u "+%Y-%m-%dT%H:%M:%SZ")",
   "mode": "continuous",
   "scrapeExit": $scrape_rc,
+$skipped_line
   "stoppedAtDeadline": false,
   "sentimentSkipped": true,
   "permissionBlocked": $blocked,
@@ -137,7 +188,7 @@ while [ "$RUNNING" -eq 1 ]; do
 
   LOG="$(bluex_log_path continuous)"
   echo "=== continuous pass $(date) ===" >>"$LOG"
-  "$SCRAPE" --pace steady >>"$LOG" 2>&1 &
+  python3 -c "$SCRAPE_LOCK_PY" "$SCRAPE_LOCK" "$SCRAPE" --pace steady >>"$LOG" 2>&1 &
   CHILD_PID=$!
   wait "$CHILD_PID"
   scrape_rc=$?
@@ -145,6 +196,20 @@ while [ "$RUNNING" -eq 1 ]; do
   echo "=== pass done $(date) (exit $scrape_rc) ===" >>"$LOG"
 
   rmdir "$BLUEX_LOCK" 2>/dev/null
+
+  # exit 3 from the python3 helper above means the flock was already held --
+  # i.e. another blueX-scrape (this agent's own overlapping tick, a manual
+  # catch-up run, or anything else observing the same lock convention) is live
+  # right now. That is correct, expected behaviour, not a failure: log the
+  # stand-down, mark the heartbeat "skipped": "locked" so the watchdog can
+  # report it without alarming, and move straight to the next tick without
+  # ever having invoked the scraper.
+  if [ "$scrape_rc" -eq 3 ]; then
+    echo "$(date): scrape already running ($SCRAPE_LOCK) — pass skipped." >>"$SUP_LOG"
+    bluex_continuous_write_heartbeat 0 false "$SUP_LOG" locked
+    bluex_sleep_interruptible "$CONTINUOUS_INTERVAL_SECONDS"
+    continue
+  fi
 
   if [ "$scrape_rc" -ne 0 ]; then
     echo "$(date): pass FAILED (exit $scrape_rc) — see $LOG" >>"$SUP_LOG"

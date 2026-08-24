@@ -192,6 +192,26 @@ if [ "$permission_blocked" = "true" ]; then
   exit 1
 fi
 
+# A locked-skip continuous tick — see bluex-continuous.sh's single-instance guard
+# around the blueX-scrape invocation. Correct, expected behaviour (another scrape
+# was already running) and must never alarm, same treatment as the Telegram job's
+# own "skipped": "locked" heartbeat above — but it must stay visible rather than
+# silently reading as just another healthy "fresh" tick. Checked before the
+# failures/staleness logic below on purpose: scrapeExit is always written as 0 for
+# a locked-skip tick (no pass was even attempted), so it would never trip that
+# logic anyway, but exiting here keeps the "why" explicit instead of relying on
+# that as an accident of the exit code. Deliberately has no streak/consecutive-skip
+# state of its own (unlike the Telegram job's no-vpn streak) — a long manual
+# backfill can legitimately produce many consecutive locked ticks in a row, and
+# that must never be mistaken for a stuck agent.
+scrape_skipped=$(bluex_json_field "$BLUEX_HEARTBEAT" skipped)
+if [ "$mode" = "continuous" ] && [ "$scrape_skipped" = "locked" ]; then
+  bluex_notify "BlueX scrape skipped (locked)" "Last continuous pass stood down: another blueX-scrape was already running — expected, not a failure"
+  echo "$(date): scrape: skipped (locked) — another blueX-scrape already running — notified." >>"$LOG"
+  [ "$telegram_alarm" -eq 1 ] && exit 1
+  exit 0
+fi
+
 # An absent field means an older heartbeat format, not a success — but the staleness
 # checks already cover a heartbeat that is not being rewritten, so only a PRESENT
 # nonzero value alarms here.

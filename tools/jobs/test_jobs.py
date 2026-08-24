@@ -1446,3 +1446,271 @@ def test_a_telegram_problem_does_not_mask_a_bluesky_problem_and_vice_versa(sandb
     assert "scrape (exit 2)" in sandbox.notifications
     assert "Telegram" in sandbox.notifications
     assert "failed" in sandbox.notifications.lower()
+
+
+# ---------------------------------------------------------------------------
+# 10. Single-instance lock around the blueX-scrape invocation itself.
+# ---------------------------------------------------------------------------
+# Closes a real gap: the mkdir-based $BLUEX_LOCK above only ever coordinates this
+# loop against bluex-nightly.sh's OWN pass-taking. It says nothing about a
+# manually launched blueX-scrape (or any other invocation observing this same
+# convention) racing the continuous agent directly — which is exactly what
+# happened for about a minute against the real store. bluex-continuous.sh closes
+# that gap with a small inline python3 helper (embedded between the
+# "BEGIN/END bluex-scrape-lock.py" markers) that takes an exclusive, non-blocking
+# flock and then execs the scraper while holding the descriptor. These tests pull
+# that helper's REAL source out of the shipped script and run it directly, so the
+# thing under test is the exact code bluex-continuous.sh executes, not a
+# reimplementation of it that could silently drift.
+
+_LOCK_HELPER_RE = re.compile(
+    r"# BEGIN bluex-scrape-lock\.py.*?<<'PYEOF'\n(.*?)\nPYEOF\n\)\n# END bluex-scrape-lock\.py",
+    re.S,
+)
+
+
+@pytest.fixture(scope="module")
+def scrape_lock_helper(tmp_path_factory):
+    """The exact python3 source bluex-continuous.sh embeds, saved to its own file."""
+    text = CONTINUOUS.read_text()
+    m = _LOCK_HELPER_RE.search(text)
+    assert m, (
+        "could not find the bluex-scrape-lock.py markers in bluex-continuous.sh — "
+        "did the BEGIN/END comment or heredoc shape change?"
+    )
+    path = tmp_path_factory.mktemp("lock-helper") / "bluex-scrape-lock.py"
+    path.write_text(m.group(1) + "\n")
+    return path
+
+
+def test_lock_helper_is_embedded_and_invoked_by_the_continuous_script():
+    """Static check that the script actually calls the helper it embeds, with the
+    scrape invocation as the exec target — not just defines it unused."""
+    text = CONTINUOUS.read_text()
+    assert _LOCK_HELPER_RE.search(text), "lock helper markers missing"
+    assert 'python3 -c "$SCRAPE_LOCK_PY" "$SCRAPE_LOCK" "$SCRAPE"' in text
+
+
+def test_lock_helper_second_acquisition_of_the_same_lock_fails(scrape_lock_helper, tmp_path):
+    """Two independent acquisitions of the same lock path — the second must fail
+    (exit 3) and must NOT exec its target, while the first is still holding it."""
+    lock_path = tmp_path / "scrape.lock"
+    marker = tmp_path / "second-ran.marker"
+    holder = subprocess.Popen(
+        ["python3", str(scrape_lock_helper), str(lock_path), "sleep", "5"]
+    )
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not lock_path.exists():
+            time.sleep(0.1)
+        assert lock_path.exists(), "holder never created the lock file"
+        time.sleep(0.3)  # give the holder time to actually flock, not just open()
+
+        second = subprocess.run(
+            ["python3", str(scrape_lock_helper), str(lock_path), "/usr/bin/touch", str(marker)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert second.returncode == 3, (
+            f"second acquisition did not report the lock-miss exit code 3: "
+            f"rc={second.returncode} stdout={second.stdout!r} stderr={second.stderr!r}"
+        )
+        assert not marker.exists(), "second acquisition ran its exec target anyway"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+def test_lock_helper_ignores_a_stale_lock_file_left_on_disk(scrape_lock_helper, tmp_path):
+    """A lock *file* that exists but is held by nobody must never block acquisition
+    — the entire point of flock over a PID file, per single_instance.py's own
+    rationale for the Telegram collector."""
+    lock_path = tmp_path / "scrape.lock"
+    lock_path.write_text("stale contents from a long-dead process\n")
+    marker = tmp_path / "ran.marker"
+
+    result = subprocess.run(
+        ["python3", str(scrape_lock_helper), str(lock_path), "/usr/bin/touch", str(marker)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"stale lock file blocked acquisition: {result.stderr}"
+    assert marker.exists(), "exec target never ran despite a clean acquisition"
+
+
+def test_lock_helper_releases_the_lock_when_the_holder_exits(scrape_lock_helper, tmp_path):
+    """Once the holder's process exits (any exit, not just a clean one — see the
+    kill-based holder below), the kernel releases the flock and a fresh
+    acquisition must succeed with no cleanup step of its own."""
+    lock_path = tmp_path / "scrape.lock"
+    marker = tmp_path / "ran.marker"
+
+    holder = subprocess.Popen(
+        ["python3", str(scrape_lock_helper), str(lock_path), "sleep", "1"]
+    )
+    holder.wait(timeout=10)
+    assert holder.returncode == 0, "holder's exec target should have exited cleanly"
+
+    result = subprocess.run(
+        ["python3", str(scrape_lock_helper), str(lock_path), "/usr/bin/touch", str(marker)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"lock was not released after the holder exited: {result.stderr}"
+    assert marker.exists()
+
+
+def test_continuous_agent_stands_down_when_the_scrape_lock_is_already_held(sandbox):
+    """Whole-script regression for the real incident: a second, independent
+    holder of the scrape lock (standing in for a manual catch-up run, or any
+    other invocation using this convention) must make the continuous agent skip
+    its tick without ever invoking blueX-scrape — proven with a stub that would
+    leave a marker file behind if it ran."""
+    marker = sandbox.root / "scrape-ran.marker"
+    _write_exec(sandbox.bin / "blueX-scrape", f"#!/bin/sh\ntouch '{marker}'\nexit 0\n")
+
+    scrape_lock = sandbox.store_dir / ".bluex-scrape.lock"
+    scrape_lock.parent.mkdir(parents=True, exist_ok=True)
+    m = _LOCK_HELPER_RE.search(CONTINUOUS.read_text())
+    assert m
+    helper = sandbox.root / "bluex-scrape-lock.py"
+    helper.write_text(m.group(1) + "\n")
+    holder = subprocess.Popen(
+        ["python3", str(helper), str(scrape_lock), "sleep", "5"]
+    )
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not scrape_lock.exists():
+            time.sleep(0.1)
+        time.sleep(0.3)
+
+        proc = _start_continuous(sandbox)
+        try:
+            saw_locked = _wait_until(
+                lambda: "already running" in _supervisory_log(sandbox),
+                deadline_seconds=10,
+            )
+            assert saw_locked, f"log={_supervisory_log(sandbox)!r}"
+            heartbeat = _wait_for_heartbeat_json(sandbox, deadline_seconds=5)
+            assert heartbeat is not None, "no heartbeat written for the locked-skip tick"
+            assert heartbeat.get("skipped") == "locked", heartbeat
+            assert heartbeat["scrapeExit"] == 0
+        finally:
+            rc = _stop_continuous(proc)
+        assert rc == 0
+        assert not marker.exists(), (
+            "blueX-scrape ran despite the lock being held by another process — "
+            "the exact double-run incident this branch closes"
+        )
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+def test_continuous_heartbeat_locked_skip_has_no_extra_or_missing_fields(sandbox):
+    """The "skipped" key is additive to the existing continuous contract, not a
+    replacement shape — the watchdog reader must still find every other field."""
+    marker = sandbox.root / "scrape-ran.marker"
+    _write_exec(sandbox.bin / "blueX-scrape", f"#!/bin/sh\ntouch '{marker}'\nexit 0\n")
+    scrape_lock = sandbox.store_dir / ".bluex-scrape.lock"
+    scrape_lock.parent.mkdir(parents=True, exist_ok=True)
+    m = _LOCK_HELPER_RE.search(CONTINUOUS.read_text())
+    assert m
+    helper = sandbox.root / "bluex-scrape-lock.py"
+    helper.write_text(m.group(1) + "\n")
+    holder = subprocess.Popen(["python3", str(helper), str(scrape_lock), "sleep", "5"])
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not scrape_lock.exists():
+            time.sleep(0.1)
+        time.sleep(0.3)
+        proc = _start_continuous(sandbox)
+        try:
+            heartbeat = _wait_for_heartbeat_json(sandbox, deadline_seconds=10)
+            assert heartbeat is not None
+        finally:
+            rc = _stop_continuous(proc)
+        assert rc == 0
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+    assert set(heartbeat) == {
+        "finishedAt",
+        "mode",
+        "scrapeExit",
+        "skipped",
+        "stoppedAtDeadline",
+        "sentimentSkipped",
+        "permissionBlocked",
+        "log",
+    }
+    assert heartbeat["skipped"] == "locked"
+
+
+# ---------------------------------------------------------------------------
+# 11. Watchdog treatment of a "skipped": "locked" continuous heartbeat.
+# ---------------------------------------------------------------------------
+
+
+def _write_locked_continuous_heartbeat(sandbox, age_seconds=0):
+    sandbox.write_heartbeat(
+        age_seconds=age_seconds,
+        finishedAt="2026-08-22T02:11:00Z",
+        mode="continuous",
+        scrapeExit=0,
+        skipped="locked",
+        stoppedAtDeadline=False,
+        sentimentSkipped=True,
+        permissionBlocked=False,
+        log=str(sandbox.log_dir / "continuous.log"),
+    )
+
+
+def test_watchdog_reports_a_locked_continuous_skip_without_alarming(sandbox):
+    _write_locked_continuous_heartbeat(sandbox)
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 0, f"{sandbox.notifications}\n{result.stdout}\n{result.stderr}"
+    assert (
+        "locked" in sandbox.notifications.lower()
+        or "already running" in sandbox.notifications.lower()
+    ), sandbox.notifications
+    assert "BlueX is stale" not in sandbox.notifications
+    assert "BlueX nightly failing" not in sandbox.notifications
+    assert "BlueX permission blocked" not in sandbox.notifications
+    assert "locked" in sandbox.watchdog_log().lower()
+
+
+def test_many_consecutive_locked_continuous_skips_never_alarm(sandbox):
+    """A long manual/supervised scrape can legitimately produce many consecutive
+    locked ticks — this must never escalate into an alarm the way the Telegram
+    no-vpn streak does after a threshold, because there is no equivalent failure
+    mode here: the agent is working exactly as designed on every single tick."""
+    for _ in range(6):
+        _write_locked_continuous_heartbeat(sandbox)
+        result = sandbox.run(WATCHDOG)
+        assert result.returncode == 0
+    assert "BlueX is stale" not in sandbox.notifications
+    assert "BlueX nightly failing" not in sandbox.notifications
+    assert "BlueX permission blocked" not in sandbox.notifications
+
+
+def test_a_locked_continuous_skip_does_not_mask_a_real_telegram_alarm(sandbox):
+    """Mirrors the existing Bluesky/Telegram non-masking guarantee: a healthy-but-
+    locked Bluesky tick must not swallow a genuine Telegram-side alarm."""
+    _write_locked_continuous_heartbeat(sandbox)
+    sandbox.write_telegram_heartbeat(
+        age_seconds=0,
+        ts="2026-08-22T02:00:00Z",
+        mode="telegram-incremental",
+        exit=0,
+        ok_channels=1,
+        failed_channels=2,
+    )
+    result = sandbox.run(WATCHDOG)
+    assert result.returncode == 1
+    assert "Telegram" in sandbox.notifications
+    assert "failed" in sandbox.notifications.lower()
