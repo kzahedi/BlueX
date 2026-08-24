@@ -16,6 +16,10 @@ struct LabellingSessionView: View {
     private enum FocusTarget: Hashable { case session, note }
     @FocusState private var focus: FocusTarget?
 
+    /// Persisted so a labelling session resumed tomorrow keeps today's reading size.
+    @AppStorage("labellingTextScale") private var storedTextScale: Double = 1.3
+    private var textScale: Double { LabellingFormatting.clampedTextScale(storedTextScale) }
+
     @State private var noteText: String = ""
     @State private var sessionStartedAt: Date = Date()
 
@@ -214,7 +218,8 @@ struct LabellingSessionView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Color.mutedText)
             Text(text)
-                .font(.system(size: prominent ? 15 : 12, weight: prominent ? .medium : .regular))
+                .font(.system(size: (prominent ? 17.0 : 14.0) * textScale,
+                              weight: prominent ? .medium : .regular))
                 .foregroundStyle(Color.primaryText)
         }
         .padding(12)
@@ -245,6 +250,20 @@ struct LabellingSessionView: View {
                 .keyboardShortcut("n", modifiers: .command)
                 .opacity(0)
                 .frame(width: 0, height: 0)
+            // Text size: ⌘+ / ⌘− / ⌘0. Command-modified so they can never shadow the
+            // bare 1/2/3/0 label keys, which stay the fast path.
+            Button("") { storedTextScale = LabellingFormatting.clampedTextScale(textScale + LabellingFormatting.textScaleStep) }
+                .keyboardShortcut("+", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+            Button("") { storedTextScale = LabellingFormatting.clampedTextScale(textScale + LabellingFormatting.textScaleStep) }
+                .keyboardShortcut("=", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+            Button("") { storedTextScale = LabellingFormatting.clampedTextScale(textScale - LabellingFormatting.textScaleStep) }
+                .keyboardShortcut("-", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+            Button("") { storedTextScale = 1.0 }
+                .keyboardShortcut("0", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
         }
         .padding(.horizontal, 16)
     }

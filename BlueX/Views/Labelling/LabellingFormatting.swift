@@ -140,4 +140,23 @@ enum LabellingFormatting {
             return true
         }
     }
+
+    // MARK: - Text scale
+
+    /// Reading thousands of short posts is the whole job in a labelling session, so the
+    /// post text is scalable (⌘+/⌘−/⌘0) and the choice persists. Clamped: below ~0.8
+    /// the text stops being readable, above ~2.5 a single reply no longer fits the card
+    /// without scrolling, which slows labelling more than large text speeds it up.
+    static let minTextScale = 0.8
+    static let maxTextScale = 2.5
+    static let textScaleStep = 0.1
+
+    /// Clamps a requested scale into the supported range. A non-finite or non-positive
+    /// stored value (a corrupted preference) falls back to 1.0 rather than rendering
+    /// invisible or absurd text.
+    static func clampedTextScale(_ requested: Double) -> Double {
+        guard requested.isFinite, requested > 0 else { return 1.0 }
+        return min(max(requested, minTextScale), maxTextScale)
+    }
+
 }

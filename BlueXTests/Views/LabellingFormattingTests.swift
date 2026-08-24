@@ -182,3 +182,24 @@ final class LabellingFormattingTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Text scale
+
+extension LabellingFormattingTests {
+
+    func testTextScaleClampsIntoSupportedRange() {
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(1.3), 1.3, accuracy: 0.0001)
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(0.1),
+                       LabellingFormatting.minTextScale, accuracy: 0.0001)
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(99),
+                       LabellingFormatting.maxTextScale, accuracy: 0.0001)
+    }
+
+    /// A corrupted stored preference must not render invisible or absurd text.
+    func testTextScaleFallsBackToOneOnNonsenseValues() {
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(0), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(-5), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(.nan), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(LabellingFormatting.clampedTextScale(.infinity), 1.0, accuracy: 0.0001)
+    }
+}
