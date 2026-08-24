@@ -62,20 +62,44 @@ chosen*, never *why* they were chosen.
 - `db_sha256` pins the committee scores the strata were cut from; a later recomputation
   of the committee produces a different frame, and analyses must not mix the two.
 
-## 3. Strata (boundaries to be fixed from the committee's distribution)
+## 3. Strata — revised 2026-08-24 against the committee's measured behaviour
 
-Shape, in order of expected yield:
+The committee has been built and scored (commit `82768ce`, 2,197,431 posts). Its
+measured properties change the strata from the original sketch:
 
-| Stratum | Definition | Purpose |
+**Pairwise Spearman:** toxicity–tfidf 0.031, toxicity–doc2vec 0.021, tfidf–doc2vec
+0.210. **Top-1% Jaccard:** 0.0001, 0.0020, 0.0296 — and **zero posts lie in all three
+members' top 1%**. The members are decorrelated far below the 0.9 redundancy line, so
+the disagreement signal is genuine. But they are decorrelated *because they measure
+different constructs*, which is the fact the strata must respect.
+
+`mean_pct` is not meaningless — its top 0.1% has member medians of 92.5 / 96.9 / 98.6,
+i.e. it is a **conjunction filter** selecting posts that are simultaneously uncivil and
+hate-like by both supervised members. It is therefore precision-oriented, and carries a
+blind spot that matters more than its precision: requiring high toxicity systematically
+excludes **cleanly-worded hate**, the exact material the project exists to find (the
+measured hate-vs-rude AUC of 0.198 is this blind spot quantified). A labelling set drawn
+only from `mean_pct` would be full of vulgar abuse and nearly free of polite
+intolerance.
+
+| Stratum | Definition | Purpose and known bias |
 |---|---|---|
-| `mean_pct_top_0.1` | top 0.1% of `mean_pct` | highest-precision region; measures precision where correlated error hides |
-| `mean_pct_top_1` | 99.0–99.9 | the operating region a deployed threshold would sit in |
-| `spread_top_1` | top 1% of `spread_pct` | maximum committee disagreement — most informative per label |
-| `mid` | 25–99 percentile | the region a threshold must not accidentally sweep in |
-| `bottom` | below 25th percentile | bounds the false-negative rate; small sample, but without it "the committee found nothing down here" is unfalsifiable |
+| `mean_top_0.1` | `mean_pct >= 99.9` | conjunction region: highest expected precision; **skews to vulgar hate, misses clean-worded hate** |
+| `tox_top_1` | toxicity percentile >= 99 | incivility's own extreme; measures how much incivility is *not* hate |
+| `tfidf_top_1` | tfidf percentile >= 99 | lexical hate signal; interpretable coefficients |
+| `d2v_top_1` | doc2vec percentile >= 99 | corpus-trained, bilingual — the member most likely to surface clean-worded and German hate that toxicity ignores |
+| `spread_top_1` | `spread_pct >= 99` | maximum disagreement; informative per label, but "disagreement" here means the constructs differ, **not** that the post is borderline hate |
+| `mid` | 25–99 percentile of `mean_pct` | the region a deployed threshold must not sweep in |
+| `bottom` | below 25th percentile | bounds false negatives; small n, but without it "nothing down here" is unfalsifiable |
 
-Allocation is deliberately unequal (most labels to the top and disagreement strata),
-which is precisely why the weights must be recorded.
+Because the per-member bands are near-disjoint, 59,241 posts sit in at least one
+member's top 1% — a diverse candidate pool uniform sampling would take an impractical
+number of labels to reach.
+
+**The question these strata answer** is not "how much hate is there" (the uniform pass
+answers that) but **which member's construct tracks the annotator's judgment**. Report
+per-stratum precision by member, so a member that only ever surfaces profanity is
+visibly distinguishable from one that finds the intolerance the project is about.
 
 ## 4. What each label must record
 
