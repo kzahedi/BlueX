@@ -1,0 +1,25 @@
+{
+  "sealed_file": "sealed-stage0-doc2vec-2026-08-24T092741Z.jsonl.gz",
+  "sha256": "7750898fb3201136387fe9937193101f46f4faa94348daa4ebeca2ec112d1f2e",
+  "n_sealed": 2192904,
+  "n_excluded_labelled": 76,
+  "exclusion_source": "store_readonly_uris_only",
+  "created_at": "2026-08-24T09:27:55Z",
+  "model": "doc2vec_lr",
+  "meaning": "P(hate | one of {hate, rude}) -- NOT P(hate) on arbitrary text. LogisticRegression trained on doc2vec-final.model document vectors (200-dim, tagged by post URI) for the same moderator-labelled intolerant/threat/extremist/intolerant-race (positive) vs rude (negative) split used by tfidf_lr_hate_vs_rude. This member did NOT exist when the original Stage 0 pre-registration was sealed; its evaluation on posts labelled before THIS seal's timestamp is necessarily POST-HOC and must be reported as such -- those posts are excluded from this sealed file entirely, not scored retroactively.",
+  "intent": "Pre-registration for doc2vec_lr, scoped honestly: this model did not exist when the original two-model Stage 0 seal (docs/prereg/sealed-stage0-*.json) was made, so its predictions for the 76 post(s) already carrying a human label at the time this manifest was created are POST-HOC and must be reported as such -- they are NOT included in the sealed file below at all. The 2192904 sealed predictions cover only posts with no human label yet, exactly like the original seal, so comparing them against FUTURE labels on those specific posts is unbiased evidence.",
+  "manifest_is_tamper_evident_anchor": "This manifest is committed to git. Its git commit timestamp is the tamper-evident proof that these predictions existed before any human label was applied to the posts they cover -- provable independent of anything on this machine. This file is never edited after being committed.",
+  "training": {
+    "labels_file": "label-harvest-posts-2026-08-10T124533Z.jsonl",
+    "training_counts": {
+      "positive": 238,
+      "hard_negative": 877
+    },
+    "random_state": 20260822,
+    "sklearn_version": "1.9.0",
+    "gensim_version": "4.4.0",
+    "d2v_model_path": "/Volumes/Eregion/bluex-data/embeddings/doc2vec-final.model",
+    "classifier": "LogisticRegression(max_iter=2000, class_weight='balanced')"
+  },
+  "does_not_modify_original_seal": "docs/prereg/sealed-stage0-*.json and its .jsonl.gz are NOT touched or replaced by this script -- this is a separate, additional manifest for the third member only."
+}
