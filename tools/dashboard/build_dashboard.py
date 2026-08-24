@@ -65,6 +65,7 @@ import html as html_mod
 import json
 import math
 import os
+import re
 import sqlite3
 import sys
 
@@ -91,7 +92,10 @@ DEFAULT_OUT = "/Volumes/Eregion/bluex-data/dashboard/bluex-status.html"
 # Known-accepted conditions, documented in TODO.md 2026-08-21 and the
 # telegram collector's own lock/VPN guards. A pass matching one of these is
 # rendered as an accepted condition, not an alarm.
-ACCEPTED_FAILURE_MARKERS = ("5xx", "http 5xx")
+ACCEPTED_FAILURE_MARKERS = (
+    "network error: http 50",   # 500/502/503/504 from Bluesky under the VPN
+    "network error: http 429",  # rate limit, same accepted class
+)
 ACCEPTED_HEARTBEAT_SKIP_VALUES = ("locked", "no-vpn")
 ACCEPTED_LOG_LINE_MARKERS = ("already running", "no-vpn", "locked")
 
@@ -217,7 +221,8 @@ def read_telegram_acquisition(db_path):
         n_messages = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         n_channels = conn.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
         n_approved = conn.execute(
-            "SELECT COUNT(*) FROM channels WHERE status = 'approved'"
+            "SELECT COUNT(*) FROM channels WHERE status IN "
+            "('seed_approved', 'snowball_approved')"
         ).fetchone()[0]
         n_backfill_complete = conn.execute(
             "SELECT COUNT(*) FROM channels WHERE backfill_complete_at IS NOT NULL"
@@ -282,15 +287,34 @@ def _read_lines(path):
 
 
 def classify_continuous_line(line):
-    """A single continuous.log line -> ("ok"|"failed_accepted"|"failed", line)."""
+    """A single continuous.log line -> "ok" | "failed_accepted" | "failed" | "other".
+
+    The summary line carries no failure detail -- only `pass FAILED (exit N)`
+    plus a path to that pass's own log. Classifying from the summary line alone
+    therefore never matched anything and reported every documented VPN/5xx blip
+    as a real fault (measured 2026-08-24: 25 of 25 misclassified). So follow the
+    referenced path and look for the accepted signature there.
+
+    An unreadable or missing referenced log is classified as a real failure, not
+    as accepted: assuming absent evidence is benign is how a silent breakage
+    stays silent.
+    """
     lower = line.lower()
     if "pass ok" in lower:
         return "ok"
-    if "pass failed" in lower:
-        if any(marker in lower for marker in ACCEPTED_FAILURE_MARKERS):
-            return "failed_accepted"
+    if "pass failed" not in lower:
+        return "other"
+    match = re.search(r"see (\S+)", line)
+    if not match:
         return "failed"
-    return "other"
+    try:
+        with open(match.group(1), "r", errors="replace") as handle:
+            detail = handle.read().lower()
+    except OSError:
+        return "failed"
+    if any(marker in detail for marker in ACCEPTED_FAILURE_MARKERS):
+        return "failed_accepted"
+    return "failed"
 
 
 def read_continuous_log(path):

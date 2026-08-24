@@ -246,15 +246,26 @@ class TestTelegramAcquisition(TempDirMixin, unittest.TestCase):
 
 class TestCollectionHealth(TempDirMixin, unittest.TestCase):
     def test_continuous_log_counts_and_accepted_5xx(self):
+        """Real summary lines carry no failure detail — only a path to that
+        pass's own log — so the accepted/real distinction must be read from the
+        referenced file. (This test previously wrote "HTTP 5xx" inline on the
+        summary line, a shape the scraper never produces, and so passed while
+        the live page misclassified all 25 real failures.)"""
+        accepted_log = self.path("pass_accepted.log")
+        with open(accepted_log, "w") as f:
+            f.write("zeit.de  scrape error: Network error: HTTP 504\n")
+        real_log = self.path("pass_real.log")
+        with open(real_log, "w") as f:
+            f.write("disk full\n")
         path = self.path("continuous.log")
         with open(path, "w") as f:
             f.write(
                 "Mon Aug 24 05:28:03 CEST 2026: pass ok\n"
-                "Mon Aug 24 06:00:00 CEST 2026: pass FAILED — HTTP 5xx from exit IP\n"
-                "Mon Aug 24 07:00:00 CEST 2026: pass FAILED — disk full\n"
+                "Mon Aug 24 06:00:00 CEST 2026: pass FAILED (exit 1) — see %s\n"
+                "Mon Aug 24 07:00:00 CEST 2026: pass FAILED (exit 1) — see %s\n"
+                % (accepted_log, real_log)
             )
         result = bd.read_continuous_log(path)
-        self.assertEqual(result["status"], "ok")
         self.assertEqual(result["n_pass_ok"], 1)
         self.assertEqual(result["n_pass_failed_accepted"], 1)
         self.assertEqual(result["n_pass_failed"], 1)
@@ -509,3 +520,56 @@ class TestFullPage(TempDirMixin, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApprovedStatusAndFailureClassificationTests(unittest.TestCase):
+    """Two bugs found by cross-checking the rendered page against ground truth:
+    the approved-channel count queried a status value that does not exist in
+    this schema, and the accepted-failure classifier matched a marker that
+    never appears on the summary line it was given."""
+
+    def test_approved_counts_seed_and_snowball_statuses(self):
+        import sqlite3
+        from tools.dashboard.build_dashboard import read_telegram_acquisition
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "telegram.db")
+            c = sqlite3.connect(p)
+            c.executescript(
+                "CREATE TABLE channels(username TEXT PRIMARY KEY, status TEXT,"
+                " backfill_complete_at TEXT);"
+                "CREATE TABLE messages(channel TEXT, msg_id INTEGER, date TEXT,"
+                " fwd_from_channel TEXT, PRIMARY KEY(channel, msg_id));"
+                "CREATE TABLE candidates(username TEXT PRIMARY KEY, status TEXT,"
+                " forward_evidence_count INTEGER, distinct_forwarders INTEGER);"
+                "CREATE TABLE coverage(channel TEXT, day TEXT, gap_ids_json TEXT);")
+            c.executemany("INSERT INTO channels VALUES (?,?,?)", [
+                ("a", "seed_approved", None), ("b", "snowball_approved", None),
+                ("c", "retired", None), ("d", "seed_pending", None)])
+            c.commit(); c.close()
+            data = read_telegram_acquisition(p)
+            self.assertEqual(data["n_approved"], 2,
+                             "seed_approved + snowball_approved are the approved "
+                             "statuses in this schema; 'approved' never occurs")
+
+    def test_failed_pass_is_classified_from_the_referenced_log(self):
+        """The summary line carries no failure detail — only a path to the
+        per-pass log. Classification must follow that path or it can never
+        distinguish an accepted 5xx blip from a real fault."""
+        from tools.dashboard.build_dashboard import classify_continuous_line
+        with tempfile.TemporaryDirectory() as d:
+            accepted = os.path.join(d, "pass_a.log")
+            with open(accepted, "w") as fh:
+                fh.write("zeit.de  scrape error: Network error: HTTP 504\n")
+            real = os.path.join(d, "pass_b.log")
+            with open(real, "w") as fh:
+                fh.write("Traceback: something genuinely broken\n")
+            line_a = "Mon Aug 24 01:28:21 CEST 2026: pass FAILED (exit 1) — see %s" % accepted
+            line_b = "Mon Aug 24 02:45:30 CEST 2026: pass FAILED (exit 1) — see %s" % real
+            self.assertEqual(classify_continuous_line(line_a), "failed_accepted")
+            self.assertEqual(classify_continuous_line(line_b), "failed")
+
+    def test_unreadable_referenced_log_is_not_silently_accepted(self):
+        from tools.dashboard.build_dashboard import classify_continuous_line
+        line = "Mon Aug 24 03:00:00 CEST 2026: pass FAILED (exit 1) — see /nope/missing.log"
+        self.assertEqual(classify_continuous_line(line), "failed",
+                         "an unreadable pass log must never be assumed benign")
