@@ -26,6 +26,7 @@ import json
 
 import requests
 
+from tools.social.telegram.identity import canonical_channel
 from tools.social.telegram.preview import NoPreviewError, fetch_page
 from tools.social.telegram.store import APPROVED, open_db
 from tools.social.telegram.vpn_gate import proton_vpn_active
@@ -65,7 +66,7 @@ def main(argv, vpn_check=None, fetch=None, open_db_fn=None, db_path=None) -> int
                                    "contact Telegram"}))
         return 2
 
-    usernames = list(args.usernames)
+    usernames = [canonical_channel(u) for u in args.usernames]
     db = db_path if db_path is not None else args.db
     if db:
         conn = open_db_fn(db)

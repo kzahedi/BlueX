@@ -134,6 +134,43 @@ class TestSyntheticPaths(unittest.TestCase):
         self.assertEqual(m.media_ref, "report.pdf")
 
 
+class TestCanonicalCasing(unittest.TestCase):
+    """Telegram returns each channel's own canonical casing in data-post,
+    which often differs from the casing that was requested/approved. The
+    parser must normalise both the channel and forward-attribution identity
+    at the boundary, before either ever reaches the store."""
+
+    def test_channel_and_forward_attribution_are_canonicalized(self):
+        from tools.social.telegram.preview import parse_preview_html
+        html = """
+        <div class="tgme_widget_message_wrap js-widget_message_wrap">
+          <div class="tgme_widget_message text_not_supported_wrap js-widget_message" data-post="MiXeDcAsE/123">
+            <div class="tgme_widget_message_forwarded_from">
+              <span class="tgme_widget_message_forwarded_from_name_wrap">
+                Forwarded from
+                <a class="tgme_widget_message_forwarded_from_name" href="https://t.me/@OtherChannel/9">Other Channel</a>
+              </span>
+            </div>
+            <div class="tgme_widget_message_text js-message_text" dir="auto">hi</div>
+            <div class="tgme_widget_message_footer compact js-message_footer">
+              <div class="tgme_widget_message_info short js-message_info">
+                <span class="tgme_widget_message_meta">
+                  <a class="tgme_widget_message_date" href="https://t.me/MiXeDcAsE/123">
+                    <time datetime="2026-01-01T00:00:00+00:00" class="time">00:00</time>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        """
+        msgs = parse_preview_html(html)
+        self.assertEqual(len(msgs), 1)
+        m = msgs[0]
+        self.assertEqual(m.channel, "mixedcase")
+        self.assertEqual(m.fwd_from_channel, "otherchannel")
+
+
 class TestParseViews(unittest.TestCase):
     def test_plain_k_m(self):
         from tools.social.telegram.preview import parse_views

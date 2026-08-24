@@ -1,6 +1,8 @@
 """User decision CLI: approve / reject / retire channels; list by status."""
 import argparse
 
+from tools.social.telegram.identity import canonical_channel
+
 _TRANSITIONS = {
     "approve": {"seed_pending": "seed_approved", "pending": "snowball_approved"},
     "reject": {"seed_pending": "rejected", "pending": "rejected"},
@@ -9,6 +11,9 @@ _TRANSITIONS = {
 
 
 def decide(conn, username: str, action: str) -> str:
+    # A human can type either the approved casing or a different one --
+    # both must resolve to the same channel row.
+    username = canonical_channel(username)
     row = conn.execute("SELECT status FROM channels WHERE username=?",
                        (username,)).fetchone()
     if row is None:

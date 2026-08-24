@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup
 
+from tools.social.telegram.identity import canonical_channel
 from tools.social.telegram.vpn_gate import VPNNotActiveError, proton_vpn_active
 
 USER_AGENT = ("BlueX-Research-Collector/1.0 "
@@ -49,10 +50,10 @@ def parse_views(s: str) -> int:
 
 def _link_target(href: str) -> tuple[str | None, int | None]:
     """t.me/<chan>/<id> → (chan, id); anything else → (None, None)."""
-    m = re.search(r"t\.me/([A-Za-z0-9_]+)/(\d+)", href or "")
+    m = re.search(r"t\.me/(?:@)?([A-Za-z0-9_]+)/(\d+)", href or "")
     if not m:
         return None, None
-    return m.group(1), int(m.group(2))
+    return canonical_channel(m.group(1)), int(m.group(2))
 
 
 def parse_preview_html(html: str) -> list["Message"]:
@@ -62,6 +63,7 @@ def parse_preview_html(html: str) -> list["Message"]:
         channel, _, msg_id = div["data-post"].partition("/")
         if not msg_id.isdigit():
             continue
+        channel = canonical_channel(channel)
 
         text_el = div.select_one(".tgme_widget_message_text")
         text = text_el.get_text("\n", strip=True) if text_el else ""

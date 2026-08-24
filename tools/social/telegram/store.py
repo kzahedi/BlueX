@@ -1,6 +1,9 @@
 """SQLite store for the Telegram collector (schema per design spec §5)."""
 import json
 import sqlite3
+from collections import defaultdict
+
+from tools.social.telegram.identity import canonical_channel
 
 APPROVED = ("seed_approved", "snowball_approved")
 
@@ -195,3 +198,190 @@ def record_coverage(conn, channel: str) -> None:
             "max_msg_id, gap_ids_json=excluded.gap_ids_json",
             (channel, day, count, lo, hi, json.dumps(gaps)))
     conn.commit()
+
+
+def migrate_canonical_names(conn) -> dict:
+    """One-shot, idempotent migration to canonical (lowercase) channel
+    identity across every table keyed on a channel name: messages,
+    channels, candidates, cursors, coverage.
+
+    The production bug this fixes: t.me/s/<name> returns each channel's own
+    canonical casing in data-post, which can differ from the casing that
+    was requested/approved (e.g. approved `FrankKraemer`, messages stored
+    under `frankkraemer`). SQLite compares case-sensitively, so the two
+    silently stop matching. This lowercases the identity column everywhere
+    it appears.
+
+    A lowercase pass can make two previously-distinct rows collide (e.g.
+    `Foo` and `foo` both existed). Never silently drops one -- every merge
+    is recorded as a human-readable line in report['merge_lines'] and
+    tallied in report['merges']; every rename is recorded in
+    report['renames']. Runs as a single transaction: on any error nothing
+    is changed. Running it twice is a no-op the second time.
+    """
+    tables = ["messages", "channels", "candidates", "cursors", "coverage"]
+    report = {"renames": [], "merges": [], "merge_lines": [],
+              "before_counts": {}, "after_counts": {}}
+    for t in tables:
+        report["before_counts"][t] = conn.execute(
+            f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+
+    # Snapshot message counts per RAW (pre-migration) channel casing, used
+    # only to break ties when two `channels` rows collapse onto the same
+    # canonical identity ("keep the row with data (most messages)").
+    raw_msg_counts = defaultdict(int)
+    for channel, cnt in conn.execute(
+            "SELECT channel, COUNT(*) FROM messages GROUP BY channel"):
+        raw_msg_counts[channel] = cnt
+
+    try:
+        _migrate_messages_canonical(conn, report)
+        _migrate_channels_canonical(conn, report, raw_msg_counts)
+        _migrate_candidates_canonical(conn, report)
+        _migrate_cursors_canonical(conn, report)
+        _migrate_coverage_canonical(conn, report)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    for t in tables:
+        report["after_counts"][t] = conn.execute(
+            f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+    return report
+
+
+def _migrate_messages_canonical(conn, report) -> None:
+    rows = conn.execute("SELECT rowid, channel, msg_id FROM messages").fetchall()
+    groups = defaultdict(list)
+    for rowid, channel, msg_id in rows:
+        groups[(canonical_channel(channel), msg_id)].append((rowid, channel))
+    merge_count = 0
+    for (canon, msg_id), items in groups.items():
+        keep_rowid, keep_channel = items[0]
+        for rowid, channel in items[1:]:
+            conn.execute("DELETE FROM messages WHERE rowid=?", (rowid,))
+            merge_count += 1
+            report["merge_lines"].append(
+                f"messages: merged duplicate {channel}/{msg_id} into "
+                f"{canon}/{msg_id} (kept the row originally stored as "
+                f"{keep_channel}/{msg_id})")
+        if keep_channel != canon:
+            conn.execute("UPDATE messages SET channel=? WHERE rowid=?",
+                        (canon, keep_rowid))
+            report["renames"].append({"table": "messages",
+                                      "from": keep_channel, "to": canon})
+    if merge_count:
+        report["merges"].append({"table": "messages", "count": merge_count})
+
+
+def _migrate_channels_canonical(conn, report, raw_msg_counts) -> None:
+    rows = conn.execute("SELECT rowid, username FROM channels").fetchall()
+    groups = defaultdict(list)
+    for rowid, username in rows:
+        groups[canonical_channel(username)].append((rowid, username))
+    merge_count = 0
+    for canon, items in groups.items():
+        items.sort(key=lambda ru: raw_msg_counts.get(ru[1], 0), reverse=True)
+        keep_rowid, keep_username = items[0]
+        for rowid, username in items[1:]:
+            conn.execute("DELETE FROM channels WHERE rowid=?", (rowid,))
+            merge_count += 1
+            report["merge_lines"].append(
+                f"channels: merged duplicate {username} into {canon} (kept "
+                f"the row originally stored as {keep_username} -- "
+                f"{raw_msg_counts.get(keep_username, 0)} messages vs "
+                f"{raw_msg_counts.get(username, 0)})")
+        if keep_username != canon:
+            conn.execute("UPDATE channels SET username=? WHERE rowid=?",
+                        (canon, keep_rowid))
+            report["renames"].append({"table": "channels",
+                                      "from": keep_username, "to": canon})
+    if merge_count:
+        report["merges"].append({"table": "channels", "count": merge_count})
+
+
+def _migrate_candidates_canonical(conn, report) -> None:
+    rows = conn.execute(
+        "SELECT rowid, username, forward_evidence_count, distinct_forwarders "
+        "FROM candidates").fetchall()
+    groups = defaultdict(list)
+    for rowid, username, evid, dist in rows:
+        groups[canonical_channel(username)].append(
+            (rowid, username, evid, dist))
+    merge_count = 0
+    for canon, items in groups.items():
+        items.sort(key=lambda r: (r[2] or 0, r[3] or 0), reverse=True)
+        keep_rowid, keep_username, keep_evid, keep_dist = items[0]
+        for rowid, username, evid, dist in items[1:]:
+            conn.execute("DELETE FROM candidates WHERE rowid=?", (rowid,))
+            merge_count += 1
+            report["merge_lines"].append(
+                f"candidates: merged duplicate {username} into {canon} "
+                f"(kept the row with most evidence: {keep_evid} forwards, "
+                f"{keep_dist} forwarders vs {evid} forwards, {dist} "
+                f"forwarders)")
+        if keep_username != canon:
+            conn.execute("UPDATE candidates SET username=? WHERE rowid=?",
+                        (canon, keep_rowid))
+            report["renames"].append({"table": "candidates",
+                                      "from": keep_username, "to": canon})
+    if merge_count:
+        report["merges"].append({"table": "candidates", "count": merge_count})
+
+
+def _migrate_cursors_canonical(conn, report) -> None:
+    rows = conn.execute("SELECT rowid, channel, before FROM cursors").fetchall()
+    groups = defaultdict(list)
+    for rowid, channel, before in rows:
+        groups[canonical_channel(channel)].append((rowid, channel, before))
+    merge_count = 0
+    for canon, items in groups.items():
+        # "Furthest back" = smallest non-null `before` (deepest into
+        # history walked so far). A NULL cursor carries no evidence of
+        # having walked anywhere, so it loses a tie-break against any
+        # concrete in-progress cursor.
+        items.sort(key=lambda item: (item[2] is None,
+                                     item[2] if item[2] is not None else 0))
+        keep_rowid, keep_channel, keep_before = items[0]
+        for rowid, channel, before in items[1:]:
+            conn.execute("DELETE FROM cursors WHERE rowid=?", (rowid,))
+            merge_count += 1
+            report["merge_lines"].append(
+                f"cursors: merged duplicate {channel} (before={before}) "
+                f"into {canon} (kept the furthest-back cursor: before="
+                f"{keep_before}, originally stored as {keep_channel})")
+        if keep_channel != canon:
+            conn.execute("UPDATE cursors SET channel=? WHERE rowid=?",
+                        (canon, keep_rowid))
+            report["renames"].append({"table": "cursors",
+                                      "from": keep_channel, "to": canon})
+    if merge_count:
+        report["merges"].append({"table": "cursors", "count": merge_count})
+
+
+def _migrate_coverage_canonical(conn, report) -> None:
+    rows = conn.execute(
+        "SELECT rowid, channel, day, message_count FROM coverage").fetchall()
+    groups = defaultdict(list)
+    for rowid, channel, day, count in rows:
+        groups[(canonical_channel(channel), day)].append(
+            (rowid, channel, count))
+    merge_count = 0
+    for (canon, day), items in groups.items():
+        items.sort(key=lambda r: (r[2] or 0), reverse=True)
+        keep_rowid, keep_channel, keep_count = items[0]
+        for rowid, channel, count in items[1:]:
+            conn.execute("DELETE FROM coverage WHERE rowid=?", (rowid,))
+            merge_count += 1
+            report["merge_lines"].append(
+                f"coverage: merged duplicate {channel}/{day} into "
+                f"{canon}/{day} (kept the row with more data: "
+                f"{keep_count} messages vs {count})")
+        if keep_channel != canon:
+            conn.execute("UPDATE coverage SET channel=? WHERE rowid=?",
+                        (canon, keep_rowid))
+            report["renames"].append({"table": "coverage",
+                                      "from": keep_channel, "to": canon})
+    if merge_count:
+        report["merges"].append({"table": "coverage", "count": merge_count})

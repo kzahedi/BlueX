@@ -75,6 +75,25 @@ class TestMain(unittest.TestCase):
         self.assertIn("livechan: reachable", printed)
         self.assertIn("deadchan: unreachable", printed)
 
+    def test_canonicalizes_command_line_usernames(self):
+        from tools.social.telegram.check_reachable import main
+
+        seen = []
+
+        def fetch(username, before, session, vpn_check=None):
+            seen.append(username)
+            return "<html>...tgme_widget_message_wrap...</html>"
+
+        with unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = main(["@FrankKraemer", "  QUERDENKEN_711  "],
+                        vpn_check=lambda: True, fetch=fetch)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, ["frankkraemer", "querdenken_711"])
+        printed = out.getvalue()
+        self.assertIn("frankkraemer: reachable", printed)
+        self.assertIn("querdenken_711: reachable", printed)
+
     def test_checks_channels_from_db_when_given(self):
         from tools.social.telegram.check_reachable import main
         from tools.social.telegram.store import open_db

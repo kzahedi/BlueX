@@ -3,6 +3,8 @@ promotes them (channels.py approve). Re-import never overwrites decisions."""
 import argparse
 import csv
 
+from tools.social.telegram.identity import canonical_channel
+
 
 def import_csv(conn, fp) -> int:
     n = 0
@@ -11,7 +13,7 @@ def import_csv(conn, fp) -> int:
             "INSERT INTO channels(username, title, source_list,"
             " inclusion_criterion, status) VALUES (?,?,?,?,'seed_pending') "
             "ON CONFLICT(username) DO NOTHING",
-            (r["username"], r["title"], r["source_list"],
+            (canonical_channel(r["username"]), r["title"], r["source_list"],
              r["inclusion_criterion"]))
         n += cur.rowcount
     conn.commit()

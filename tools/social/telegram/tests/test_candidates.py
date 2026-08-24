@@ -75,6 +75,26 @@ class TestSnowball(unittest.TestCase):
             "SELECT status FROM candidates WHERE username='newchan'").fetchone()
         self.assertEqual(status, "rejected")
 
+    def test_approve_candidate_accepts_different_casing(self):
+        from tools.social.telegram.candidates import (update_candidates,
+                                                      approve_candidate)
+        self.upsert(self.conn, [fwd_msg(c, 1, "newchan") for c in "abc"])
+        update_candidates(self.conn)
+        approve_candidate(self.conn, "NewChan")
+        status, = self.conn.execute(
+            "SELECT status FROM channels WHERE username='newchan'").fetchone()
+        self.assertEqual(status, "snowball_approved")
+
+    def test_reject_candidate_accepts_different_casing(self):
+        from tools.social.telegram.candidates import (update_candidates,
+                                                      reject_candidate)
+        self.upsert(self.conn, [fwd_msg(c, 1, "newchan") for c in "abc"])
+        update_candidates(self.conn)
+        reject_candidate(self.conn, "NewChan")
+        status, = self.conn.execute(
+            "SELECT status FROM candidates WHERE username='newchan'").fetchone()
+        self.assertEqual(status, "rejected")
+
     def test_reject_candidate_unknown_username(self):
         from tools.social.telegram.candidates import reject_candidate
         with self.assertRaises(SystemExit) as cm:

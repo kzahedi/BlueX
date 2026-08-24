@@ -3,6 +3,8 @@ collected until the user approves (design spec §4). Thresholds: >=3 distinct
 forwarders OR >=20 total forwards."""
 import argparse
 
+from tools.social.telegram.identity import canonical_channel
+
 
 def update_candidates(conn) -> None:
     rows = conn.execute(
@@ -29,6 +31,7 @@ def proposal_ready(conn) -> list:
 
 
 def approve_candidate(conn, username: str) -> None:
+    username = canonical_channel(username)
     row = conn.execute("SELECT forward_evidence_count, distinct_forwarders, status "
                        "FROM candidates WHERE username=?", (username,)).fetchone()
     if row is None:
@@ -53,6 +56,7 @@ def approve_candidate(conn, username: str) -> None:
 
 
 def reject_candidate(conn, username: str) -> None:
+    username = canonical_channel(username)
     row = conn.execute("SELECT status FROM candidates WHERE username=?",
                        (username,)).fetchone()
     if row is None:

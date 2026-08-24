@@ -64,6 +64,32 @@ class TestSeedCsv(unittest.TestCase):
                 f"(unquoted comma likely shifted columns): {rec!r}")
 
 
+class TestImportCanonicalizesUsername(unittest.TestCase):
+    def test_mixed_case_username_stored_lowercase(self):
+        from tools.social.telegram.store import open_db
+        from tools.social.telegram.seeds import import_csv
+        conn = open_db(":memory:")
+        csv_text = ("username,title,source_list,inclusion_criterion\n"
+                    "FrankKraemer,Frank Kraemer,Report X,category Y\n")
+        n = import_csv(conn, io.StringIO(csv_text))
+        self.assertEqual(n, 1)
+        rows = conn.execute("SELECT username FROM channels").fetchall()
+        self.assertEqual(rows, [("frankkraemer",)])
+
+    def test_reimport_with_different_casing_does_not_duplicate(self):
+        from tools.social.telegram.store import open_db
+        from tools.social.telegram.seeds import import_csv
+        conn = open_db(":memory:")
+        import_csv(conn, io.StringIO(
+            "username,title,source_list,inclusion_criterion\n"
+            "FrankKraemer,Frank Kraemer,Report X,category Y\n"))
+        import_csv(conn, io.StringIO(
+            "username,title,source_list,inclusion_criterion\n"
+            "frankkraemer,Frank Kraemer,Report X,category Y\n"))
+        n, = conn.execute("SELECT COUNT(*) FROM channels").fetchone()
+        self.assertEqual(n, 1)
+
+
 class TestImportAndApprove(unittest.TestCase):
     def test_import_pending_then_approve(self):
         from tools.social.telegram.store import open_db

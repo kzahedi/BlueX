@@ -208,3 +208,133 @@ class TestBusyTimeout(unittest.TestCase):
         got, = conn.execute("PRAGMA busy_timeout").fetchone()
         self.assertEqual(got, int(BUSY_TIMEOUT_SECONDS * 1000))
         self.assertGreaterEqual(got, 5000)
+
+
+class TestMigrateCanonicalNames(unittest.TestCase):
+    """The one-shot migration that reconciles the production bug: Telegram
+    returns its own casing in data-post, which can differ from the approved
+    spelling in channels.username. This lowercases the identity column in
+    all five tables that key on a channel name, merging any collision a
+    lowercase pass creates rather than silently dropping a row."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+
+    def test_renames_all_five_tables_keys(self):
+        from tools.social.telegram.store import migrate_canonical_names
+        c = self.conn
+        c.execute("INSERT INTO channels(username, status) "
+                 "VALUES ('FrankKraemer', 'seed_approved')")
+        c.execute("INSERT INTO messages(channel, msg_id, date) "
+                 "VALUES ('frankkraemer', 1, '2026-08-01T00:00:00+00:00')")
+        c.execute("INSERT INTO candidates(username) VALUES ('SomeCandidate')")
+        c.execute("INSERT INTO cursors(channel, before) VALUES ('FrankKraemer', 5)")
+        c.execute("INSERT INTO coverage(channel, day, message_count, "
+                 "min_msg_id, max_msg_id, gap_ids_json) "
+                 "VALUES ('FrankKraemer', '2026-08-01', 1, 1, 1, '[]')")
+        c.commit()
+
+        report = migrate_canonical_names(self.conn)
+
+        self.assertEqual(self.conn.execute(
+            "SELECT username FROM channels").fetchone()[0], "frankkraemer")
+        self.assertEqual(self.conn.execute(
+            "SELECT channel FROM messages").fetchone()[0], "frankkraemer")
+        self.assertEqual(self.conn.execute(
+            "SELECT username FROM candidates").fetchone()[0], "somecandidate")
+        self.assertEqual(self.conn.execute(
+            "SELECT channel FROM cursors").fetchone()[0], "frankkraemer")
+        self.assertEqual(self.conn.execute(
+            "SELECT channel FROM coverage").fetchone()[0], "frankkraemer")
+        self.assertTrue(report["renames"])
+
+    def test_idempotent_second_run_changes_nothing(self):
+        from tools.social.telegram.store import migrate_canonical_names
+        c = self.conn
+        c.execute("INSERT INTO channels(username, status) "
+                 "VALUES ('FrankKraemer', 'seed_approved')")
+        c.execute("INSERT INTO messages(channel, msg_id, date) "
+                 "VALUES ('frankkraemer', 1, '2026-08-01T00:00:00+00:00')")
+        c.commit()
+
+        migrate_canonical_names(self.conn)
+        before = self.conn.execute(
+            "SELECT username FROM channels").fetchall()
+        report2 = migrate_canonical_names(self.conn)
+        after = self.conn.execute(
+            "SELECT username FROM channels").fetchall()
+
+        self.assertEqual(before, after)
+        self.assertEqual(report2["merges"], [])
+        self.assertEqual(report2["renames"], [])
+
+    def test_merges_a_messages_collision_keeping_one_row(self):
+        from tools.social.telegram.store import migrate_canonical_names
+        c = self.conn
+        # Same msg_id under two different casings -- the actual production
+        # bug: t.me returning a different casing than what was requested.
+        c.execute("INSERT INTO messages(channel, msg_id, date, text) "
+                 "VALUES ('Foo', 42, '2026-08-01T00:00:00+00:00', 'v1')")
+        c.execute("INSERT INTO messages(channel, msg_id, date, text) "
+                 "VALUES ('foo', 42, '2026-08-01T00:00:01+00:00', 'v2')")
+        c.commit()
+
+        report = migrate_canonical_names(self.conn)
+
+        rows = self.conn.execute(
+            "SELECT channel, msg_id FROM messages").fetchall()
+        self.assertEqual(rows, [("foo", 42)])
+        merge_counts = {m["table"]: m["count"] for m in report["merges"]}
+        self.assertEqual(merge_counts.get("messages"), 1)
+        self.assertTrue(any("42" in line for line in report["merge_lines"]))
+
+    def test_merges_a_cursors_collision_keeping_furthest_back_cursor(self):
+        from tools.social.telegram.store import migrate_canonical_names
+        c = self.conn
+        # 'Foo' walked further back (smaller before) than 'foo'.
+        c.execute("INSERT INTO cursors(channel, before) VALUES ('Foo', 100)")
+        c.execute("INSERT INTO cursors(channel, before) VALUES ('foo', 500)")
+        c.commit()
+
+        report = migrate_canonical_names(self.conn)
+
+        row = self.conn.execute(
+            "SELECT channel, before FROM cursors").fetchone()
+        self.assertEqual(row, ("foo", 100))
+        merge_counts = {m["table"]: m["count"] for m in report["merges"]}
+        self.assertEqual(merge_counts.get("cursors"), 1)
+
+    def test_before_after_row_counts_reported(self):
+        from tools.social.telegram.store import migrate_canonical_names
+        c = self.conn
+        c.execute("INSERT INTO messages(channel, msg_id, date) "
+                 "VALUES ('Foo', 1, '2026-08-01T00:00:00+00:00')")
+        c.execute("INSERT INTO messages(channel, msg_id, date) "
+                 "VALUES ('foo', 1, '2026-08-01T00:00:01+00:00')")
+        c.execute("INSERT INTO messages(channel, msg_id, date) "
+                 "VALUES ('Foo', 2, '2026-08-01T00:00:02+00:00')")
+        c.commit()
+
+        report = migrate_canonical_names(self.conn)
+
+        self.assertEqual(report["before_counts"]["messages"], 3)
+        self.assertEqual(report["after_counts"]["messages"], 2)
+
+    def test_refuses_when_lock_is_held(self):
+        import tempfile
+        import os
+        from tools.social.telegram.store import open_db
+        from tools.common.single_instance import single_instance, \
+            AlreadyRunningError
+        from tools.social.telegram.collect import run_migration
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            lock_path = f"{path}.collector.lock"
+            with single_instance(lock_path):
+                with self.assertRaises(AlreadyRunningError):
+                    run_migration(path)
+        finally:
+            os.remove(path)

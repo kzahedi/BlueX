@@ -13,11 +13,13 @@ import json
 
 import requests
 
+from tools.social.telegram.identity import canonical_channel
 from tools.social.telegram.preview import (NoPreviewError, fetch_page,
                                            parse_preview_html)
 from tools.social.telegram.store import (APPROVED, backfill_completed_at,
                                          get_cursor, mark_backfill_complete,
-                                         max_msg_id, newest_msg_id, open_db,
+                                         max_msg_id, migrate_canonical_names,
+                                         newest_msg_id, open_db,
                                          record_coverage, set_cursor,
                                          upsert_messages)
 from tools.social.telegram.candidates import update_candidates
@@ -149,6 +151,7 @@ def mark_channel_complete(conn, channel: str) -> None:
     clear any stale cursor, without walking it. For a channel that is
     genuinely complete in the DB (e.g. holds msg_id 1) but carries a
     cursor left over from an interrupted re-walk and no marker."""
+    channel = canonical_channel(channel)
     set_cursor(conn, channel, None)
     mark_backfill_complete(conn, channel)
 
@@ -158,7 +161,19 @@ def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None,
     channels = [r[0] for r in conn.execute(
         "SELECT username FROM channels WHERE status IN (?,?) ORDER BY username",
         APPROVED)]
+    # A silent re-divergence between an approved channel's stored casing and
+    # its canonical identity is worse than a loud stop: never even attempt
+    # to collect while that holds -- run the migration first.
+    non_canonical = [c for c in channels if c != canonical_channel(c)]
+    if non_canonical:
+        return {"mode": mode, "channels": [], "ok": False,
+                "error": (
+                    "approved channel(s) stored non-canonically: "
+                    f"{non_canonical} -- run `python3 -m "
+                    "tools.social.telegram.collect --migrate-canonical-names "
+                    "--db PATH` first")}
     if only_channel:
+        only_channel = canonical_channel(only_channel)
         channels = [c for c in channels if c == only_channel]
     results = []
     aborted = False
@@ -181,6 +196,21 @@ def run(conn, fetch, mode, max_pages=None, only_channel=None, vpn_check=None,
     update_candidates(conn)
     ok = all(r["status"] == "complete" or r["failure_reason"] for r in results)
     return {"mode": mode, "channels": results, "ok": ok}
+
+
+def run_migration(db_path: str) -> dict:
+    """Run the one-shot canonical-names migration against db_path.
+
+    Refuses (raises AlreadyRunningError, never blocks) if a collector
+    currently holds the single-instance lock for this store -- the
+    migration mutates the same tables a running collector writes to, and
+    the two must never run concurrently.
+    """
+    lock_path = f"{db_path}.collector.lock"
+    with single_instance(lock_path):
+        conn = open_db(db_path)
+        report = migrate_canonical_names(conn)
+    return report
 
 
 def _build_arg_parser():
@@ -208,6 +238,12 @@ def _build_arg_parser():
     ap.add_argument("--mark-complete", metavar="CHANNEL",
                     help="maintenance: mark CHANNEL as backfill-complete "
                          "and clear its cursor, without collecting")
+    ap.add_argument("--migrate-canonical-names", action="store_true",
+                    help="one-shot maintenance: lowercase the channel "
+                         "identity column in messages/channels/candidates/"
+                         "cursors/coverage, merging any collision a "
+                         "lowercase pass creates. Idempotent. Refuses if a "
+                         "collector holds this store's lock.")
     return ap
 
 
@@ -216,6 +252,24 @@ if __name__ == "__main__":
 
     ap = _build_arg_parser()
     args = ap.parse_args()
+
+    if args.migrate_canonical_names:
+        try:
+            report = run_migration(args.db)
+        except AlreadyRunningError:
+            print(json.dumps({"ok": False,
+                              "error": "another collector is already "
+                                       "running",
+                              "mode": "migrate-canonical-names"}))
+            raise SystemExit(3)
+        print(json.dumps({"ok": True,
+                          "before_counts": report["before_counts"],
+                          "after_counts": report["after_counts"],
+                          "renames": report["renames"],
+                          "merges": report["merges"]}, indent=1))
+        for line in report["merge_lines"]:
+            print(line)
+        raise SystemExit(0)
 
     # --mark-complete is a lock-free maintenance path: no network, no long
     # work, just a couple of writes -- it stays exactly as it was before the

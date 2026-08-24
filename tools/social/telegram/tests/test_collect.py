@@ -634,6 +634,78 @@ class TestForceBackfillCliFlag(unittest.TestCase):
         self.assertIsNone(args3.mode)
 
 
+class TestRunGuardAgainstNonCanonicalNames(unittest.TestCase):
+    """A silent re-divergence between approved-channel casing and message
+    storage is worse than a loud stop: run() must refuse to collect at all
+    if any approved channel is stored non-canonically, and tell the
+    operator to run the migration."""
+
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+
+    def test_non_canonical_approved_channel_stops_run_with_no_fetch(self):
+        from tools.social.telegram.collect import run
+
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('FrankKraemer', 'seed_approved')")
+        self.conn.commit()
+
+        calls = []
+        def fetch(username, before):
+            calls.append((username, before))
+            raise AssertionError("fetch must never be called when an "
+                                  "approved channel is stored non-canonically")
+
+        report = run(self.conn, fetch, mode="incremental")
+
+        self.assertEqual(calls, [])
+        self.assertFalse(report["ok"])
+        self.assertIn("migrate-canonical-names", report["error"])
+        self.assertIn("FrankKraemer", report["error"])
+
+    def test_all_canonical_approved_channels_proceed_normally(self):
+        from tools.social.telegram.collect import run
+
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        report = run(self.conn, fetch, mode="backfill")
+        self.assertTrue(report["ok"])
+
+
+class TestChannelArgCanonicalized(unittest.TestCase):
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_only_channel_matches_regardless_of_casing(self):
+        from tools.social.telegram.collect import run
+        fetch = make_fake_fetch("chan", [1, 2, 3])
+        report = run(self.conn, fetch, mode="backfill", only_channel="ChAn")
+        statuses = {c["channel"]: c["status"] for c in report["channels"]}
+        self.assertEqual(statuses, {"chan": "complete"})
+
+
+class TestMarkCompleteCanonicalized(unittest.TestCase):
+    def setUp(self):
+        from tools.social.telegram.store import open_db
+        self.conn = open_db(":memory:")
+        self.conn.execute("INSERT INTO channels(username, status) "
+                          "VALUES ('chan', 'seed_approved')")
+        self.conn.commit()
+
+    def test_mark_channel_complete_accepts_different_casing(self):
+        from tools.social.telegram.collect import mark_channel_complete
+        from tools.social.telegram.store import backfill_completed_at
+        mark_channel_complete(self.conn, "ChAn")
+        self.assertIsNotNone(backfill_completed_at(self.conn, "chan"))
+
+
 class TestCollectSingleInstanceLock(unittest.TestCase):
     """Exercises collect.py's __main__ wiring of the single-instance lock via
     a real subprocess -- the lock file is pre-held by THIS process (a second,
