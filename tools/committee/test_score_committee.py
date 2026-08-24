@@ -97,6 +97,52 @@ class AggregateTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# mean_pct_full / spread_pct_full -- comparable (3-member-only) aggregates
+# --------------------------------------------------------------------------
+
+class FullAggregateTests(unittest.TestCase):
+    def test_three_members_full_equals_mean_and_spread(self):
+        per_uri = {"tox": 10.0, "tfidf": 20.0, "d2v": 30.0}
+        agg = sc.aggregate_row(per_uri)
+        self.assertEqual(agg["n_members"], 3)
+        self.assertAlmostEqual(agg["mean_pct_full"], agg["mean_pct"])
+        self.assertAlmostEqual(agg["spread_pct_full"], agg["spread_pct"])
+        expected_spread = math.sqrt((100.0 + 0.0 + 100.0) / 3.0)
+        self.assertAlmostEqual(agg["mean_pct_full"], 20.0)
+        self.assertAlmostEqual(agg["spread_pct_full"], expected_spread)
+
+    def test_two_members_full_is_none(self):
+        per_uri = {"tox": None, "tfidf": 40.0, "d2v": 60.0}
+        agg = sc.aggregate_row(per_uri)
+        self.assertEqual(agg["n_members"], 2)
+        self.assertIsNone(agg["mean_pct_full"])
+        self.assertIsNone(agg["spread_pct_full"])
+        # the variable-membership aggregates are still computed
+        self.assertAlmostEqual(agg["mean_pct"], 50.0)
+
+    def test_one_member_full_is_none(self):
+        agg = sc.aggregate_row({"tox": None, "tfidf": 77.0, "d2v": None})
+        self.assertIsNone(agg["mean_pct_full"])
+        self.assertIsNone(agg["spread_pct_full"])
+
+    def test_zero_members_full_is_none(self):
+        agg = sc.aggregate_row({"tox": None, "tfidf": None, "d2v": None})
+        self.assertIsNone(agg["mean_pct_full"])
+        self.assertIsNone(agg["spread_pct_full"])
+
+    def test_build_rows_propagates_full_aggregates(self):
+        tox_pct = {"u1": 10.0, "u2": 90.0}   # u3 missing tox
+        tfidf_pct = {"u1": 20.0, "u2": 80.0, "u3": 50.0}
+        d2v_pct = {"u1": 30.0, "u2": 70.0, "u3": 60.0}
+        rows = sc.build_rows({"u1", "u2", "u3"}, tox_pct, tfidf_pct, d2v_pct,
+                              tox_raw={}, tfidf_raw={}, d2v_raw={})
+        self.assertIsNone(rows["u3"]["mean_pct_full"])
+        self.assertIsNone(rows["u3"]["spread_pct_full"])
+        self.assertIsNotNone(rows["u1"]["mean_pct_full"])
+        self.assertAlmostEqual(rows["u1"]["mean_pct_full"], rows["u1"]["mean_pct"])
+
+
+# --------------------------------------------------------------------------
 # Spearman on a known pair
 # --------------------------------------------------------------------------
 
@@ -218,6 +264,27 @@ class MetaCompletenessTests(unittest.TestCase):
         self.assertTrue(required.issubset(meta.keys()), meta.keys())
         self.assertIn("no human", meta["no_human_annotation_statement"].lower())
 
+    def test_build_meta_warns_against_ranking_on_variable_membership_pct(self):
+        meta = sc.build_meta(
+            tox_model_id="unitary/unbiased-toxic-roberta",
+            tox_model_revision="36295dd8",
+            tox_source_files=["incivility-scores-a.jsonl"],
+            tfidf_random_state=20260822,
+            tfidf_training_counts={"positive": 10, "hard_negative": 20},
+            tfidf_labels_file="label-harvest-posts-x.jsonl",
+            d2v_random_state=20260822,
+            d2v_training_counts={"positive": 10, "hard_negative": 20},
+            d2v_model_path="/x/doc2vec-final.model",
+            sklearn_version="1.9.0",
+            gensim_version="4.4.0",
+            row_counts={"scores": 100},
+        )
+        self.assertIn("mean_pct_caveat", meta)
+        caveat = meta["mean_pct_caveat"].lower()
+        self.assertIn("mean_pct", caveat)
+        self.assertIn("must not", caveat)
+        self.assertIn("70.4", caveat)
+
 
 # --------------------------------------------------------------------------
 # DB writer: idempotent re-run
@@ -264,6 +331,82 @@ class DbWriterTests(unittest.TestCase):
             joined = " ".join((s[0] or "") for s in idx_sql)
             self.assertIn("mean_pct", joined)
             self.assertIn("spread_pct", joined)
+            conn.close()
+
+    def test_full_aggregate_columns_persisted_and_null_when_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "committee.db")
+            rows = {
+                "u1": {"tox": 0.1, "tox_pct": 10.0, "tfidf": 0.2, "tfidf_pct": 20.0,
+                       "d2v": 0.3, "d2v_pct": 30.0, "n_members": 3,
+                       "mean_pct": 20.0, "spread_pct": 8.16,
+                       "mean_pct_full": 20.0, "spread_pct_full": 8.16},
+                # legacy-shaped row (no full-aggregate keys at all) must not crash
+                "u2": {"tox": None, "tox_pct": None, "tfidf": 0.5, "tfidf_pct": 60.0,
+                       "d2v": 0.6, "d2v_pct": 70.0, "n_members": 2,
+                       "mean_pct": 65.0, "spread_pct": 5.0},
+            }
+            meta = {"created_at": "2026-08-24T00:00:00Z"}
+            sc.write_committee_db(db_path, rows, meta)
+            conn = sqlite3.connect(db_path)
+            u1 = conn.execute(
+                "SELECT mean_pct_full, spread_pct_full FROM scores WHERE uri = 'u1'"
+            ).fetchone()
+            self.assertAlmostEqual(u1[0], 20.0)
+            self.assertAlmostEqual(u1[1], 8.16)
+            u2 = conn.execute(
+                "SELECT mean_pct_full, spread_pct_full FROM scores WHERE uri = 'u2'"
+            ).fetchone()
+            self.assertIsNone(u2[0])
+            self.assertIsNone(u2[1])
+            conn.close()
+
+    def test_migrates_legacy_db_missing_full_columns(self):
+        # A pre-existing committee.db built before this change has a `scores`
+        # table without mean_pct_full/spread_pct_full -- write_committee_db
+        # must migrate it in place rather than crashing.
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "committee.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE scores (uri TEXT PRIMARY KEY, tox REAL, tox_pct REAL, "
+                "tfidf REAL, tfidf_pct REAL, d2v REAL, d2v_pct REAL, "
+                "n_members INTEGER, mean_pct REAL, spread_pct REAL)"
+            )
+            conn.execute("INSERT INTO scores (uri, n_members, mean_pct, spread_pct) "
+                         "VALUES ('legacy1', 2, 50.0, 5.0)")
+            conn.commit()
+            conn.close()
+
+            rows = {"u1": {"tox": 0.1, "tox_pct": 10.0, "tfidf": 0.2, "tfidf_pct": 20.0,
+                           "d2v": 0.3, "d2v_pct": 30.0, "n_members": 3,
+                           "mean_pct": 20.0, "spread_pct": 8.16,
+                           "mean_pct_full": 20.0, "spread_pct_full": 8.16}}
+            sc.write_committee_db(db_path, rows, {"created_at": "x"})
+
+            conn = sqlite3.connect(db_path)
+            legacy = conn.execute(
+                "SELECT mean_pct_full, spread_pct_full FROM scores WHERE uri='legacy1'"
+            ).fetchone()
+            self.assertIsNone(legacy[0])
+            self.assertIsNone(legacy[1])
+            u1 = conn.execute(
+                "SELECT mean_pct_full FROM scores WHERE uri='u1'"
+            ).fetchone()
+            self.assertAlmostEqual(u1[0], 20.0)
+            conn.close()
+
+    def test_indices_exist_on_full_aggregates(self):
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "committee.db")
+            sc.write_committee_db(db_path, {}, {"created_at": "x"})
+            conn = sqlite3.connect(db_path)
+            idx_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index'"
+            ).fetchall()
+            joined = " ".join((s[0] or "") for s in idx_sql)
+            self.assertIn("mean_pct_full", joined)
+            self.assertIn("spread_pct_full", joined)
             conn.close()
 
 

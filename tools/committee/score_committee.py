@@ -87,6 +87,23 @@ MODEL_TOX = "incivility_toxicity"
 MODEL_TFIDF = "tfidf_lr"
 MODEL_D2V = "doc2vec_lr"
 
+MEAN_PCT_CAVEAT = (
+    "mean_pct and spread_pct are VARIABLE-MEMBERSHIP aggregates -- they average "
+    "over however many members (n_members) actually scored a post, and are NOT "
+    "comparable across posts. They must NOT be used for ranking or "
+    "stratification. Measured consequence: the toxicity member skipped "
+    "112,343 posts (5.1% of the corpus, disproportionately German), and the "
+    "two supervised members (tfidf_lr, doc2vec_lr) correlate only 0.21 with "
+    "each other -- so a post scored by just those two climbs to a high "
+    "mean_pct far more easily than one that must satisfy all three. "
+    "Empirically, posts missing the toxicity member are 5.1% of the whole "
+    "corpus but 27.1% of the mean_pct top 1% band and 70.4% of the mean_pct "
+    "top 0.1% band -- the top of mean_pct is mostly missing-member posts, not "
+    "the 'all three agree' conjunction it appears to be. Use mean_pct_full / "
+    "spread_pct_full (defined only where n_members == 3, NULL otherwise) for "
+    "any ranking or stratification instead."
+)
+
 NO_HUMAN_ANNOTATION_STATEMENT = (
     "No human annotation was read to produce this run. No query touched the "
     "store's human annotation table or any human-labelled data. All three "
@@ -143,22 +160,43 @@ def rank_percentiles(scores):
 
 def aggregate_row(member_pct):
     """member_pct: dict of member_name -> pct|None (whatever members exist).
-    Returns {"n_members": int, "mean_pct": float|None, "spread_pct": float|None}.
+    Returns {"n_members": int, "mean_pct": float|None, "spread_pct": float|None,
+    "mean_pct_full": float|None, "spread_pct_full": float|None}.
     Missing (None) members are excluded entirely, never imputed as 0 or 0.5.
     spread_pct is the POPULATION standard deviation (ddof=0) of the
     available percentiles.
+
+    mean_pct_full/spread_pct_full are the SAME aggregates but defined ONLY
+    when n_members == 3 (all three committee members scored the post) --
+    they are NULL otherwise. mean_pct/spread_pct average over however many
+    members are available, which makes them NOT comparable across posts: a
+    post scored by only the two decorrelated supervised members (rho=0.21)
+    can climb to a high mean_pct far more easily than one that must satisfy
+    all three, and empirically 70.4% of the mean_pct top 0.1% band is posts
+    missing the toxicity member (disproportionately German-language) -- see
+    docs/superpowers/reports/consensus-committee-report.md. mean_pct_full/
+    spread_pct_full are the comparable aggregates and must be used for any
+    ranking or stratification instead.
     """
     available = [v for v in member_pct.values() if v is not None]
     n = len(available)
     if n == 0:
-        return {"n_members": 0, "mean_pct": None, "spread_pct": None}
+        return {"n_members": 0, "mean_pct": None, "spread_pct": None,
+                "mean_pct_full": None, "spread_pct_full": None}
     mean_pct = sum(available) / n
     if n == 1:
         spread_pct = 0.0
     else:
         variance = sum((v - mean_pct) ** 2 for v in available) / n
         spread_pct = variance ** 0.5
-    return {"n_members": n, "mean_pct": mean_pct, "spread_pct": spread_pct}
+    if n == 3:
+        mean_pct_full = mean_pct
+        spread_pct_full = spread_pct
+    else:
+        mean_pct_full = None
+        spread_pct_full = None
+    return {"n_members": n, "mean_pct": mean_pct, "spread_pct": spread_pct,
+            "mean_pct_full": mean_pct_full, "spread_pct_full": spread_pct_full}
 
 
 def build_rows(all_uris, tox_pct, tfidf_pct, d2v_pct, tox_raw, tfidf_raw, d2v_raw):
@@ -183,6 +221,8 @@ def build_rows(all_uris, tox_pct, tfidf_pct, d2v_pct, tox_raw, tfidf_raw, d2v_ra
             "n_members": agg["n_members"],
             "mean_pct": agg["mean_pct"],
             "spread_pct": agg["spread_pct"],
+            "mean_pct_full": agg["mean_pct_full"],
+            "spread_pct_full": agg["spread_pct_full"],
         }
     return rows
 
@@ -303,6 +343,7 @@ def build_meta(tox_model_id, tox_model_revision, tox_source_files,
     return {
         "created_at": now_iso(),
         "no_human_annotation_statement": NO_HUMAN_ANNOTATION_STATEMENT,
+        "mean_pct_caveat": MEAN_PCT_CAVEAT,
         "tox_model_id": tox_model_id,
         "tox_model_revision": tox_model_revision,
         "tox_source_files": list(tox_source_files),
@@ -330,9 +371,26 @@ CREATE TABLE IF NOT EXISTS scores (
     d2v REAL, d2v_pct REAL,
     n_members INTEGER,
     mean_pct REAL,
-    spread_pct REAL
+    spread_pct REAL,
+    mean_pct_full REAL,
+    spread_pct_full REAL
 )
 """
+
+# Column comments (SQLite has no native COLUMN COMMENT; recorded here and
+# mirrored into the meta table so both the schema author and any later
+# reader see the same warning) -- see MEAN_PCT_CAVEAT above for the full
+# text and the 70.4% measurement it is based on.
+COLUMN_COMMENTS = {
+    "mean_pct": "VARIABLE-MEMBERSHIP aggregate -- NOT comparable across posts. "
+                 "Do not use for ranking/stratification; see meta.mean_pct_caveat.",
+    "spread_pct": "VARIABLE-MEMBERSHIP aggregate -- NOT comparable across posts. "
+                  "Do not use for ranking/stratification; see meta.mean_pct_caveat.",
+    "mean_pct_full": "Comparable aggregate: defined only where n_members == 3, "
+                      "NULL otherwise. Use this (not mean_pct) for ranking/stratification.",
+    "spread_pct_full": "Comparable aggregate: defined only where n_members == 3, "
+                        "NULL otherwise. Use this (not spread_pct) for ranking/stratification.",
+}
 SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -347,27 +405,43 @@ def write_committee_db(db_path, rows, meta):
     try:
         conn.execute(SCHEMA_SCORES)
         conn.execute(SCHEMA_META)
+        # Migration: an older committee.db predates mean_pct_full/spread_pct_full.
+        # CREATE TABLE IF NOT EXISTS does not add columns to an existing table,
+        # so add them explicitly (idempotent -- guarded by existing-column check).
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(scores)").fetchall()}
+        if "mean_pct_full" not in existing_cols:
+            conn.execute("ALTER TABLE scores ADD COLUMN mean_pct_full REAL")
+        if "spread_pct_full" not in existing_cols:
+            conn.execute("ALTER TABLE scores ADD COLUMN spread_pct_full REAL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_mean_pct ON scores(mean_pct)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_spread_pct ON scores(spread_pct)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_mean_pct_full ON scores(mean_pct_full)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_spread_pct_full ON scores(spread_pct_full)")
         conn.executemany(
             "INSERT INTO scores (uri, tox, tox_pct, tfidf, tfidf_pct, d2v, d2v_pct, "
-            "n_members, mean_pct, spread_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "n_members, mean_pct, spread_pct, mean_pct_full, spread_pct_full) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(uri) DO UPDATE SET "
             "tox=excluded.tox, tox_pct=excluded.tox_pct, "
             "tfidf=excluded.tfidf, tfidf_pct=excluded.tfidf_pct, "
             "d2v=excluded.d2v, d2v_pct=excluded.d2v_pct, "
             "n_members=excluded.n_members, mean_pct=excluded.mean_pct, "
-            "spread_pct=excluded.spread_pct",
+            "spread_pct=excluded.spread_pct, mean_pct_full=excluded.mean_pct_full, "
+            "spread_pct_full=excluded.spread_pct_full",
             [
                 (uri, r["tox"], r["tox_pct"], r["tfidf"], r["tfidf_pct"],
-                 r["d2v"], r["d2v_pct"], r["n_members"], r["mean_pct"], r["spread_pct"])
+                 r["d2v"], r["d2v_pct"], r["n_members"], r["mean_pct"], r["spread_pct"],
+                 r.get("mean_pct_full"), r.get("spread_pct_full"))
                 for uri, r in rows.items()
             ],
         )
+        meta_with_comments = dict(meta)
+        meta_with_comments["column_comments"] = COLUMN_COMMENTS
         conn.executemany(
             "INSERT INTO meta (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            [(k, json.dumps(v) if not isinstance(v, str) else v) for k, v in meta.items()],
+            [(k, json.dumps(v) if not isinstance(v, str) else v)
+             for k, v in meta_with_comments.items()],
         )
         conn.commit()
     finally:
@@ -408,6 +482,89 @@ HONEST_HEADER = """\
   per-post signals whose disagreement is informative, and to define strata
   for future weighted-sampling labelling.
 """
+
+
+def missing_member_skew(rows, top_fractions=(0.01, 0.001)):
+    """Measures how much the mean_pct (variable-membership) top bands are
+    skewed toward posts missing the toxicity member, vs. the whole corpus.
+    Returns {"whole_corpus_missing_share": float, "bands": {fraction: {...}}}.
+    Empty rows -> {} (reported honestly, not faked as 0)."""
+    total = len(rows)
+    if total == 0:
+        return {}
+    missing = sum(1 for r in rows.values() if r["tox_pct"] is None)
+    whole_share = missing / total
+    mean_pct_by_uri = {u: r["mean_pct"] for u, r in rows.items() if r["mean_pct"] is not None}
+    bands = {}
+    for frac in top_fractions:
+        band = top_band_uris(mean_pct_by_uri, frac)
+        band_missing = sum(1 for u in band if rows[u]["tox_pct"] is None)
+        bands[frac] = {
+            "n": len(band),
+            "missing": band_missing,
+            "share": (band_missing / len(band)) if band else None,
+        }
+    return {"whole_corpus_missing_share": whole_share, "bands": bands}
+
+
+def full_top_band_member_medians(rows, fraction=0.001):
+    """Member-median breakdown of the top `fraction` band computed on
+    mean_pct_full (n_members == 3 only, the comparable aggregate) --
+    answers whether mean_pct_full's top band really is the "all three
+    agree" conjunction it appears to be, on data where that claim is
+    actually testable (every post in the band has all three members)."""
+    full_by_uri = {u: r["mean_pct_full"] for u, r in rows.items() if r["mean_pct_full"] is not None}
+    band = top_band_uris(full_by_uri, fraction)
+    tox_vals = [rows[u]["tox_pct"] for u in band if rows[u]["tox_pct"] is not None]
+    tfidf_vals = [rows[u]["tfidf_pct"] for u in band if rows[u]["tfidf_pct"] is not None]
+    d2v_vals = [rows[u]["d2v_pct"] for u in band if rows[u]["d2v_pct"] is not None]
+    return {
+        "n": len(band),
+        "tox_pct_median": float(np.median(tox_vals)) if tox_vals else None,
+        "tfidf_pct_median": float(np.median(tfidf_vals)) if tfidf_vals else None,
+        "d2v_pct_median": float(np.median(d2v_vals)) if d2v_vals else None,
+    }
+
+
+def render_missing_member_skew_lines(skew):
+    lines = ["## Missing-member skew: mean_pct top bands vs. whole corpus", "",
+              "(the measured flaw this run fixes -- mean_pct is a variable-"
+              "membership average, so a post missing the toxicity member "
+              "climbs to a high mean_pct far more easily than one scored by "
+              "all three)", ""]
+    if not skew:
+        lines.append("(no rows -- skew table not computable)")
+        return lines
+    lines.append("| band | share of posts with toxicity missing |")
+    lines.append("|---|---|")
+    lines.append("| whole corpus | %.1f%% |" % (skew["whole_corpus_missing_share"] * 100.0))
+    frac_labels = {0.01: "mean_pct top 1%", 0.001: "mean_pct top 0.1%"}
+    for frac in sorted(skew["bands"].keys(), reverse=True):
+        band = skew["bands"][frac]
+        label = frac_labels.get(frac, "mean_pct top %.3g%%" % (frac * 100.0))
+        if band["share"] is None:
+            lines.append("| %s | n/a (empty band) |" % label)
+        else:
+            lines.append("| %s | **%.1f%%** |" % (label, band["share"] * 100.0))
+    return lines
+
+
+def render_full_top_band_medians_lines(medians, fraction=0.001):
+    lines = ["", "## Member-median breakdown of the mean_pct_full top %.3g%% band" % (fraction * 100.0),
+              "", "(computed on COMPARABLE data only -- every post here has all "
+              "three members -- so the 'conjunction' claim is either supported "
+              "or refuted on data where it is actually testable)", ""]
+    if medians["n"] == 0:
+        lines.append("(band is empty -- reported honestly, not silently omitted)")
+        return lines
+    lines.append("- n posts in band: %d" % medians["n"])
+    lines.append("- tox_pct median: %s" %
+                  ("%.1f" % medians["tox_pct_median"] if medians["tox_pct_median"] is not None else "n/a"))
+    lines.append("- tfidf_pct median: %s" %
+                  ("%.1f" % medians["tfidf_pct_median"] if medians["tfidf_pct_median"] is not None else "n/a"))
+    lines.append("- d2v_pct median: %s" %
+                  ("%.1f" % medians["d2v_pct_median"] if medians["d2v_pct_median"] is not None else "n/a"))
+    return lines
 
 
 def render_report(spearman_rows, spread_values, top_bands, jaccards, extra_lines=None):
@@ -540,7 +697,12 @@ def run(store_path, incivility_dir, labels_dir, doc2vec_model_path, db_path,
         "%s_vs_%s" % (MODEL_TFIDF, MODEL_D2V): jaccard(tfidf_top1, d2v_top1),
     }
 
-    report = render_report(spearman_rows, spread_values, top_bands, jaccards)
+    skew = missing_member_skew(rows)
+    full_medians = full_top_band_member_medians(rows, fraction=0.001)
+    extra_lines = (render_missing_member_skew_lines(skew) +
+                   render_full_top_band_medians_lines(full_medians, fraction=0.001))
+
+    report = render_report(spearman_rows, spread_values, top_bands, jaccards, extra_lines=extra_lines)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
