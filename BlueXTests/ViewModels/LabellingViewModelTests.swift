@@ -206,6 +206,49 @@ final class LabellingViewModelTests: XCTestCase {
         XCTAssertEqual(annotation.post?.uri, firstURI)
     }
 
+    // MARK: - Stratified batches open through the ordinary session flow
+
+    /// A batch drawn by `FrameFileImport` (not `createBatch`) must open and record
+    /// labels exactly like any other batch, and its `Annotation` rows must carry the
+    /// batch/pass provenance — proving the stratified path shares the same session
+    /// machinery as uniformRandom/filtered rather than a bespoke one.
+    func testStratifiedBatchOpensAndRecordsLabelsThroughNormalFlow() async throws {
+        let frame = SamplingFrame.stratified(
+            stratumID: "tox_top_1", stratumDefinition: "tox_pct >= 99.0000",
+            populationSize: 20844, frameFileSHA256: "deadbeef", drawSeed: 20260824)
+        let uris = (0..<Self.replyCount).map { "at://reply\($0)" }
+        let batch = LabelBatch(frame: frame, poolSizeAtDraw: 20844, seed: 20260824,
+                                drawnURIs: uris, passNumber: 1)
+        let batchID = batch.id
+        context.insert(batch)
+        try context.save()
+
+        let vm = makeViewModel(annotatorID: "anna", seed: 1)
+        await vm.openBatch(batchID, reader: reader)
+
+        guard case .loaded = vm.loadState else {
+            return XCTFail("expected .loaded, got \(vm.loadState)")
+        }
+        XCTAssertEqual(vm.sessionItems.count, Self.replyCount)
+
+        vm.record("hate", note: nil, context: context)
+
+        let annotations = try context.fetch(
+            FetchDescriptor<Annotation>(predicate: #Predicate<Annotation> { $0.batchID == batchID }))
+        XCTAssertEqual(annotations.count, 1)
+        let annotation = try XCTUnwrap(annotations.first)
+        XCTAssertEqual(annotation.stage, "human")
+        XCTAssertEqual(annotation.annotatorID, "anna")
+        XCTAssertEqual(annotation.batchID, batchID)
+        XCTAssertEqual(annotation.passNumber, 1)
+
+        let refetched = try XCTUnwrap(context.fetch(FetchDescriptor<LabelBatch>(
+            predicate: #Predicate<LabelBatch> { $0.id == batchID })).first)
+        XCTAssertEqual(refetched.labelledURIs.count, 1)
+        XCTAssertEqual(refetched.frame?.kind, .stratified)
+        XCTAssertEqual(refetched.frame?.stratumID, "tox_top_1")
+    }
+
     func testCompletedAtSetOnLastItem() async throws {
         let vm = makeViewModel(seed: 11)
         await vm.createBatch(frame: .uniformRandom, size: 1, reader: reader)

@@ -287,7 +287,12 @@ def fetch_human_annotations(conn):
 
 def fetch_batches(conn):
     """Return (batches, meta). `batches` maps normalized UUID string ->
-    {"kind": str|None, "pass_number": int|None, "skipped_count": int|None}.
+    {"kind": str|None, "pass_number": int|None, "skipped_count": int|None,
+    "stratum_id": str|None, "population_size": int|None}. The last two are
+    only ever non-None for a `kind == "stratified"` batch -- pulled straight
+    from the frame JSON's `stratumID`/`populationSize` keys (the exact Swift
+    property names `SamplingFrame` encodes to; this script never renames or
+    snake_cases them).
     `skipped_count` is `None` when `ZSKIPPEDURIS` is absent from the store
     (pre-migration) or its value couldn't be decoded for that row -- callers
     must not treat `None` as zero.
@@ -330,17 +335,25 @@ def fetch_batches(conn):
         if norm is None:
             continue
         kind = None
+        stratum_id = None
+        population_size = None
         if frame_json:
             try:
                 frame = json.loads(frame_json)
-                kind = frame.get("kind") if isinstance(frame, dict) else None
+                if isinstance(frame, dict):
+                    kind = frame.get("kind")
+                    stratum_id = frame.get("stratumID")
+                    population_size = frame.get("populationSize")
             except (ValueError, TypeError):
                 kind = None
         skipped_count = None
         if has_skipped_column:
             decoded = decode_string_array(row[3])
             skipped_count = len(decoded) if decoded is not None else None
-        batches[norm] = {"kind": kind, "pass_number": pass_number, "skipped_count": skipped_count}
+        batches[norm] = {
+            "kind": kind, "pass_number": pass_number, "skipped_count": skipped_count,
+            "stratum_id": stratum_id, "population_size": population_size,
+        }
     return batches, {"status": "ok", "has_skipped_column": has_skipped_column}
 
 
@@ -428,6 +441,269 @@ def build_report(annotations, batches, batches_available):
         "n_excluded": excluded_total,
         "excluded_by_reason": excluded_by_reason,
     }
+
+
+# --------------------------------------------------------------------------
+# Stratified weighted prevalence estimator (a SEPARATE analysis from the
+# uniform-random one above -- see the design doc's §5: the two must never be
+# pooled, and this section never touches `uniformRandom` labels for anything
+# but the enrichment-factor baseline, computed via the SAME `build_report`
+# uniform-only logic so it is, by construction, identical to what
+# `compute_report` reports on its own.)
+# --------------------------------------------------------------------------
+
+def stratum_universe(batches):
+    """stratum_id -> population_size, for every DISTINCT stratified, pass-1
+    batch found -- this is the source of truth for which strata exist, so a
+    stratum with population but zero labels still appears (with n=0), rather
+    than only strata that happen to have at least one annotation."""
+    universe = {}
+    for batch in batches.values():
+        if batch.get("kind") != "stratified" or batch.get("pass_number") != 1:
+            continue
+        stratum_id = batch.get("stratum_id")
+        if not stratum_id:
+            continue
+        universe.setdefault(stratum_id, batch.get("population_size"))
+    return universe
+
+
+def classify_stratified_label(annotation, batches):
+    """Mirror of `classify_label`, but for the stratified side: only
+    `kind == "stratified"`, pass-1 labels are in scope. Returns
+    (bucket, reason, speech_class, stratum_id)."""
+    speech_class = annotation["speech_class"]
+    batch_id_raw = annotation["batch_id_raw"]
+    if batch_id_raw is None:
+        return ("excluded", "no_batch_id", speech_class, None)
+    norm = normalize_uuid(batch_id_raw)
+    if norm is None:
+        return ("excluded", "unparseable_batch_id", speech_class, None)
+    batch = batches.get(norm)
+    if batch is None:
+        return ("excluded", "orphan_no_matching_batch", speech_class, None)
+    kind = batch.get("kind")
+    if kind != "stratified":
+        return ("excluded", "non_stratified_frame:%s" % (kind or "undecodable"),
+                 speech_class, None)
+    if batch.get("pass_number") != 1:
+        pass_label = batch.get("pass_number") if batch.get("pass_number") is not None else "unknown"
+        return ("excluded", "pass_%s" % pass_label, speech_class, None)
+    stratum_id = batch.get("stratum_id")
+    if not stratum_id:
+        return ("excluded", "missing_stratum_id", speech_class, None)
+    return ("included", None, speech_class, stratum_id)
+
+
+def compute_stratified_report(store_path):
+    """Weighted stratified prevalence estimate p_hat = sum_h (N_h/N)*(k_h/n_h)
+    over `stratified`, pass-1 human labels ONLY, plus per-stratum Wilson CIs
+    and enrichment factors against the uniform-random baseline (computed via
+    `compute_report`'s own `build_report`, untouched by anything here).
+
+    A stratum with population but n_h == 0 is EXCLUDED from the weighted
+    estimate and its own N_h excluded from the denominator -- never silently
+    treated as p_h = 0, which would drag the estimate toward zero for a
+    stratum nobody has looked at yet. It is still reported, by name, under
+    `excluded_zero_n_strata`, so "nothing labelled here" is visible rather
+    than quietly missing from the table.
+    """
+    conn = sqlite3.connect(ro_uri(store_path), uri=True)
+    try:
+        annotations, flags = fetch_human_annotations(conn)
+        batches, batches_meta = fetch_batches(conn)
+    finally:
+        conn.close()
+
+    batches_available = batches_meta["status"] == "ok"
+
+    schema_notes = []
+    if batches_meta["status"] == "missing_table":
+        schema_notes.append(
+            "ZLABELBATCH does not exist -- the store has not been migrated; "
+            "launch the BlueX app once, then re-run this script."
+        )
+    elif batches_meta["status"] == "missing_columns":
+        schema_notes.append(
+            "ZLABELBATCH exists but is missing expected column(s): %s "
+            "(columns actually found: %s)." % (batches_meta["missing"], batches_meta["found"])
+        )
+
+    universe = stratum_universe(batches) if batches_available else {}
+
+    strata = {sid: {"N": pop_size, "n": 0, "k": 0} for sid, pop_size in universe.items()}
+    excluded_total = 0
+    excluded_by_reason = {}
+
+    if batches_available:
+        for annotation in annotations:
+            bucket, reason, speech_class, stratum_id = classify_stratified_label(annotation, batches)
+            if bucket == "excluded":
+                excluded_total += 1
+                excluded_by_reason[reason] = excluded_by_reason.get(reason, 0) + 1
+                continue
+            strata[stratum_id]["n"] += 1
+            if speech_class == "hate":
+                strata[stratum_id]["k"] += 1
+
+    report = {
+        "generated_at": now_iso(),
+        "store": os.path.abspath(store_path),
+        "schema_notes": schema_notes,
+        "n_excluded": excluded_total,
+        "excluded_by_reason": excluded_by_reason,
+    }
+
+    if not universe:
+        report["run_status"] = "no_data"
+        report["message"] = (
+            "No stratified batches found in this store. Import a committee "
+            "frame file in the app, label some of it, then re-run this script."
+        )
+        return report
+
+    excluded_zero_n = sorted(sid for sid, s in strata.items() if s["n"] == 0)
+    included = {sid: s for sid, s in strata.items() if s["n"] > 0}
+
+    # Uniform-random baseline, via the EXACT SAME logic `compute_report` uses --
+    # this analysis never re-derives it, so it can never drift from the number
+    # `compute_report` reports on its own.
+    uniform_breakdown = build_report(annotations, batches, batches_available)
+    uniform_n = uniform_breakdown["n_included"]
+    uniform_k = uniform_breakdown["included_by_class"].get("hate", 0)
+    uniform_hate_rate = (uniform_k / uniform_n) if uniform_n > 0 else None
+
+    if not included:
+        report["run_status"] = "no_data"
+        report["excluded_zero_n_strata"] = excluded_zero_n
+        report["uniform_hate_rate"] = uniform_hate_rate
+        report["uniform_n"] = uniform_n
+        report["message"] = (
+            "Stratified batches exist but none has a single label yet -- "
+            "every stratum is in excluded_zero_n_strata. No estimate can "
+            "honestly be reported from n=0 in every stratum."
+        )
+        return report
+
+    n_total = sum(s["N"] for s in included.values() if s["N"] is not None)
+
+    rows = []
+    p_hat = 0.0
+    variance = 0.0
+    for stratum_id in sorted(included):
+        s = included[stratum_id]
+        n_h, k_h, big_n = s["n"], s["k"], s["N"]
+        p_h = k_h / n_h
+        weight = (big_n / n_total) if (big_n is not None and n_total) else 0.0
+        p_hat += weight * p_h
+        variance += (weight ** 2) * (p_h * (1 - p_h) / n_h)
+        wilson_lo, wilson_hi = wilson_ci(k_h, n_h)
+        enrichment = (p_h / uniform_hate_rate) if uniform_hate_rate else None
+        rows.append({
+            "stratum_id": stratum_id, "N": big_n, "n": n_h, "k": k_h,
+            "p": p_h, "weight": weight,
+            "wilson_ci": (wilson_lo, wilson_hi), "enrichment": enrichment,
+        })
+
+    se = math.sqrt(variance)
+    ci_lo = max(0.0, p_hat - 1.96 * se)
+    ci_hi = min(1.0, p_hat + 1.96 * se)
+
+    report.update({
+        "run_status": "ok",
+        "strata": rows,
+        "excluded_zero_n_strata": excluded_zero_n,
+        "n_total_population_included": n_total,
+        "hate_prevalence": p_hat,
+        "variance": variance,
+        "ci": (ci_lo, ci_hi),
+        "uniform_hate_rate": uniform_hate_rate,
+        "uniform_n": uniform_n,
+    })
+    return report
+
+
+def render_stratified_report_text(report, store_path):
+    lines = []
+    lines.append("BlueX stratified weighted prevalence report")
+    lines.append("store: %s" % store_path)
+    lines.append("generated_at: %s" % report["generated_at"])
+    lines.append("")
+    if report["schema_notes"]:
+        lines.append("Schema notes:")
+        for note in report["schema_notes"]:
+            lines.append("  - %s" % note)
+        lines.append("")
+
+    if report["run_status"] != "ok":
+        lines.append("RESULT: no stratified estimate computed (%s)." % report["run_status"])
+        lines.append(report["message"])
+        return "\n".join(lines)
+
+    if report["excluded_zero_n_strata"]:
+        lines.append("Strata with a population but ZERO labels so far (excluded, not "
+                      "treated as p=0):")
+        for sid in report["excluded_zero_n_strata"]:
+            lines.append("  - %s" % sid)
+        lines.append("")
+
+    lines.append("Per-stratum table (N_h, n_h, k_h, p_h, weight, Wilson 95%% CI, "
+                  "enrichment vs. uniform baseline):")
+    for row in report["strata"]:
+        wilson_lo, wilson_hi = row["wilson_ci"]
+        enrichment_str = ("%.2fx" % row["enrichment"]) if row["enrichment"] is not None \
+            else "undefined (no uniform baseline)"
+        lines.append(
+            "  %-20s N=%-8d n=%-4d k=%-4d p=%s  weight=%s  Wilson=[%s, %s]  enrichment=%s"
+            % (row["stratum_id"], row["N"], row["n"], row["k"], format_pct(row["p"]),
+               format_pct(row["weight"]), format_pct(wilson_lo), format_pct(wilson_hi),
+               enrichment_str)
+        )
+    lines.append("")
+
+    lines.append("Uniform-random baseline (unchanged by anything in this report, computed "
+                  "identically to base_rate.py's own uniformRandom-only estimate):")
+    if report["uniform_hate_rate"] is not None:
+        lines.append("  p_uniform = %s (n=%d)" % (format_pct(report["uniform_hate_rate"]),
+                                                    report["uniform_n"]))
+    else:
+        lines.append("  no uniform-random pass-1 labels found yet -- enrichment factors "
+                      "above are undefined until Stage 0 has at least one label.")
+    lines.append("")
+
+    lo, hi = report["ci"]
+    lines.append("Stratified weighted estimate: p_hat = %s" % format_pct(report["hate_prevalence"]))
+    lines.append("95%% normal-approximation CI: [%s, %s]" % (format_pct(lo), format_pct(hi)))
+    lines.append("")
+    lines.append(
+        "This estimate and the uniform-random estimate are DIFFERENT analyses over "
+        "DIFFERENT (non-overlapping) label sets -- they should agree within their "
+        "intervals; if they do not, that disagreement is itself a finding about the "
+        "stratum weights, and must be reported, not smoothed over."
+    )
+    if report["n_excluded"]:
+        lines.append("")
+        lines.append("Excluded labels (counted, not dropped): %d" % report["n_excluded"])
+        for reason, count in sorted(report["excluded_by_reason"].items()):
+            lines.append("  - %s: %d" % (reason, count))
+    return "\n".join(lines)
+
+
+def run_stratified(store_path, out_dir):
+    report = compute_stratified_report(store_path)
+
+    os.makedirs(out_dir, exist_ok=True)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    json_path = os.path.join(out_dir, "stratified-estimate-%s.json" % stamp)
+
+    def write_json(handle):
+        json.dump(report, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+
+    write_atomic(json_path, write_json)
+
+    text = render_stratified_report_text(report, store_path)
+    return json_path, report, text
 
 
 # --------------------------------------------------------------------------
@@ -708,6 +984,11 @@ def main(argv=None):
                          help="path to default.store; defaults to $BLUEX_STORE_DIR "
                               "then /Volumes/Eregion/bluex-data")
     parser.add_argument("--out", default=DEFAULT_OUT_DIR)
+    parser.add_argument("--stratified", action="store_true",
+                         help="Report the stratified weighted prevalence estimate "
+                              "(stratified, pass-1 labels only) instead of the "
+                              "uniform-random Stage 0 report. The two are separate "
+                              "analyses and are never pooled.")
     args = parser.parse_args(argv)
 
     store_dir = args.store or DEFAULT_STORE_DIR
@@ -715,6 +996,13 @@ def main(argv=None):
 
     if not os.path.exists(store_path):
         parser.error("store not found: %s" % store_path)
+
+    if args.stratified:
+        json_path, report, text = run_stratified(store_path, args.out)
+        print(text)
+        print("")
+        print("wrote %s" % json_path)
+        return 0 if report["run_status"] == "ok" else 1
 
     try:
         json_path, report, text = run(store_path, args.out)

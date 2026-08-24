@@ -15,6 +15,11 @@ enum LabellingFormatting {
     /// exactly which of its optional fields are actually set.
     static func frameSummary(_ frame: SamplingFrame?) -> String {
         guard let frame else { return "unknown frame (failed to decode)" }
+        if frame.kind == .stratified {
+            let id = frame.stratumID ?? "unknown stratum"
+            let definition = frame.stratumDefinition ?? ""
+            return definition.isEmpty ? "stratified: \(id)" : "stratified: \(id) (\(definition))"
+        }
         guard frame.kind == .filtered else { return "uniform random" }
 
         var parts: [String] = []

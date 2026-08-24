@@ -36,6 +36,15 @@ final class LabellingFormattingTests: XCTestCase {
         XCTAssertTrue(summary.contains("50"))
     }
 
+    func testFrameSummaryStratifiedShowsStratumIDAndDefinition() {
+        let frame = SamplingFrame.stratified(
+            stratumID: "tox_top_1", stratumDefinition: "tox_pct >= 99.0000",
+            populationSize: 20844, frameFileSHA256: "abc123", drawSeed: 1)
+        let summary = LabellingFormatting.frameSummary(frame)
+        XCTAssertTrue(summary.contains("tox_top_1"))
+        XCTAssertTrue(summary.contains("tox_pct >= 99.0000"))
+    }
+
     // MARK: - buildFrame
 
     func testBuildFrameUniformRandomIgnoresOtherArguments() {

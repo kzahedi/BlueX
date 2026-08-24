@@ -99,6 +99,67 @@ final class LabelBatchTests: XCTestCase {
         XCTAssertEqual(fetchedPass2.sourceBatchID, pass1.id)
     }
 
+    // MARK: - SamplingFrame.stratified
+
+    func testStratifiedFrameRoundTripsThroughJSON() throws {
+        let frame = SamplingFrame.stratified(
+            stratumID: "tox_top_1", stratumDefinition: "tox_pct >= 99.0000",
+            populationSize: 20844, frameFileSHA256: "abc123", drawSeed: 20260824)
+        let batch = LabelBatch(frame: frame, poolSizeAtDraw: 20844, seed: 20260824,
+                                drawnURIs: ["at://a", "at://b"], passNumber: 1)
+        context.insert(batch)
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(fetched.count, 1)
+        XCTAssertEqual(fetched[0].frame, frame)
+        XCTAssertEqual(fetched[0].frame?.kind, .stratified)
+        XCTAssertEqual(fetched[0].frame?.stratumID, "tox_top_1")
+        XCTAssertEqual(fetched[0].frame?.stratumDefinition, "tox_pct >= 99.0000")
+        XCTAssertEqual(fetched[0].frame?.populationSize, 20844)
+        XCTAssertEqual(fetched[0].frame?.frameFileSHA256, "abc123")
+        XCTAssertEqual(fetched[0].frame?.drawSeed, 20260824)
+    }
+
+    /// Regression: existing uniformRandom/filtered frames, encoded before the
+    /// stratified fields existed, still decode with those fields nil.
+    func testUniformRandomFrameStillDecodesWithoutStratifiedFields() throws {
+        let batch = LabelBatch(frame: .uniformRandom, poolSizeAtDraw: 100, seed: 1,
+                                drawnURIs: ["at://x"], passNumber: 1)
+        context.insert(batch)
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(fetched[0].frame, .uniformRandom)
+        XCTAssertNil(fetched[0].frame?.stratumID)
+        XCTAssertNil(fetched[0].frame?.populationSize)
+    }
+
+    func testFilteredFrameStillDecodesWithoutStratifiedFields() throws {
+        let frame = SamplingFrame(kind: .filtered, outletPK: 42, dateFrom: nil, dateTo: nil,
+                                   minThreadReplies: 1, maxThreadReplies: 10)
+        let batch = LabelBatch(frame: frame, poolSizeAtDraw: 500, seed: 12345,
+                                drawnURIs: ["at://a"], passNumber: 1)
+        context.insert(batch)
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<LabelBatch>())
+        XCTAssertEqual(fetched[0].frame, frame)
+        XCTAssertNil(fetched[0].frame?.stratumID)
+    }
+
+    /// A frame JSON string produced BEFORE the stratified fields existed (i.e. it has
+    /// none of those keys at all) must still decode successfully -- this is the actual
+    /// regression risk, not merely re-encoding a frame built with the new struct.
+    func testPreExistingFrameJSONWithoutStratifiedKeysStillDecodes() throws {
+        let oldJSON = """
+        {"kind":"uniformRandom"}
+        """
+        let decoded = try JSONDecoder().decode(SamplingFrame.self, from: Data(oldJSON.utf8))
+        XCTAssertEqual(decoded, .uniformRandom)
+        XCTAssertNil(decoded.stratumID)
+    }
+
     func testAnnotationWithoutHumanLabelFieldsReadsBackNil() throws {
         let annotation = Annotation(
             speechClass: "hate", sentimentScore: -0.8, detectedLanguage: "de",

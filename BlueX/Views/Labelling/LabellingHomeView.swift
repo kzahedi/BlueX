@@ -1,5 +1,7 @@
 import SwiftUI
 import SwiftData
+import AppKit
+import UniformTypeIdentifiers
 
 /// Content column for the labelling tab: builds a sampling frame, shows a live count of
 /// how many posts currently match it, draws a batch, and lists every batch drawn so far
@@ -51,6 +53,9 @@ struct LabellingHomeView: View {
     @State private var agreementReport: AgreementReport?
     @State private var agreementError: String?
 
+    @State private var frameImportError: String?
+    @State private var frameImportMessage: String?
+
     private var previewKey: String {
         [
             "\(isUniformRandom)",
@@ -69,6 +74,7 @@ struct LabellingHomeView: View {
                 if let outcome = lastCreateOutcome {
                     createOutcomeBanner(outcome)
                 }
+                frameImportSection
                 Divider().background(Color.neutralBorder)
                 batchListSection
             }
@@ -218,6 +224,56 @@ struct LabellingHomeView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Frame file import
+
+    /// Imports a committee-produced stratified frame file — the app never runs the
+    /// committee scoring itself, it only ever reads a file that scoring already
+    /// produced (see `FrameFileImport`'s own doc comment on the blindness guarantee
+    /// this whole path exists to preserve). One `LabelBatch` per stratum is created;
+    /// the stratified batches then appear in the ordinary list below, exactly like a
+    /// uniformRandom/filtered batch, opened through the same "Continue" flow.
+    private var frameImportSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button("Import frame file…") { importFrameFile() }
+                    .buttonStyle(.bordered)
+                    .font(.system(size: 12, weight: .medium))
+                if let frameImportMessage {
+                    Text(frameImportMessage)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondaryText)
+                }
+            }
+            if let frameImportError {
+                Text("Could not import frame file: \(frameImportError)")
+                    .font(.caption)
+                    .foregroundStyle(Color.hateBorder)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func importFrameFile() {
+        frameImportError = nil
+        frameImportMessage = nil
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.title = "Import stratified frame file"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let result = try FrameFileImport.importFrameFile(at: url, context: modelContext)
+            frameImportMessage = result.skippedAlreadyImported
+                ? "Already imported — no new batches created."
+                : "Imported \(result.createdBatchIDs.count) stratum batch(es)."
+        } catch {
+            frameImportError = error.localizedDescription
+        }
     }
 
     // MARK: - Create outcome banners

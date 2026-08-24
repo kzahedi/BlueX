@@ -4,6 +4,7 @@ minimally: Z_PK/ZSTAGE/ZSPEECHCLASS/ZBATCHID/ZPASSNUMBER on ZANNOTATION,
 ZID/ZFRAMEJSON/ZPASSNUMBER on ZLABELBATCH.
 """
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -117,7 +118,12 @@ def make_store(tmp_path, batches, annotations, uuid_encoding="text", with_skippe
         return u.bytes if uuid_encoding == "blob" else str(u)
 
     for b in batches:
-        frame_json = json.dumps({"kind": b["kind"]})
+        frame = {"kind": b["kind"]}
+        if "stratum_id" in b:
+            frame["stratumID"] = b["stratum_id"]
+        if "population_size" in b:
+            frame["populationSize"] = b["population_size"]
+        frame_json = json.dumps(frame)
         if with_skipped_column:
             skipped_json = json.dumps(b.get("skipped_uris", []))
             conn.execute(
@@ -552,3 +558,154 @@ def test_render_report_text_includes_skip_line_and_caveat(tmp_path):
     assert "1 item" in text and "skipped" in text
     assert "excluded from the estimate" in text
     assert "biases the estimate toward the decidable subset" in text
+
+
+# --------------------------------------------------------------------------
+# Stratified weighted prevalence estimator
+# --------------------------------------------------------------------------
+
+def test_stratified_estimate_hand_worked_two_strata(tmp_path):
+    # Stratum A: N=1000, n=10, k=5 -> p=0.5, weight=0.1
+    # Stratum B: N=9000, n=10, k=1 -> p=0.1, weight=0.9
+    # p_hat = 0.1*0.5 + 0.9*0.1 = 0.14
+    batch_a = uuid.uuid4()
+    batch_b = uuid.uuid4()
+    annotations = (
+        [{"speech_class": "hate", "batch_id": batch_a, "pass_number": 1}] * 5
+        + [{"speech_class": "neutral", "batch_id": batch_a, "pass_number": 1}] * 5
+        + [{"speech_class": "hate", "batch_id": batch_b, "pass_number": 1}] * 1
+        + [{"speech_class": "neutral", "batch_id": batch_b, "pass_number": 1}] * 9
+    )
+    store = make_store(
+        tmp_path,
+        batches=[
+            {"id": batch_a, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "A", "population_size": 1000},
+            {"id": batch_b, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "B", "population_size": 9000},
+        ],
+        annotations=annotations,
+    )
+    report = br.compute_stratified_report(store)
+    assert report["run_status"] == "ok"
+    assert report["hate_prevalence"] == pytest.approx(0.14, abs=1e-9)
+
+    variance = (0.1 ** 2) * (0.5 * 0.5 / 10) + (0.9 ** 2) * (0.1 * 0.9 / 10)
+    se = math.sqrt(variance)
+    lo, hi = report["ci"]
+    assert lo == pytest.approx(max(0.0, 0.14 - 1.96 * se), abs=1e-6)
+    assert hi == pytest.approx(0.14 + 1.96 * se, abs=1e-6)
+
+    rows = {row["stratum_id"]: row for row in report["strata"]}
+    assert rows["A"]["weight"] == pytest.approx(0.1)
+    assert rows["B"]["weight"] == pytest.approx(0.9)
+    assert rows["A"]["p"] == pytest.approx(0.5)
+    assert rows["B"]["p"] == pytest.approx(0.1)
+
+
+def test_stratified_estimate_excludes_zero_n_stratum_with_note(tmp_path):
+    batch_a = uuid.uuid4()
+    batch_b = uuid.uuid4()
+    batch_c = uuid.uuid4()  # stratum with population but zero labels
+    annotations = (
+        [{"speech_class": "hate", "batch_id": batch_a, "pass_number": 1}] * 5
+        + [{"speech_class": "neutral", "batch_id": batch_a, "pass_number": 1}] * 5
+        + [{"speech_class": "hate", "batch_id": batch_b, "pass_number": 1}] * 1
+        + [{"speech_class": "neutral", "batch_id": batch_b, "pass_number": 1}] * 9
+    )
+    store = make_store(
+        tmp_path,
+        batches=[
+            {"id": batch_a, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "A", "population_size": 1000},
+            {"id": batch_b, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "B", "population_size": 9000},
+            {"id": batch_c, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "C", "population_size": 500},
+        ],
+        annotations=annotations,
+    )
+    report = br.compute_stratified_report(store)
+    # p_hat must be computed exactly as if C did not exist -- C is excluded, not
+    # silently treated as zero (which would drag the estimate down toward 0 and
+    # would need C's weight folded into A/B's denominator, which never happens).
+    assert report["hate_prevalence"] == pytest.approx(0.14, abs=1e-9)
+    assert "C" in report["excluded_zero_n_strata"]
+    assert not any(row["stratum_id"] == "C" for row in report["strata"])
+
+
+def test_stratified_estimate_enrichment_factor_vs_uniform_baseline(tmp_path):
+    batch_a = uuid.uuid4()
+    uniform_batch = uuid.uuid4()
+    annotations = (
+        [{"speech_class": "hate", "batch_id": batch_a, "pass_number": 1}] * 5
+        + [{"speech_class": "neutral", "batch_id": batch_a, "pass_number": 1}] * 5
+        # Uniform baseline: 1 hate in 20 -> p_uniform = 0.05
+        + [{"speech_class": "hate", "batch_id": uniform_batch, "pass_number": 1}] * 1
+        + [{"speech_class": "neutral", "batch_id": uniform_batch, "pass_number": 1}] * 19
+    )
+    store = make_store(
+        tmp_path,
+        batches=[
+            {"id": batch_a, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "A", "population_size": 1000},
+            {"id": uniform_batch, "kind": "uniformRandom", "pass_number": 1},
+        ],
+        annotations=annotations,
+    )
+    report = br.compute_stratified_report(store)
+    assert report["uniform_hate_rate"] == pytest.approx(0.05, abs=1e-9)
+    row_a = next(row for row in report["strata"] if row["stratum_id"] == "A")
+    assert row_a["enrichment"] == pytest.approx(0.5 / 0.05, abs=1e-9)
+    # Wilson CI must be present and bracket the point estimate.
+    lo, hi = row_a["wilson_ci"]
+    assert lo <= row_a["p"] <= hi
+
+
+def test_stratified_estimate_no_strata_is_no_data(tmp_path):
+    uniform_batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": uniform_batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[{"speech_class": "neutral", "batch_id": uniform_batch, "pass_number": 1}],
+    )
+    report = br.compute_stratified_report(store)
+    assert report["run_status"] == "no_data"
+
+
+def test_uniform_estimate_unaffected_by_presence_of_stratified_labels(tmp_path):
+    uniform_batch = uuid.uuid4()
+    stratified_batch = uuid.uuid4()
+    with_dir = tmp_path / "with_stratified"
+    with_dir.mkdir()
+    store_with_stratified = make_store(
+        with_dir,
+        batches=[
+            {"id": uniform_batch, "kind": "uniformRandom", "pass_number": 1},
+            {"id": stratified_batch, "kind": "stratified", "pass_number": 1,
+             "stratum_id": "A", "population_size": 1000},
+        ],
+        annotations=[
+            {"speech_class": "hate", "batch_id": uniform_batch, "pass_number": 1},
+            {"speech_class": "neutral", "batch_id": uniform_batch, "pass_number": 1},
+            {"speech_class": "hate", "batch_id": stratified_batch, "pass_number": 1},
+            {"speech_class": "hate", "batch_id": stratified_batch, "pass_number": 1},
+        ],
+    )
+    without_dir = tmp_path / "without_stratified"
+    without_dir.mkdir()
+    store_without_stratified = make_store(
+        without_dir,
+        batches=[{"id": uniform_batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[
+            {"speech_class": "hate", "batch_id": uniform_batch, "pass_number": 1},
+            {"speech_class": "neutral", "batch_id": uniform_batch, "pass_number": 1},
+        ],
+    )
+
+    with_report = br.compute_report(store_with_stratified)
+    without_report = br.compute_report(store_without_stratified)
+
+    assert with_report["n_included"] == without_report["n_included"]
+    assert with_report["hate_prevalence"] == pytest.approx(without_report["hate_prevalence"])
+    assert with_report["included_by_class"] == without_report["included_by_class"]

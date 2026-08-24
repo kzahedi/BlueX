@@ -75,6 +75,7 @@
 		399E9635444A0F2BD4148761 /* ChartAxisFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F049490AE13F8090624D59A /* ChartAxisFormattingTests.swift */; };
 		3A5B33C6D54969E7D3337512 /* ATProtoDate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8F48C45DB41EDFDE646B5D /* ATProtoDate.swift */; };
 		3BAD7931447A4E6C873FD43C /* LabelSamplingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727DF98004188CBE4001C6E1 /* LabelSamplingTests.swift */; };
+		9730954814A8DA05E10E8860 /* FrameFileImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F17690B890A4FF390CA4B9D /* FrameFileImportTests.swift */; };
 		3D3D5FF34A64773027189028 /* ScrapeSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84B60126B16138FC399BC15 /* ScrapeSessionTests.swift */; };
 		3DA9E7FD76B5A82292BAE878 /* PostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B998F7FE00D8C6BCB779630 /* PostTests.swift */; };
 		3DCB569B51993820B02CAD92 /* AuthorStatsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4DF67B1B1DA4949C482735E /* AuthorStatsViewModel.swift */; };
@@ -221,6 +222,7 @@
 		CF188CC7011A891837DFB12B /* AnnotationDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */; };
 		CF1B19C7F657BB1BA158BD47 /* ScrapeLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D8DB8A38099809BF504229 /* ScrapeLogTests.swift */; };
 		CF4EEC02EFDD570D8FD07613 /* LabelSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF986263F5319F908986A66 /* LabelSampling.swift */; };
+		1E39BF446160D6D70D8F7700 /* FrameFileImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0989C670BCC3643F05AAEED7 /* FrameFileImport.swift */; };
 		D217117CED224184558D84C8 /* AccountSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422C831A27835592CF479D0 /* AccountSeeder.swift */; };
 		D298B0B2763CAEA138AFC272 /* NLTaggerPass.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD33CC7A0E9A251775002A19 /* NLTaggerPass.swift */; };
 		D47D74046FEAF2971DABE473 /* AggregateReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E26132181DDC0511933B3A /* AggregateReader.swift */; };
@@ -332,6 +334,7 @@
 		4CB06109F203B7416AB7B334 /* BlueXColorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueXColorsTests.swift; sourceTree = "<group>"; };
 		4E53D6AB9448B9129D32E529 /* AuthorListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorListView.swift; sourceTree = "<group>"; };
 		4EF986263F5319F908986A66 /* LabelSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelSampling.swift; sourceTree = "<group>"; };
+		0989C670BCC3643F05AAEED7 /* FrameFileImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameFileImport.swift; sourceTree = "<group>"; };
 		4F136056F3E9BB02AFAEFE67 /* AnnotationBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationBadgeTests.swift; sourceTree = "<group>"; };
 		504C627B537AE3AAB0582050 /* LocalModelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelClient.swift; sourceTree = "<group>"; };
 		54438D73CFDAD7E265FCB6F3 /* RescrapingPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RescrapingPolicyTests.swift; sourceTree = "<group>"; };
@@ -355,6 +358,7 @@
 		6FB4CF833BB26FBE4704B3C8 /* AgreementMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgreementMetrics.swift; sourceTree = "<group>"; };
 		702D2A974CF1E2C40FB3DDB6 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		727DF98004188CBE4001C6E1 /* LabelSamplingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelSamplingTests.swift; sourceTree = "<group>"; };
+		5F17690B890A4FF390CA4B9D /* FrameFileImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameFileImportTests.swift; sourceTree = "<group>"; };
 		75E97E85CBCB11DCB104D467 /* BlueskyError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueskyError.swift; sourceTree = "<group>"; };
 		75F739E896313A5440C43C4C /* AnnotationBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationBadge.swift; sourceTree = "<group>"; };
 		76BB19440EE67FEA283AC720 /* ModelClientFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelClientFactoryTests.swift; sourceTree = "<group>"; };
@@ -493,6 +497,7 @@
 			children = (
 				6FB4CF833BB26FBE4704B3C8 /* AgreementMetrics.swift */,
 				4EF986263F5319F908986A66 /* LabelSampling.swift */,
+				0989C670BCC3643F05AAEED7 /* FrameFileImport.swift */,
 			);
 			path = Labelling;
 			sourceTree = "<group>";
@@ -879,6 +884,7 @@
 			children = (
 				AAAFB75912C4498CA561756A /* AgreementMetricsTests.swift */,
 				727DF98004188CBE4001C6E1 /* LabelSamplingTests.swift */,
+				5F17690B890A4FF390CA4B9D /* FrameFileImportTests.swift */,
 			);
 			path = Labelling;
 			sourceTree = "<group>";
@@ -1187,6 +1193,7 @@
 				C9E1D8459606AF2C580DEACF /* LLMResponseParserTests.swift in Sources */,
 				E4DEB268360EE462976379F8 /* LabelBatchTests.swift in Sources */,
 				3BAD7931447A4E6C873FD43C /* LabelSamplingTests.swift in Sources */,
+				9730954814A8DA05E10E8860 /* FrameFileImportTests.swift in Sources */,
 				98E1397C43330DF0184C2DAF /* LabellingFormattingTests.swift in Sources */,
 				BE323854EFF48D8E53CD0098 /* LabellingViewModelTests.swift in Sources */,
 				7ED7328FC51DF2F1D5825DEA /* MLXClientTests.swift in Sources */,
@@ -1308,6 +1315,7 @@
 				6C79ED4BE08A0CE29AF9F681 /* LLMResponseParser.swift in Sources */,
 				8A9A5511369497181CFCC175 /* LabelBatch.swift in Sources */,
 				CF4EEC02EFDD570D8FD07613 /* LabelSampling.swift in Sources */,
+				1E39BF446160D6D70D8F7700 /* FrameFileImport.swift in Sources */,
 				9219FE794F77D85AF145D7CB /* LabellingFormatting.swift in Sources */,
 				8FDA131E377E65E6B482D22D /* LabellingHomeView.swift in Sources */,
 				E38BE4199A5182BFD5C0F17E /* LabellingSessionView.swift in Sources */,
