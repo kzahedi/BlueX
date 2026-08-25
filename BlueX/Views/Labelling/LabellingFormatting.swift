@@ -150,6 +150,17 @@ enum LabellingFormatting {
         }
     }
 
+    // MARK: - Definitions reference panel
+
+    /// One line per class for the always-available reference panel — "1 · hate" etc.,
+    /// in the same 1/2/3/0 order as the class buttons so the panel reads left-to-right
+    /// exactly like the keys the annotator is about to press. Pulls the label straight
+    /// from `LabellingDefinitions`, never a local restatement, so the panel and the
+    /// class buttons can't drift apart on naming.
+    static func definitionPanelKeyLabel(_ definition: LabellingDefinitions.ClassDefinition) -> String {
+        "\(definition.key) · \(definition.name)"
+    }
+
     // MARK: - Text scale
 
     /// Reading thousands of short posts is the whole job in a labelling session, so the

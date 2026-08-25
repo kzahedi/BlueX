@@ -89,22 +89,29 @@ def test_normalize_uuid_garbage_returns_none():
 # Fixture store builder
 # --------------------------------------------------------------------------
 
-def make_store(tmp_path, batches, annotations, uuid_encoding="text", with_skipped_column=True):
+def make_store(tmp_path, batches, annotations, uuid_encoding="text", with_skipped_column=True,
+               with_definition_version_column=True):
     """batches: list of dicts {id: uuid.UUID, kind: str, pass_number: int,
     skipped_uris: list[str] (optional, defaults to [])}.
     annotations: list of dicts {speech_class: str, batch_id: uuid.UUID|None,
-    pass_number: int|None (annotation-level, informational only)}.
+    pass_number: int|None (annotation-level, informational only),
+    definition_version: int|None (optional, defaults to 0 -- mirrors the Swift
+    default on `Annotation.definitionVersion` for a pre-existing row)}.
     uuid_encoding: "text" (dashed string) or "blob" (raw 16 bytes) -- exercises
     both possible SwiftData storage forms for ZID/ZBATCHID.
     with_skipped_column: when False, ZLABELBATCH is created WITHOUT
     ZSKIPPEDURIS at all -- exercises the pre-migration store this column may
     not exist on yet.
+    with_definition_version_column: when False, ZANNOTATION is created WITHOUT
+    ZDEFINITIONVERSION at all -- exercises a store from before that column was
+    added, where every human label must be treated as definitionVersion 0.
     """
     path = str(tmp_path / "fixture.store")
     conn = sqlite3.connect(path)
+    definition_version_col = ", ZDEFINITIONVERSION INTEGER" if with_definition_version_column else ""
     conn.execute(
         "CREATE TABLE ZANNOTATION (Z_PK INTEGER PRIMARY KEY, ZSTAGE VARCHAR, "
-        "ZSPEECHCLASS VARCHAR, ZBATCHID BLOB, ZPASSNUMBER INTEGER)"
+        "ZSPEECHCLASS VARCHAR, ZBATCHID BLOB, ZPASSNUMBER INTEGER%s)" % definition_version_col
     )
     skipped_col = ", ZSKIPPEDURIS VARCHAR" if with_skipped_column else ""
     conn.execute(
@@ -138,11 +145,19 @@ def make_store(tmp_path, batches, annotations, uuid_encoding="text", with_skippe
             )
 
     for a in annotations:
-        conn.execute(
-            "INSERT INTO ZANNOTATION (ZSTAGE, ZSPEECHCLASS, ZBATCHID, ZPASSNUMBER) "
-            "VALUES ('human', ?, ?, ?)",
-            (a["speech_class"], encode(a.get("batch_id")), a.get("pass_number")),
-        )
+        if with_definition_version_column:
+            conn.execute(
+                "INSERT INTO ZANNOTATION (ZSTAGE, ZSPEECHCLASS, ZBATCHID, ZPASSNUMBER, "
+                "ZDEFINITIONVERSION) VALUES ('human', ?, ?, ?, ?)",
+                (a["speech_class"], encode(a.get("batch_id")), a.get("pass_number"),
+                 a.get("definition_version", 0)),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO ZANNOTATION (ZSTAGE, ZSPEECHCLASS, ZBATCHID, ZPASSNUMBER) "
+                "VALUES ('human', ?, ?, ?)",
+                (a["speech_class"], encode(a.get("batch_id")), a.get("pass_number")),
+            )
 
     conn.commit()
     conn.close()
@@ -709,3 +724,105 @@ def test_uniform_estimate_unaffected_by_presence_of_stratified_labels(tmp_path):
     assert with_report["n_included"] == without_report["n_included"]
     assert with_report["hate_prevalence"] == pytest.approx(without_report["hate_prevalence"])
     assert with_report["included_by_class"] == without_report["included_by_class"]
+
+
+# --------------------------------------------------------------------------
+# definitionVersion grouping -- must never pool silently across versions
+# --------------------------------------------------------------------------
+
+def test_definition_version_defaults_to_zero_when_column_absent(tmp_path):
+    batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[
+            {"speech_class": "hate", "batch_id": batch, "pass_number": 1},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1},
+        ],
+        with_definition_version_column=False,
+    )
+    report = br.compute_report(store)
+    assert report["definition_versions"] == [0]
+    assert report["by_definition_version"][0]["n"] == 2
+    assert report["by_definition_version"][0]["hate_count"] == 1
+    # Single version present -- the pooled top-level fields are still reported,
+    # and agree with the (only) per-version breakdown.
+    assert report["hate_prevalence"] == pytest.approx(0.5)
+
+
+def test_single_definition_version_reports_pooled_top_level(tmp_path):
+    batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[
+            {"speech_class": "hate", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["definition_versions"] == [1]
+    assert "definition_version_note" not in report or report["definition_version_note"] is None
+    assert report["n_included"] == 3
+    assert report["hate_prevalence"] == pytest.approx(1 / 3)
+    assert report["by_definition_version"][1]["n"] == 3
+    assert report["by_definition_version"][1]["hate_count"] == 1
+    assert report["by_definition_version"][1]["hate_prevalence"] == pytest.approx(1 / 3)
+
+
+def test_multiple_definition_versions_are_never_pooled(tmp_path):
+    batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[
+            # v0: 1 hate of 2
+            {"speech_class": "hate", "batch_id": batch, "pass_number": 1, "definition_version": 0},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 0},
+            # v1: 0 hate of 3
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+            {"speech_class": "counter", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["definition_versions"] == [0, 1]
+
+    # Refuses to pool: no single top-level hate_prevalence/wilson_ci speaks for
+    # both versions at once.
+    assert "hate_prevalence" not in report
+    assert "wilson_ci" not in report
+
+    # Each version's own estimate is reported separately, with its own n.
+    assert report["by_definition_version"][0]["n"] == 2
+    assert report["by_definition_version"][0]["hate_count"] == 1
+    assert report["by_definition_version"][0]["hate_prevalence"] == pytest.approx(0.5)
+    assert report["by_definition_version"][1]["n"] == 3
+    assert report["by_definition_version"][1]["hate_count"] == 0
+    assert report["by_definition_version"][1]["hate_prevalence"] == pytest.approx(0.0)
+
+    # A clear, non-empty note flags the multiple-versions condition explicitly.
+    note = report["definition_version_note"]
+    assert note
+    assert "0" in note and "1" in note
+
+    # The rendered text report must surface this rather than a misleading pooled
+    # number.
+    text = br.render_report_text(report, store)
+    assert "definitionVersion 0" in text or "version 0" in text.lower()
+    assert "never" in text.lower() or "not pooled" in text.lower() or "separately" in text.lower()
+
+
+def test_multiple_definition_versions_run_status_still_ok_when_data_present(tmp_path):
+    batch = uuid.uuid4()
+    store = make_store(
+        tmp_path,
+        batches=[{"id": batch, "kind": "uniformRandom", "pass_number": 1}],
+        annotations=[
+            {"speech_class": "hate", "batch_id": batch, "pass_number": 1, "definition_version": 0},
+            {"speech_class": "neutral", "batch_id": batch, "pass_number": 1, "definition_version": 1},
+        ],
+    )
+    report = br.compute_report(store)
+    assert report["run_status"] == "ok"

@@ -232,7 +232,12 @@ def decode_string_array(value):
 def fetch_human_annotations(conn):
     """Return (rows, flags). Each row is a dict: pk, speech_class,
     batch_id_raw (None if column absent or value is NULL),
-    annotation_pass_number (None if column absent or value is NULL).
+    annotation_pass_number (None if column absent or value is NULL),
+    definition_version (int -- which `LabellingDefinitions.version` this label
+    was judged against; `0` when the column is absent OR the stored value is
+    NULL, mirroring the Swift `Annotation.definitionVersion` default so a
+    pre-existing row is always treated as a v0 label, never silently folded
+    into whatever the current version happens to be).
 
     `flags` records which optional columns were actually found, so the
     caller can report a "schema not migrated yet" condition distinctly from
@@ -248,12 +253,15 @@ def fetch_human_annotations(conn):
 
     has_batch_id = "ZBATCHID" in cols
     has_pass_number = "ZPASSNUMBER" in cols
+    has_definition_version = "ZDEFINITIONVERSION" in cols
 
     select_cols = ["Z_PK", cols["ZSPEECHCLASS"]]
     if has_batch_id:
         select_cols.append(cols["ZBATCHID"])
     if has_pass_number:
         select_cols.append(cols["ZPASSNUMBER"])
+    if has_definition_version:
+        select_cols.append(cols["ZDEFINITIONVERSION"])
 
     query = "SELECT %s FROM ZANNOTATION WHERE %s = 'human'" % (
         ", ".join(select_cols), cols["ZSTAGE"],
@@ -265,22 +273,29 @@ def fetch_human_annotations(conn):
         i = 2
         batch_id_raw = None
         annotation_pass_number = None
+        definition_version = 0
         if has_batch_id:
             batch_id_raw = row[i]
             i += 1
         if has_pass_number:
             annotation_pass_number = row[i]
             i += 1
+        if has_definition_version:
+            raw_version = row[i]
+            definition_version = raw_version if raw_version is not None else 0
+            i += 1
         results.append({
             "pk": row[0],
             "speech_class": row[1],
             "batch_id_raw": batch_id_raw,
             "annotation_pass_number": annotation_pass_number,
+            "definition_version": definition_version,
         })
 
     flags = {
         "has_batch_id_column": has_batch_id,
         "has_pass_number_column": has_pass_number,
+        "has_definition_version_column": has_definition_version,
     }
     return results, flags
 
@@ -416,11 +431,23 @@ def count_skipped(batches):
 
 def build_report(annotations, batches, batches_available):
     """Turn classified labels into the counts + exclusion breakdown the
-    report needs. Returns a dict; does no printing, no math beyond counting."""
+    report needs. Returns a dict; does no printing, no math beyond counting.
+
+    `by_definition_version` breaks the SAME included labels down by
+    `definitionVersion` (`{version: {"included_by_class": {...},
+    "included_other_class": int}}`) -- the pooled top-level counts above are
+    kept for backward compatibility (e.g. the stratified estimator's uniform
+    baseline) and for the common case of a single version in play, but
+    `compute_report` uses `by_definition_version` as the authoritative source
+    whenever more than one version is present, precisely so those pooled
+    numbers are never mistaken for an estimate spanning definitions that
+    disagree with each other.
+    """
     included_by_class = {c: 0 for c in SPEECH_CLASSES}
     included_other = 0
     excluded_by_reason = {}
     excluded_total = 0
+    by_definition_version = {}
 
     for annotation in annotations:
         bucket, reason, speech_class = classify_label(annotation, batches, batches_available)
@@ -429,6 +456,15 @@ def build_report(annotations, batches, batches_available):
                 included_by_class[speech_class] += 1
             else:
                 included_other += 1
+
+            version = annotation.get("definition_version", 0)
+            version_entry = by_definition_version.setdefault(
+                version, {"included_by_class": {c: 0 for c in SPEECH_CLASSES}, "included_other_class": 0}
+            )
+            if speech_class in version_entry["included_by_class"]:
+                version_entry["included_by_class"][speech_class] += 1
+            else:
+                version_entry["included_other_class"] += 1
         else:
             excluded_total += 1
             excluded_by_reason[reason] = excluded_by_reason.get(reason, 0) + 1
@@ -440,6 +476,7 @@ def build_report(annotations, batches, batches_available):
         "included_other_class": included_other,
         "n_excluded": excluded_total,
         "excluded_by_reason": excluded_by_reason,
+        "by_definition_version": by_definition_version,
     }
 
 
@@ -829,6 +866,32 @@ def render_report_text(report, store_path):
         lines.append(report["message"])
         return "\n".join(lines)
 
+    if report.get("definition_version_note"):
+        # Multiple definitionVersions in the eligible sample -- refuse to pool
+        # them into one number; report each version's own estimate instead.
+        lines.append("NOTE: %s" % report["definition_version_note"])
+        lines.append("")
+        for version in report["definition_versions"]:
+            v = report["by_definition_version"][version]
+            lines.append("definitionVersion %d (n=%d, k=%d):" % (version, v["n"], v["hate_count"]))
+            if v["hate_prevalence"] is None:
+                lines.append("  no eligible labels under this version.")
+                continue
+            v_lo, v_hi = v["wilson_ci"]
+            lines.append("  Hate prevalence: %s" % format_pct(v["hate_prevalence"]))
+            lines.append("  95%% Wilson CI: [%s, %s]" % (format_pct(v_lo), format_pct(v_hi)))
+            lines.append(
+                "  FP/TP at point estimate: %s" % format_fp_tp(v["fp_per_tp_point"])
+            )
+            lines.append("")
+        lines.append(
+            "These estimates are NEVER pooled into a single figure across "
+            "definitionVersions -- a definition change is expected to move "
+            "the prevalence, and averaging over it would hide exactly the "
+            "thing this report exists to show."
+        )
+        return "\n".join(lines)
+
     k = by_class.get("hate", 0)
     p_hat = k / n
     lo, hi = report["wilson_ci"]
@@ -939,6 +1002,46 @@ def compute_report(store_path):
             "see schema_notes above). No base rate can honestly be reported "
             "from n=0; run Stage 0 labelling in the app, then re-run this "
             "script."
+        )
+        return report
+
+    # Per-definitionVersion estimate, computed for EVERY version present
+    # regardless of how many there are -- the multi-version branch below
+    # decides whether this replaces or merely supplements the pooled numbers.
+    by_definition_version = {}
+    for version, entry in breakdown["by_definition_version"].items():
+        v_by_class = entry["included_by_class"]
+        v_n = sum(v_by_class.values()) + entry["included_other_class"]
+        v_k = v_by_class.get("hate", 0)
+        v_p = (v_k / v_n) if v_n > 0 else None
+        v_lo, v_hi = wilson_ci(v_k, v_n)
+        by_definition_version[version] = {
+            "n": v_n,
+            "included_by_class": v_by_class,
+            "hate_count": v_k,
+            "hate_prevalence": v_p,
+            "wilson_ci": (v_lo, v_hi),
+            "fp_per_tp_point": fp_per_tp(v_p),
+            "fp_per_tp_lower": fp_per_tp(v_lo),
+            "fp_per_tp_upper": fp_per_tp(v_hi),
+        }
+
+    versions_present = sorted(by_definition_version.keys())
+    report["definition_versions"] = versions_present
+    report["by_definition_version"] = by_definition_version
+
+    if len(versions_present) > 1:
+        # Refuse to pool: no single top-level hate_prevalence/wilson_ci is
+        # computed at all when the included sample spans more than one
+        # definitionVersion -- see `by_definition_version` for each version's
+        # own, separately-computed estimate.
+        report["run_status"] = "ok"
+        report["definition_version_note"] = (
+            "%d distinct definitionVersion values are present among the %d "
+            "eligible labels (versions: %s). Estimates for different "
+            "definitionVersions are NEVER pooled -- see by_definition_version "
+            "for each version's own n/hate_prevalence/wilson_ci, computed "
+            "separately." % (len(versions_present), n, versions_present)
         )
         return report
 

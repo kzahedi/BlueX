@@ -204,6 +204,9 @@ final class LabellingViewModelTests: XCTestCase {
         XCTAssertEqual(annotation.passNumber, 1)
         XCTAssertEqual(try XCTUnwrap(annotation.timeToDecideSeconds), 5.0, accuracy: 1e-9)
         XCTAssertEqual(annotation.post?.uri, firstURI)
+        // Every human label recorded from now on is judged against the current
+        // canonical definitions — never left at the pre-existing-row default of 0.
+        XCTAssertEqual(annotation.definitionVersion, LabellingDefinitions.version)
     }
 
     // MARK: - Stratified batches open through the ordinary session flow

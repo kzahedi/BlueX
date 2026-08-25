@@ -222,3 +222,15 @@ extension LabellingFormattingTests {
         XCTAssertEqual(LabellingFormatting.clampedTextScale(.infinity), 1.0, accuracy: 0.0001)
     }
 }
+
+// MARK: - Definitions reference panel
+
+extension LabellingFormattingTests {
+
+    func testDefinitionPanelKeyLabelMatchesKeyBinding() {
+        XCTAssertEqual(LabellingFormatting.definitionPanelKeyLabel(LabellingDefinitions.hate), "1 · hate")
+        XCTAssertEqual(LabellingFormatting.definitionPanelKeyLabel(LabellingDefinitions.counter), "2 · counter")
+        XCTAssertEqual(LabellingFormatting.definitionPanelKeyLabel(LabellingDefinitions.neutral), "3 · neutral")
+        XCTAssertEqual(LabellingFormatting.definitionPanelKeyLabel(LabellingDefinitions.skip), "0 · skip")
+    }
+}

@@ -20,6 +20,12 @@ struct LabellingSessionView: View {
     @AppStorage("labellingTextScale") private var storedTextScale: Double = 1.3
     private var textScale: Double { LabellingFormatting.clampedTextScale(storedTextScale) }
 
+    /// Whether the canonical-definitions reference panel is shown. Defaults to `true`
+    /// — an annotator who has never seen this app must not have to discover the
+    /// panel's existence before they get the canonical wording; ⌘I (below) toggles it
+    /// once they know it's there and want the extra width back.
+    @AppStorage("labellingDefinitionsPanelExpanded") private var definitionsPanelExpanded: Bool = true
+
     @State private var noteText: String = ""
     @State private var sessionStartedAt: Date = Date()
 
@@ -85,40 +91,55 @@ struct LabellingSessionView: View {
     // MARK: - Session
 
     private var session: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            progressHeader
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                progressHeader
 
-            if viewModel.isRevisitingSkips {
-                revisitBanner
-            }
-
-            if let error = viewModel.recordError {
-                recordErrorBanner(error)
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let item = viewModel.currentItem {
-                        rootCard(item)
-                        if let parentURI = item.parentURI, parentURI != item.rootURI {
-                            parentCard(item)
-                        }
-                        replyCard(item)
-                    }
+                if viewModel.isRevisitingSkips {
+                    revisitBanner
                 }
-                .padding(.horizontal, 16)
-            }
 
-            noteField
-            classButtons
-            hintLine
-        }
-        .padding(.vertical, 16)
-        .focusable()
-        .focused($focus, equals: .session)
-        .onKeyPress(keys: ["1", "2", "3", "0"]) { press in
-            handleKey(press.characters)
-            return .handled
+                if let error = viewModel.recordError {
+                    recordErrorBanner(error)
+                }
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let item = viewModel.currentItem {
+                            rootCard(item)
+                            if let parentURI = item.parentURI, parentURI != item.rootURI {
+                                parentCard(item)
+                            }
+                            replyCard(item)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                noteField
+                classButtons
+                hintLine
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 16)
+            .focusable()
+            .focused($focus, equals: .session)
+            .onKeyPress(keys: ["1", "2", "3", "0"]) { press in
+                handleKey(press.characters)
+                return .handled
+            }
+            // ⌘I toggles the definitions panel — chosen because it does not collide
+            // with the bare 1/2/3/0 label keys (the fast path), nor with ⌘N (note
+            // field focus) or ⌘+/⌘−/⌘0 (text scale), all wired the same
+            // "invisible button with a keyboardShortcut" way just below.
+            Button("") { definitionsPanelExpanded.toggle() }
+                .keyboardShortcut("i", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+
+            if definitionsPanelExpanded {
+                Divider()
+                definitionsPanel
+            }
         }
     }
 
@@ -253,6 +274,67 @@ struct LabellingSessionView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(prominent ? Color.neutralBorder : Color.clear, lineWidth: 1)
         )
+    }
+
+    // MARK: - Definitions reference panel
+
+    /// Compact, always-available reference to the canonical class definitions — a
+    /// fixed-width sidebar so it can never grow to obscure the post cards, and
+    /// independently scrollable so the annotator can consult it without losing their
+    /// place in (or slowing down) the keyboard-driven labelling flow. Toggle with ⌘I;
+    /// state persists via `definitionsPanelExpanded`.
+    private var definitionsPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Definitions")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.primaryText)
+                    Spacer()
+                    Text("⌘I")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.mutedText)
+                }
+                ForEach(LabellingDefinitions.all, id: \.key) { definition in
+                    definitionSection(definition)
+                }
+                if !LabellingDefinitions.applyingNotes.isEmpty {
+                    Divider()
+                    Text("Applying these")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.secondaryText)
+                    ForEach(Array(LabellingDefinitions.applyingNotes.enumerated()), id: \.offset) { _, note in
+                        Text("• \(note)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.secondaryText)
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 280)
+        .background(Color.panelBackground)
+    }
+
+    private func definitionSection(_ definition: LabellingDefinitions.ClassDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LabellingFormatting.definitionPanelKeyLabel(definition))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.primaryText)
+            Text(definition.definition)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.secondaryText)
+            if !definition.notThis.isEmpty {
+                Text("Not this:")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.mutedText)
+                ForEach(Array(definition.notThis.enumerated()), id: \.offset) { _, bullet in
+                    Text("– \(bullet)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.mutedText)
+                }
+            }
+        }
     }
 
     // MARK: - Note field

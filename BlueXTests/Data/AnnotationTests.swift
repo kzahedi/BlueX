@@ -74,4 +74,30 @@ final class AnnotationTests: XCTestCase {
         XCTAssertNil(annotation.severity)
         XCTAssertEqual(annotation.stage, "nltagger")
     }
+
+    /// A pre-existing row (or one built without passing the argument) reads back as
+    /// v0 — "labelled before the canonical definitions existed" — never silently as
+    /// v1, which would misattribute an old label to the current definition.
+    func testDefinitionVersionDefaultsToZero() throws {
+        let annotation = Annotation(
+            speechClass: "neutral", sentimentScore: 0.0, detectedLanguage: "en",
+            modelName: "human", modelVersion: "-", promptHash: "",
+            rawResponse: "", stage: "human"
+        )
+        XCTAssertEqual(annotation.definitionVersion, 0)
+    }
+
+    func testDefinitionVersionIsPersistedAndReadBack() throws {
+        let annotation = Annotation(
+            speechClass: "hate", sentimentScore: 0.0, detectedLanguage: "en",
+            modelName: "human", modelVersion: "-", promptHash: "",
+            rawResponse: "", stage: "human", definitionVersion: LabellingDefinitions.version
+        )
+        context.insert(annotation)
+        try context.save()
+
+        let annotations = try context.fetch(FetchDescriptor<Annotation>())
+        XCTAssertEqual(annotations.count, 1)
+        XCTAssertEqual(annotations[0].definitionVersion, LabellingDefinitions.version)
+    }
 }

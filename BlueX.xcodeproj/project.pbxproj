@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B899A4ABA514B36FF05FC448 /* LabellingDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */; };
+		7C0FD89A78AAECD75A05DB94 /* LabellingDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */; };
+		6AA21EA2603D6D804719EABC /* LabellingDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */; };
+		5647EE1F9953E46879BF8C4F /* LabellingDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */; };
+		720C8F06DAAE4C36B39ECBB5 /* LabellingDefinitionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D78F60214C188241400D03 /* LabellingDefinitionsTests.swift */; };
 		0162D8DF520E9CAEF74E983F /* StatsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9BE025E1AC82433059D05D6 /* StatsModels.swift */; };
 		0196BEE87FF3890527D0B2EA /* OpenAICompatibleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81464DFDE228B5793EB4B8C /* OpenAICompatibleClient.swift */; };
 		04404345421F32742C3C6490 /* BlueskyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BE4D463A0D8B2CA1F02680 /* BlueskyAPIClient.swift */; };
@@ -282,6 +287,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabellingDefinitions.swift; sourceTree = "<group>"; };
+		95D78F60214C188241400D03 /* LabellingDefinitionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabellingDefinitionsTests.swift; sourceTree = "<group>"; };
 		000E21D2116EF02F923B4C8A /* AuthorDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorDetailView.swift; sourceTree = "<group>"; };
 		01794834EE49B3AE7992881F /* BlueX.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BlueX.entitlements; sourceTree = "<group>"; };
 		034EEB655022F234033B17A8 /* KeychainCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentials.swift; sourceTree = "<group>"; };
@@ -692,6 +699,7 @@
 				D51D05BA19044CC1DCBCA2FE /* AccountSnapshotTests.swift */,
 				4764EACFFD4E7CEA59F5D618 /* AnnotationDedupTests.swift */,
 				D73C7601E5E1B14462D3EE3B /* AnnotationTests.swift */,
+				95D78F60214C188241400D03 /* LabellingDefinitionsTests.swift */,
 				26BE2AA8F4B12AD7944BAAFA /* BlueXStoreTests.swift */,
 				B4B6B157D1E79BF2F1BBFE2D /* IndexReasserterTests.swift */,
 				8B4176FAD98AEFB26D764877 /* LabelBatchTests.swift */,
@@ -800,6 +808,7 @@
 				F422C831A27835592CF479D0 /* AccountSeeder.swift */,
 				D364EDFA9877E4EA236C0209 /* AccountSnapshot.swift */,
 				D065BBF7B70CB527B88931A2 /* Annotation.swift */,
+				0B5B606E7FF6FBE562B3F253 /* LabellingDefinitions.swift */,
 				E0EACD5144AC552B9BD3C634 /* AnnotationDedup.swift */,
 				A083D368115F17D0484675B3 /* AuthorObservation.swift */,
 				774AD72E36AEF7FEA970D2B1 /* BlueXSchema.swift */,
@@ -1116,6 +1125,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5647EE1F9953E46879BF8C4F /* LabellingDefinitions.swift in Sources */,
 				C22E8F05C77F0143925311A3 /* ATProtoDate.swift in Sources */,
 				F3A3FC6B9125F66A37E1074C /* AccountGroup.swift in Sources */,
 				42F1D5FC3B4DEC5D1D22452B /* AccountSeeder.swift in Sources */,
@@ -1156,6 +1166,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				720C8F06DAAE4C36B39ECBB5 /* LabellingDefinitionsTests.swift in Sources */,
 				94C630D4041F13AC122ACF03 /* ATProtoDateTests.swift in Sources */,
 				74A81D98336D962BC66B5100 /* AccountSeederTests.swift in Sources */,
 				85DBCF6E5DD7D09BF4E9E321 /* AccountSnapshotTests.swift in Sources */,
@@ -1226,6 +1237,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7C0FD89A78AAECD75A05DB94 /* LabellingDefinitions.swift in Sources */,
 				86E3D0347D2CBC2809CDFB69 /* ATProtoDate.swift in Sources */,
 				CBF8DB9C7482072E83E150CC /* AccountGroup.swift in Sources */,
 				EE810165B82550F9A993C7C5 /* AccountSeeder.swift in Sources */,
@@ -1271,6 +1283,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B899A4ABA514B36FF05FC448 /* LabellingDefinitions.swift in Sources */,
 				F155F074A16F2287F7D065F2 /* ATProtoDate.swift in Sources */,
 				C246AAF6863DB1C3C50809CD /* AccountChartsView.swift in Sources */,
 				F5F9FB11974BC2F7777C1417 /* AccountContentView.swift in Sources */,
@@ -1365,6 +1378,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6AA21EA2603D6D804719EABC /* LabellingDefinitions.swift in Sources */,
 				3A5B33C6D54969E7D3337512 /* ATProtoDate.swift in Sources */,
 				FA57BCAFAF02044154F4C004 /* AccountGroup.swift in Sources */,
 				17FCE332C881FD5C8D38694F /* AccountSeeder.swift in Sources */,

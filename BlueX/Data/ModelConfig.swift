@@ -42,6 +42,8 @@ final class ModelConfig {
     The reply is in {{language}} and may respond to a news post or to another reply.
     Be precise and conservative — most replies are NEUTRAL.
 
+    \(LabellingDefinitions.promptSummary)
+
     CLASSES
 
     - "hate": REQUIRES BOTH

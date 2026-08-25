@@ -332,7 +332,8 @@ final class LabellingViewModel {
             modelName: "human", modelVersion: "-", promptHash: "", rawResponse: note ?? "",
             stage: "human", reasoning: note,
             annotatorID: annotatorID, batchID: batchID,
-            timeToDecideSeconds: elapsed, passNumber: batch.passNumber)
+            timeToDecideSeconds: elapsed, passNumber: batch.passNumber,
+            definitionVersion: LabellingDefinitions.version)
         context.insert(annotation)
         post.annotations.append(annotation)
 

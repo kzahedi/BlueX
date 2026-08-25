@@ -30,12 +30,23 @@ final class Annotation {
     var timeToDecideSeconds: Double? // wall-clock time the annotator took to decide
     var passNumber: Int?             // which labelling pass this annotation belongs to
 
+    /// Which version of `LabellingDefinitions` this annotation was judged against.
+    /// Defaults to `0`, NOT `LabellingDefinitions.version` — this is a lightweight
+    /// SwiftData migration, so every pre-existing row (labelled before this property,
+    /// and before the canonical definitions document, existed) reads back as `0`,
+    /// correctly marking it as a v0 label rather than silently attributing it to v1.
+    /// Every human label recorded from now on sets this explicitly to
+    /// `LabellingDefinitions.version`; analyses (see `tools/labelling/base_rate.py`)
+    /// must group by this field and never pool versions silently.
+    var definitionVersion: Int = 0
+
     init(speechClass: String, sentimentScore: Double, detectedLanguage: String,
          modelName: String, modelVersion: String, promptHash: String,
          rawResponse: String, stage: String,
          severity: String? = nil, confidence: Double = 0.0, reasoning: String? = nil,
          annotatorID: String? = nil, batchID: UUID? = nil,
-         timeToDecideSeconds: Double? = nil, passNumber: Int? = nil) {
+         timeToDecideSeconds: Double? = nil, passNumber: Int? = nil,
+         definitionVersion: Int = 0) {
         self.speechClass = speechClass
         self.sentimentScore = sentimentScore
         self.detectedLanguage = detectedLanguage
@@ -52,5 +63,6 @@ final class Annotation {
         self.batchID = batchID
         self.timeToDecideSeconds = timeToDecideSeconds
         self.passNumber = passNumber
+        self.definitionVersion = definitionVersion
     }
 }
