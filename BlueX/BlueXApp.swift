@@ -8,7 +8,12 @@ struct BlueXApp: App {
         do {
             return try BlueXStore.openContainer()
         } catch {
-            fatalError("Could not open the BlueX store at \(BlueXStore.url.path): \(error)")
+            // A visible, non-negotiable crash rather than a silent empty session
+            // view — an empty UI is exactly how the 2026-08-24 schema-drop bug hid.
+            // `error.localizedDescription` (not raw string interpolation) is what
+            // actually surfaces `StoreError.errorDescription`, including the
+            // schema-version guard's remedy text.
+            fatalError("Could not open the BlueX store at \(BlueXStore.url.path): \(error.localizedDescription)")
         }
     }()
 

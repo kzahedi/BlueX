@@ -280,7 +280,7 @@ func runCLI() async {
 
         let container: ModelContainer
         do { container = try BlueXStore.openContainer() }
-        catch { fail("blueX-annotate", "failed to open store: \(error)") }
+        catch { fail("blueX-annotate", "failed to open store: \(error.localizedDescription)") }
         let context = ModelContext(container)
         try? AccountSeeder.ensureModelConfigs(in: context)
 

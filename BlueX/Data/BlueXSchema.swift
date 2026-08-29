@@ -5,6 +5,23 @@ import SwiftData
 /// `BlueXApp` and by both CLIs (`blueX-annotate`, `blueX-scrape`) so a new
 /// `@Model` added in one place can't be silently missed by another.
 enum BlueXSchema {
+    /// Monotonic version of the persisted surface (entity + persisted-property
+    /// shape) below in `all`. **MUST be incremented whenever any `@Model` type
+    /// gains, loses, or renames a persisted property, or an entity is added or
+    /// removed.** Enforced by `SchemaVersionGuardTests.testPersistedSurfaceFingerprintMatchesDeclaredVersion`
+    /// — that test fails if the schema changes without this bump.
+    ///
+    /// `BlueXStore.openContainer()` refuses to open a store whose sidecar marker
+    /// (`SchemaVersionGuard`) records a version higher than this one, so a binary
+    /// built before a model change can never lightweight-migrate the store DOWN
+    /// and silently destroy newer columns (measured happening repeatedly with
+    /// `LabelBatch.skippedURIs` and the hand-built indexes on 2026-08-24/25).
+    ///
+    /// Starts at 1: everything before this guard existed is "unversioned" — there
+    /// is no reconstructable version 0 schema to pin, so 1 is the first schema
+    /// this mechanism protects.
+    static let version: Int = 1
+
     static let all: Schema = Schema([
         TrackedAccount.self,
         AccountGroup.self,
@@ -33,12 +50,31 @@ enum BlueXSchema {
 enum BlueXStore {
     enum StoreError: LocalizedError {
         case volumeNotMounted(URL)
+        /// The sidecar schema-version marker names a version newer than this
+        /// binary's `BlueXSchema.version` — this binary is stale relative to the
+        /// store and must not be allowed to open (and therefore migrate) it.
+        case storeWrittenByNewerSchema(binary: String, binaryVersion: Int, storeVersion: Int)
+        /// The sidecar marker exists but could not be read/decoded. Treated as a
+        /// refusal (fail CLOSED) rather than as "absent", because a corrupted
+        /// marker is exactly the situation where a silent backward migration is
+        /// least acceptable.
+        case malformedSchemaVersionMarker(URL)
 
         var errorDescription: String? {
             switch self {
             case .volumeNotMounted(let dir):
                 return "The BlueX store directory is unavailable: \(dir.path). "
                      + "Attach the Eregion drive, or set BLUEX_STORE_DIR to another location."
+            case .storeWrittenByNewerSchema(let binary, let binaryVersion, let storeVersion):
+                return "\(binary) is schema version \(binaryVersion), but this store was last "
+                     + "written by schema version \(storeVersion). Refusing to open it — "
+                     + "rebuild every binary that opens this store — run tools/install-cli.sh "
+                     + "and rebuild the app."
+            case .malformedSchemaVersionMarker(let url):
+                return "The schema-version marker at \(url.path) exists but is unreadable or "
+                     + "malformed. Refusing to open the store rather than risk a silent backward "
+                     + "migration — rebuild every binary that opens this store — run "
+                     + "tools/install-cli.sh and rebuild the app."
             }
         }
     }
@@ -89,6 +125,17 @@ enum BlueXStore {
             at: directory,
             withIntermediateDirectories: true
         )
+
+        // Schema-version guard — MUST run before the ModelContainer below is ever
+        // constructed. Once SwiftData opens the file it has already lightweight-
+        // migrated it to this binary's schema; by then it is too late to refuse.
+        let binaryName = ProcessInfo.processInfo.processName
+        try SchemaVersionGuard.checkBeforeOpening(
+            storeURL: url,
+            binaryVersion: BlueXSchema.version,
+            binaryName: binaryName
+        )
+
         let config = ModelConfiguration(
             schema: BlueXSchema.all,
             url: url,
@@ -97,6 +144,11 @@ enum BlueXStore {
         )
         let container = try ModelContainer(for: BlueXSchema.all, configurations: config)
         IndexReasserter.reassert(storeURL: url)
+        try SchemaVersionGuard.recordAfterOpening(
+            storeURL: url,
+            binaryVersion: BlueXSchema.version,
+            binaryName: binaryName
+        )
         return container
     }
 }

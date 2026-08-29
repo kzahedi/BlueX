@@ -52,7 +52,7 @@ func runCLI() async {
 
     let container: ModelContainer
     do { container = try BlueXStore.openContainer() }
-    catch { fail("blueX-authors", "failed to open store: \(error)") }
+    catch { fail("blueX-authors", "failed to open store: \(error.localizedDescription)") }
 
     if args.backfill {
         let start = Date()
