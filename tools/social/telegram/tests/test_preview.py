@@ -1,14 +1,28 @@
 import json
+import os
 import pathlib
 import unittest
 import unittest.mock
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+# The captured Telegram preview page (and its parsed snapshot) are a verbatim
+# copy of real third-party content, so they are deliberately NOT in this
+# repository. The working copy lives on the data volume; point BLUEX_FIXTURES
+# at an alternate location if needed. Tests that need it skip cleanly when
+# it's absent.
+FIXTURES = pathlib.Path(os.environ.get(
+    "BLUEX_FIXTURES", "/Volumes/Eregion/bluex-data/test-fixtures/telegram"))
+FIXTURE_HTML = FIXTURES / "tgme_sample.html"
+FIXTURE_EXPECTED = FIXTURES / "tgme_sample_expected.json"
 
 
+@unittest.skipUnless(
+    FIXTURE_HTML.exists() and FIXTURE_EXPECTED.exists(),
+    f"captured Telegram preview fixture not present at {FIXTURE_HTML} "
+    "(kept out of the public repo; verbatim third-party content lives on "
+    "the data volume only)")
 class TestParsePreview(unittest.TestCase):
     def setUp(self):
-        self.html = (FIXTURES / "tgme_sample.html").read_text(encoding="utf-8")
+        self.html = FIXTURE_HTML.read_text(encoding="utf-8")
 
     def test_parses_messages_with_required_fields(self):
         from tools.social.telegram.preview import parse_preview_html
@@ -26,7 +40,7 @@ class TestParsePreview(unittest.TestCase):
 
     def test_matches_committed_snapshot(self):
         from tools.social.telegram.preview import parse_preview_html
-        expected = json.loads((FIXTURES / "tgme_sample_expected.json").read_text())
+        expected = json.loads(FIXTURE_EXPECTED.read_text())
         got = [vars(m) for m in parse_preview_html(self.html)]
         self.assertEqual(got, expected)
 

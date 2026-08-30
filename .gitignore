@@ -60,3 +60,9 @@ __pycache__/
 tools/benchmark/support/nl_score
 .pytest_cache/
 tools/social/telegram/seed_channels.csv
+
+# Verbatim third-party captures kept out of the public repo (see
+# CLAUDE.md "Copyrighted and third-party content"); working copies live
+# under /Volumes/Eregion/bluex-data/test-fixtures/.
+tools/social/telegram/tests/fixtures/tgme_sample.html
+tools/social/telegram/tests/fixtures/tgme_sample_expected.json
