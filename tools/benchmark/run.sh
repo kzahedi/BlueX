@@ -9,7 +9,7 @@ if [ $# -lt 1 ]; then
 fi
 MODEL="$1"
 HERE="${0:A:h}"
-SET="$HERE/benchmark-set.json"
+SET="${BLUEX_FIXTURES:-/Volumes/Eregion/bluex-data/test-fixtures/benchmark}/benchmark-set.json"
 ANNOTATE="$HOME/.local/bin/blueX-annotate"
 
 if [ ! -f "$SET" ]; then

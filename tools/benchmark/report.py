@@ -13,7 +13,13 @@ import sys
 from itertools import combinations
 
 STORE = os.path.expanduser("~/Library/Application Support/BlueX/default.store")
-SET = os.path.join(os.path.dirname(__file__), "benchmark-set.json")
+# The benchmark set holds verbatim third-party posts with real account
+# identifiers, so it is NEVER committed (policy: no third-party content in the
+# public repo — see CLAUDE.md). It lives on the data volume; override with
+# BLUEX_FIXTURES if it sits elsewhere.
+_FIXTURES = os.environ.get(
+    "BLUEX_FIXTURES", "/Volumes/Eregion/bluex-data/test-fixtures/benchmark")
+SET = os.path.join(_FIXTURES, "benchmark-set.json")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "benchmarks")
 CLASSES = ("hate", "counter", "neutral")
 

@@ -66,3 +66,6 @@ tools/social/telegram/seed_channels.csv
 # under /Volumes/Eregion/bluex-data/test-fixtures/.
 tools/social/telegram/tests/fixtures/tgme_sample.html
 tools/social/telegram/tests/fixtures/tgme_sample_expected.json
+
+# Third-party content — never committed (see CLAUDE.md)
+tools/benchmark/benchmark-set.json

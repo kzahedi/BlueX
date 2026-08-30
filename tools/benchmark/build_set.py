@@ -14,7 +14,13 @@ import sqlite3
 import sys
 
 STORE = os.path.expanduser("~/Library/Application Support/BlueX/default.store")
-OUT = os.path.join(os.path.dirname(__file__), "benchmark-set.json")
+# The benchmark set holds verbatim third-party posts with real account
+# identifiers, so it is NEVER committed (policy: no third-party content in the
+# public repo — see CLAUDE.md). It lives on the data volume; override with
+# BLUEX_FIXTURES if it sits elsewhere.
+_FIXTURES = os.environ.get(
+    "BLUEX_FIXTURES", "/Volumes/Eregion/bluex-data/test-fixtures/benchmark")
+OUT = os.path.join(_FIXTURES, "benchmark-set.json")
 
 REFERENCE_MODELS = ("phi4:14b", "qwen2.5:7b", "gpt-oss-120b")
 

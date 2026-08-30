@@ -8,7 +8,13 @@ reviewed checkbox tracks progress and is resumable.
 import json
 import os
 
-SET = os.path.join(os.path.dirname(__file__), "benchmark-set.json")
+# The benchmark set holds verbatim third-party posts with real account
+# identifiers, so it is NEVER committed (policy: no third-party content in the
+# public repo — see CLAUDE.md). It lives on the data volume; override with
+# BLUEX_FIXTURES if it sits elsewhere.
+_FIXTURES = os.environ.get(
+    "BLUEX_FIXTURES", "/Volumes/Eregion/bluex-data/test-fixtures/benchmark")
+SET = os.path.join(_FIXTURES, "benchmark-set.json")
 OUT = os.path.expanduser(
     "~/Obsidian/projects/personal/bluex-v2/BlueX Benchmark Review.md"
 )
