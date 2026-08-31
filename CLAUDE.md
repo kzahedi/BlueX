@@ -1,5 +1,34 @@
 # BlueX
 
+## GOLDEN RULE — no scraped data in GitHub
+
+**Nothing obtained by scraping or API collection is ever committed to a git
+repository.** Not as a test fixture, not reduced, not in a private repo.
+Scraped material lives on the NAS or the data volume only.
+
+Covers: platform/page captures (Telegram `t.me` pages, publisher HTML),
+real post or message text, real account identifiers (DIDs, handles), corpus
+rows, benchmark/label sets built from real posts, and seed lists naming
+monitored channels.
+
+Does **not** cover, and may be committed: our own code, docs and specs;
+synthetic or hand-written test data; *amtliche Werke* (e.g. Bundestag plenary
+protocols, §5 UrhG); metadata-only artefacts such as sealed pre-registration
+manifests (hashes and counts, never content).
+
+Collecting for research is lawful (§60d UrhG text-and-data-mining exemption,
+given lawful access). *Republishing* verbatim is not — press publishers also
+hold the ancillary right (§87f–h UrhG / Art. 15 DSM), and real accounts paired
+with speech labels raises privacy questions beyond copyright.
+
+**How to comply:** fixtures resolve from `BLUEX_FIXTURES` (default
+`/Volumes/Eregion/bluex-data/test-fixtures/`), tests **skip with the missing
+path named** when it is absent — never fail, never silently pass. Add a
+`.gitignore` entry for every such path and verify it with `git check-ignore`.
+When a leak is found: purge **every ref** (force-pushing `main` alone leaves
+stale branches carrying it — measured 2026-08-30), then verify by cloning
+fresh from the remote rather than trusting the local checkout.
+
 ## Copyrighted and third-party content
 
 No publisher/third-party material may be available through this (public) GitHub

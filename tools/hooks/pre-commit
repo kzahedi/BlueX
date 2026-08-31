@@ -1,0 +1,41 @@
+#!/bin/sh
+# GOLDEN RULE (see CLAUDE.md): no scraped data in git.
+#
+# Blocks a commit that stages content obtained by scraping or API collection.
+# Install: tools/hooks/install.sh   Bypass (only with a real reason): --no-verify
+#
+# Deliberately conservative: it flags on *shape*, not on judgement, because the
+# failure this prevents is silent and only discovered by a scanner months later.
+staged=$(git diff --cached --name-only --diff-filter=AM)
+[ -z "$staged" ] && exit 0
+bad=""
+for f in $staged; do
+    case "$f" in
+        # amtliche Werke and synthetic data are explicitly allowed
+        */parliament/fixtures/*) continue ;;
+        docs/prereg/*.json) continue ;;
+        # the hook itself necessarily contains the marker patterns as literals;
+        # without this it flags itself (self-match, same trap as `pgrep -f`)
+        tools/hooks/*) continue ;;
+    esac
+    # 1. filenames that look like captures
+    case "$f" in
+        *fixtures/*.html|*fixtures/*.xml|*benchmark-set*|*seed_channels*|*-archive-*|*tgme_*)
+            bad="$bad\n  $f  (looks like a captured artefact)" ; continue ;;
+    esac
+    # 2. content that looks scraped, regardless of filename
+    if [ -f "$f" ]; then
+        if git show ":$f" 2>/dev/null | grep -qE "at://did:plc:[a-z0-9]{20,}|t\.me/s/|tgme_widget_message|<!DOCTYPE html|data-post=\""; then
+            bad="$bad\n  $f  (contains scraped-content markers)"
+        fi
+    fi
+done
+if [ -n "$bad" ]; then
+    printf 'COMMIT BLOCKED — golden rule: no scraped data in git.\n' >&2
+    printf '%b\n' "$bad" >&2
+    printf '\nScraped material belongs on the data volume/NAS, not in the repo.\n' >&2
+    printf 'See CLAUDE.md. If this is genuinely synthetic or amtliche Werke,\n' >&2
+    printf 'commit with --no-verify and say why in the commit message.\n' >&2
+    exit 1
+fi
+exit 0
